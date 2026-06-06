@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  项目：stock_copilot — 股票分析编排层，整合 daily_stock_analysis（技术面）、
+  valueinvest / FinanceToolkit（价值面）与 LLM 综合决策。
+
+  技术栈：Python 3.x、FastAPI、YAML 策略配置、Gemini/Agent LLM。
+  主要子目录：
+  - daily_stock_analysis/ — 技术面分析、数据 provider、策略 YAML
+  - valueinvest/、FinanceToolkit/ — 价值面参考实现（待接入）
+
+  架构原则：
+  - 技术面与价值面并行，经 AnalysisPipeline 编排
+  - 确定性计算（评分/估值）与 LLM 决策分离
+  - 新增模块优先 Facade + 适配器，少改现有 daily_stock_analysis 核心
+
+  参考文档（brownfield 背景）：
+  - stock_copilot-价值面分析层接入方案.md
+  - daily_stock_analysis-模块拆分分析报告.md
+
+rules:
+  proposal:
+    - 说明对现有技术面流程的影响范围
+    - 标注依赖的外部数据源（AkShare、财报 API 等）
+  specs:
+    - 用 Given/When/Then 描述价值面/技术面交互场景
+    - 区分确定性输出与 LLM 输入字段
+  design:
+    - 优先说明模块边界与 Facade 接口，再写实现细节
+    - 标注与 daily_stock_analysis 的集成点（文件路径）
+  tasks:
+    - 每步对应具体文件路径（Create / Modify / Test）
+    - 单 task 控制在可独立验证的粒度

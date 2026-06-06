@@ -1,0 +1,56 @@
+# 开源依赖（独立 git 仓库，不纳入本仓库）
+FinanceToolkit/
+valueinvest/
+daily_stock_analysis/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+env/
+
+# 环境变量与密钥
+.env
+.env.*
+*.env.local
+
+# 测试与缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Node（OpenSpec CLI 为全局安装，此处忽略本地 node_modules）
+node_modules/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+
+# 日志与临时文件
+*.log
+*.tmp
