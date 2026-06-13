@@ -1,0 +1,5 @@
+# 运行时配置文件（含敏感信息，勿提交）
+# 从 app.example.yaml 复制：cp config/app.example.yaml config/app.yaml
+
+config/app.yaml
+config/*.local.yaml

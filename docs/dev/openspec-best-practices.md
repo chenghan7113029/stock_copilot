@@ -113,6 +113,16 @@
 - 将 delta spec 合并进 `openspec/specs/`
 - 移动 change 到 `openspec/changes/archive/YYYY-MM-DD-<name>/`
 
+**归档后必做 — 合并到 docs（项目规范）：**
+
+| OpenSpec 产物 | 合并目标 |
+|---------------|----------|
+| `proposal.md`、`specs/` | `docs/mrd/`（更新或新增 `features/<name>.md`） |
+| `design.md` | `docs/design/`（更新架构或专项设计文档） |
+| 索引 | 更新 `docs/mrd/README.md`、`docs/design/README.md` 变更记录 |
+
+详见 [docs/README.md](../README.md)。
+
 **示例：**
 
 ```
@@ -125,21 +135,22 @@
 
 ```
 stock_copilot/
+├── config/                      # 配置文件
+├── docs/
+│   ├── mrd/                     # 市场需求（权威）
+│   ├── design/                  # 专项设计（权威）
+│   └── dev/
+│       └── engineering-conventions.md  # 工程约定与架构（唯一真源）
 ├── openspec/
-│   ├── config.yaml              # 项目上下文 & artifact 规则
-│   ├── specs/                   # 累积的主 spec（归档后合并到这里）
-│   └── changes/
-│       ├── <change-name>/       # 进行中的变更
-│       │   ├── proposal.md
-│       │   ├── design.md
-│       │   ├── tasks.md
-│       │   └── specs/           # 本变更的 delta spec
-│       └── archive/             # 已完成变更
-├── .cursor/
-│   ├── commands/opsx-*.md       # 斜杠命令
-│   └── skills/openspec-*/       # Agent skill
-└── docs/
-    └── openspec-best-practices.md   # 本文档
+│   ├── config.yaml
+│   ├── specs/                   # 累积 spec（归档合并）
+│   └── changes/                 # 进行中的变更 / archive/
+├── ref/                         # 外部参考 clone（gitignore）
+├── reports/                     # 分析报告产出（gitignore）
+├── src/                         # 源代码（扁平：apps/, service/, …）
+├── test/
+├── scripts/
+└── log/
 ```
 
 ---

@@ -1,33 +1,52 @@
 schema: spec-driven
 
 context: |
-  项目：stock_copilot — 股票分析编排层，整合 daily_stock_analysis（技术面）、
-  valueinvest / FinanceToolkit（价值面）与 LLM 综合决策。
+  项目：stock_copilot — 股票分析编排层，整合技术面、价值面与 LLM 综合决策。
 
-  技术栈：Python 3.x、FastAPI、YAML 策略配置、Gemini/Agent LLM。
-  主要子目录：
-  - daily_stock_analysis/ — 技术面分析、数据 provider、策略 YAML
-  - valueinvest/、FinanceToolkit/ — 价值面参考实现（待接入）
+  工程约定唯一真源：docs/dev/engineering-conventions.md（含架构、目录、依赖、LLM 规范）
+  LLM 质量规范：docs/agent-engineering-quality.md
+  AI 入口：AGENTS.md
+
+  目录结构：
+  - docs/mrd/          — 市场需求文档（权威，归档后须合并）
+  - docs/design/       — 专项设计文档（不含重复架构）
+  - docs/dev/engineering-conventions.md — 工程约定与架构（唯一真源）
+  - src/               — 源代码（扁平）
+    - apps/            — CLI / 交互入口
+    - controller/      — API 接口层
+    - service/         — 业务服务
+    - data_provider/   — 外部数据 API
+    - dao/             — 数据库访问
+    - common/          — 通用模块
+  - test/              — 测试
+  - config/            — 配置
+  - scripts/           — 脚本
+  - log/               — 日志
+  - reports/           — 分析报告产出（gitignore）
+  - ref/               — 外部参考 clone（gitignore，只读，禁止 import）
+
+  技术栈：Python 3.10+、FastAPI（规划）、YAML 配置、pytest（importlib 模式）、
+          SQLAlchemy + SQLite（db.url 可配置切换 MySQL）、
+          akshare >= 1.18.54、baostock >= 0.9.2。
 
   架构原则：
-  - 技术面与价值面并行，经 AnalysisPipeline 编排
-  - 确定性计算（评分/估值）与 LLM 决策分离
-  - 新增模块优先 Facade + 适配器，少改现有 daily_stock_analysis 核心
-
-  参考文档（brownfield 背景）：
-  - stock_copilot-价值面分析层接入方案.md
-  - daily_stock_analysis-模块拆分分析报告.md
+  - 依赖方向：apps → controller → service → data_provider/dao → common
+  - ref/ 下 clone 仅作参考；需要逻辑时拷贝进 src/，禁止 import
+  - 确定性计算与 LLM 分离（三层防御，见 agent-engineering-quality.md）
+  - OpenSpec 归档后合并 proposal/specs/design 到 docs/mrd 与 docs/design
 
 rules:
   proposal:
-    - 说明对现有技术面流程的影响范围
-    - 标注依赖的外部数据源（AkShare、财报 API 等）
+    - 说明影响的 src 模块（apps/controller/service 等）
+    - 标注需更新的 docs/mrd 或 docs/design 文件
+    - 架构/目录变更须更新 docs/dev/engineering-conventions.md
   specs:
-    - 用 Given/When/Then 描述价值面/技术面交互场景
+    - 用 Given/When/Then 描述场景
     - 区分确定性输出与 LLM 输入字段
   design:
-    - 优先说明模块边界与 Facade 接口，再写实现细节
-    - 标注与 daily_stock_analysis 的集成点（文件路径）
+    - 明确模块边界与依赖方向，符合 docs/dev/engineering-conventions.md
+    - 文件路径使用 src/<module>/ 格式
   tasks:
     - 每步对应具体文件路径（Create / Modify / Test）
-    - 单 task 控制在可独立验证的粒度
+    - 含测试步骤（test/ 目录）
+    - 归档 task 包含「合并文档到 docs/mrd 或 docs/design」

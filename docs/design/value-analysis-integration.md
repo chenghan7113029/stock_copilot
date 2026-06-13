@@ -2,7 +2,7 @@
 
 > 目标：在 stock_copilot 中新增「价值面分析层」，与 daily_stock_analysis 现有的「技术面分析层」并行，最终形成 **技术面 + 价值面 + LLM 综合决策** 的双轨架构。  
 > 参考项目：`daily_stock_analysis/`、`FinanceToolkit/`、`valueinvest/`  
-> 关联文档：[daily_stock_analysis-模块拆分分析报告.md](daily_stock_analysis-模块拆分分析报告.md)
+> 关联文档：[daily_stock_analysis 模块分析](references/daily_stock_analysis-module-analysis.md)
 
 ---
 

@@ -1,0 +1,44 @@
+[project]
+name = "stock-copilot"
+version = "0.1.0"
+description = "股票分析编排层：技术面 + 价值面 + LLM 综合决策"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.dependencies]
+dependencies = [
+    "akshare>=1.18.54",
+    "baostock>=0.9.2",
+    "sqlalchemy>=2.0.50",
+    "pandas>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+pythonpath = ["src"]
+addopts = "--import-mode=importlib"
+markers = [
+    "network: 需要网络访问（交付前运行，CI 可选）",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

@@ -1,7 +1,9 @@
-# 开源依赖（独立 git 仓库，不纳入本仓库）
-FinanceToolkit/
-valueinvest/
-daily_stock_analysis/
+# 外部参考 clone（整个 ref 目录不纳入本仓库）
+ref/
+
+# 分析报告产出
+reports/*
+!reports/.gitkeep
 
 # Python
 __pycache__/
@@ -51,6 +53,10 @@ Thumbs.db
 *.swo
 .idea/
 
-# 日志与临时文件
-*.log
-*.tmp
+# 日志目录（保留目录结构，忽略日志文件）
+log/*
+!log/.gitkeep
+
+# 配置（保留 example，忽略本地覆盖）
+config/app.yaml
+config/*.local.yaml

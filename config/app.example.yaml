@@ -1,0 +1,48 @@
+# 应用配置示例
+# 复制为 config/app.yaml 后修改（app.yaml 已在 .gitignore）
+
+app:
+  name: stock_copilot
+  env: development  # development | production
+  debug: true
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+logging:
+  level: INFO
+  dir: log
+  filename: stock_copilot.log
+  rotation: "1 day"
+  retention: "30 days"
+
+reports:
+  dir: reports
+
+# 数据库配置（SQLAlchemy engine URL）
+# 切换 MySQL 只需修改 url，业务代码无需改动
+db:
+  url: "sqlite:///data/stock_copilot.db"  # 默认 SQLite
+  # url: "mysql+pymysql://user:password@host:3306/stock_copilot"  # MySQL 示例
+  echo: false  # true 时打印 SQL（仅用于调试）
+
+# 数据源配置
+# 优先级规则：无需 token > 有 token 但免费 > 有 token 且收费
+# 数字越小越优先；未出现在 enabled 列表的源不会被实例化/调用
+data_sources:
+  enabled:
+    - name: akshare
+      priority: 1         # 主源，字段最全
+    - name: baostock
+      priority: 2         # 第二源，行情/财务交叉校验
+    # 以下源需要 token，默认注释（取消注释并填写 token 后启用）
+    # - name: tushare
+    #   priority: 3
+    #   token: ""          # 填写 Tushare Token（不要提交）
+
+# 外部参考仓库本地路径（只读查阅，不参与 import；整个 ref/ 目录不进 git）
+ref:
+  daily_stock_analysis: ref/daily_stock_analysis
+  valueinvest: ref/valueinvest
+  financetoolkit: ref/FinanceToolkit

@@ -1,0 +1,7 @@
+# 运行时依赖
+akshare>=1.18.54
+baostock>=0.9.2
+sqlalchemy>=2.0.50
+pandas>=2.0.0
+
+# 开发依赖：pip install -e ".[dev]"

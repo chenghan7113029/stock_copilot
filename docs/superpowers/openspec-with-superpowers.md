@@ -1,6 +1,6 @@
 # Superpowers 执行 OpenSpec 风格开发 — 最佳实践
 
-> **已安装官方 OpenSpec。** 请优先阅读 [OpenSpec 最佳实践](../openspec-best-practices.md)。  
+> **已安装官方 OpenSpec。** 请优先阅读 [OpenSpec 最佳实践](../dev/openspec-best-practices.md)。  
 > 下文为不依赖 OpenSpec CLI 的 Superpowers 替代方案，供参考。
 
 > 不安装 OpenSpec CLI，用现有 Superpowers skill 链实现「先 spec、后代码、可归档」的 spec-driven 开发。
