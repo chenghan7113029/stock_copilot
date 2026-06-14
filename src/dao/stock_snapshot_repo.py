@@ -49,29 +49,19 @@ class StockSnapshotRepo:
         self._upsert_dict(record)
 
     def upsert_from_fetch_result(self, result: FetchResult) -> None:
-        """从 FetchResult 直接落库，不经过 StockData 模型。"""
+        """从单个 FetchResult 落库。"""
         if not result.ok:
             return
+        self._upsert_dict(self._result_to_record(result))
 
-        report_period = self._infer_report_period(result.data)
-        record: dict[str, Any] = {
-            "code": result.code,
-            "source": result.source,
-            "report_period": report_period,
-            "fetched_at": datetime.now(timezone.utc).replace(tzinfo=None),
-        }
+    def upsert_many(self, results: list[FetchResult]) -> None:
+        """批量 upsert 多个 FetchResult，使用同一短生命周期事务。
 
-        for field in _SNAPSHOT_FIELDS:
-            v = result.data.get(field)
-            if v is not None:
-                record[field] = v
-
-        # 处理 data_timestamp（可能是 isoformat 字符串）
-        if "data_timestamp" in result.data:
-            ts = result.data["data_timestamp"]
-            record["data_timestamp"] = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
-
-        self._upsert_dict(record)
+        Provider 在所有网络取数完成后调用此方法，避免长事务占用 SQLite 连接。
+        """
+        for result in results:
+            if result.ok:
+                self._upsert_dict(self._result_to_record(result))
 
     def find_by_code(self, code: str) -> list[StockSnapshot]:
         """按 code 返回该股票所有来源的最新快照。"""
@@ -91,7 +81,41 @@ class StockSnapshotRepo:
             .first()
         )
 
+    def list_recent(self, limit: int = 20) -> list[StockSnapshot]:
+        """按 fetched_at 倒序返回最近写入的快照（跨 code / source）。"""
+        return (
+            self._session.query(StockSnapshot)
+            .order_by(StockSnapshot.fetched_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def list_by_code(self, code: str) -> list[StockSnapshot]:
+        """返回指定 code 的所有快照，按 source + report_period 降序排列。
+
+        等同于 find_by_code，提供语义更清晰的别名。
+        """
+        return self.find_by_code(code)
+
     # ── 私有 ─────────────────────────────────────────────────────────────────
+
+    def _result_to_record(self, result: FetchResult) -> dict[str, Any]:
+        """将 FetchResult 转换为可直接 upsert 的 dict。"""
+        report_period = self._infer_report_period(result.data)
+        record: dict[str, Any] = {
+            "code": result.code,
+            "source": result.source,
+            "report_period": report_period,
+            "fetched_at": datetime.now(timezone.utc).replace(tzinfo=None),
+        }
+        for f in _SNAPSHOT_FIELDS:
+            v = result.data.get(f)
+            if v is not None:
+                record[f] = v
+        if "data_timestamp" in result.data:
+            ts = result.data["data_timestamp"]
+            record["data_timestamp"] = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
+        return record
 
     def _upsert_dict(self, record: dict[str, Any]) -> None:
         """SQLite insert or replace（通用 upsert）。"""

@@ -62,6 +62,10 @@ class StockDataProvider:
         """获取指定 A 股的完整估值数据。
 
         非 A 股代码（港股/美股等）抛 UnsupportedMarketError。
+
+        实现策略（防 SQLite 锁）：
+        1. 先完成全部网络请求，收集 FetchResult 列表
+        2. 所有网络操作结束后，开短生命周期 Session 批量 upsert
         """
         if not is_a_share(raw_code.strip()):
             raise UnsupportedMarketError(
@@ -71,7 +75,8 @@ class StockDataProvider:
         code, exchange = normalize_stock_code(raw_code)
         stock = StockData(code=code, exchange=exchange)
 
-        # 按优先级从高到低遍历各 fetcher，逐字段填充
+        # ── 阶段一：网络取数（不持有 Session）──────────────────────────────────
+        fetch_results: list = []
         for fetcher in self._manager.fetchers:
             try:
                 result = fetcher.fetch_all(code, exchange)
@@ -83,15 +88,15 @@ class StockDataProvider:
                 logger.info("fetcher %s 未成功: %s", fetcher.source_name, result.error)
                 continue
 
-            source = fetcher.source_name
-            self._merge_result(stock, result.data, source)
+            fetch_results.append(result)
+            self._merge_result(stock, result.data, fetcher.source_name)
 
-            # 落库（每源独立存储）
-            if self._repo is not None:
-                try:
-                    self._repo.upsert_from_fetch_result(result)
-                except Exception as exc:
-                    logger.warning("DAO 落库失败 (%s / %s): %s", code, source, exc)
+        # ── 阶段二：批量落库（短生命周期 Session）──────────────────────────────
+        if self._repo is not None and fetch_results:
+            try:
+                self._repo.upsert_many(fetch_results)
+            except Exception as exc:
+                logger.warning("DAO 批量落库失败 (%s): %s", code, exc)
 
         # 计算派生字段（PE/PB/dividend_yield 若可得）
         self._derive_ratios(stock)

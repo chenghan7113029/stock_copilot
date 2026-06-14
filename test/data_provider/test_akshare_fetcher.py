@@ -182,7 +182,7 @@ def test_fetch_all_merges(mock_ak):
     """fetch_all 应合并行情与基本面。"""
     fetcher = AKShareFetcher()
     with patch.object(fetcher, "_get_ak", return_value=mock_ak):
-        result = fetcher.fetch_all("600519")
+        result = fetcher.fetch_all("600519", "SH")
     assert result.ok
     assert "current_price" in result.data or "current_price" in result.missing_fields
     assert "eps" in result.data

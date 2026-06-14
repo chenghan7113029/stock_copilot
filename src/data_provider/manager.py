@@ -94,7 +94,8 @@ class SourceManager:
         last_error: str | None = None
         for fetcher in self._fetchers:
             try:
-                result: FetchResult = getattr(fetcher, method)(code, exchange)
+                fn = getattr(fetcher, method)
+                result: FetchResult = fn(code, exchange)
                 if result.ok:
                     logger.debug("取数成功: %s via %s", code, fetcher.source_name)
                     return result

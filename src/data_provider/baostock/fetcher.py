@@ -3,15 +3,10 @@
 参考：ref/daily_stock_analysis/data_provider/baostock_fetcher.py
 主要提供：行情（最新收盘价）、季频财务（盈利/成长/现金流/偿债）。
 
-Baostock 特点：
-- 免费、无需 token
-- 需要显式 login() / logout()
-- 财务数据为季频，行情可以到日线
-
-关键差异（相对 daily_stock_analysis 参考）：
-- 本项目只需要基本面数据，不需要完整历史 K 线序列
-- 缺失字段用 None，不填 0
-- 使用上下文管理器管理连接生命周期
+关键修复（fix-value-data-pipeline-e2e）：
+- `query_*_data(year=0, quarter=0)` 被 Baostock API 拒绝；改为计算上一完整季度，
+  失败时向前回溯最多 4 季，彻底解决 "仅落行情" 问题。
+- fetch_fundamentals 合并为单次 _session，减少 login/logout 次数（4→1）。
 """
 
 from __future__ import annotations
@@ -51,6 +46,31 @@ def _to_bs_code(code: str, exchange: str) -> str:
     if prefix not in ("sh", "sz"):
         raise DataProviderError(f"Baostock 不支持交易所 {exchange}（仅支持 SH/SZ）")
     return f"{prefix}.{code}"
+
+
+def _recent_quarters(n: int = 5) -> list[tuple[int, int]]:
+    """返回从最近一个完整季度往前 n 个 (year, quarter) 列表。
+
+    Baostock API 要求 quarter 取 1–4，不接受 0。
+    调用时按顺序尝试，直到取到数据为止。
+    """
+    today = date.today()
+    year = today.year
+    # 当前月份对应已完成的季度
+    completed_quarter = (today.month - 1) // 3
+    if completed_quarter == 0:
+        year -= 1
+        completed_quarter = 4
+
+    quarters = []
+    q, y = completed_quarter, year
+    for _ in range(n):
+        quarters.append((y, q))
+        q -= 1
+        if q == 0:
+            q = 4
+            y -= 1
+    return quarters
 
 
 class BaostockFetcher(BaseFetcher):
@@ -102,7 +122,6 @@ class BaostockFetcher(BaseFetcher):
             bs_code = _to_bs_code(code, exchange)
             with self._session() as bs:
                 today = date.today().strftime("%Y-%m-%d")
-                # 取最近 5 天，确保非交易日也能拿到最近收盘
                 rs = bs.query_history_k_data_plus(
                     code=bs_code,
                     fields="date,close",
@@ -138,10 +157,10 @@ class BaostockFetcher(BaseFetcher):
 
         return FetchResult(code=code, source=self.source_name, data=data, missing_fields=missing)
 
-    # ── 基本面 ────────────────────────────────────────────────────────────────
+    # ── 基本面（单次 session，减少 login 次数）───────────────────────────────
 
     def fetch_fundamentals(self, code: str, exchange: str) -> FetchResult:
-        """获取季频财务数据（盈利/成长/现金流/偿债）。"""
+        """获取季频财务数据（盈利/成长/现金流/偿债），单次 Baostock 会话完成。"""
         if exchange == "BJ":
             return FetchResult(code=code, source=self.source_name,
                                error=f"Baostock 不支持北交所代码 {code}")
@@ -150,101 +169,91 @@ class BaostockFetcher(BaseFetcher):
 
         bs_code = _to_bs_code(code, exchange)
 
-        self._fetch_profit(bs_code, data, missing)
-        self._fetch_growth(bs_code, data, missing)
-        self._fetch_cashflow(bs_code, data, missing)
-        self._fetch_balance(bs_code, data, missing)
+        try:
+            with self._session() as bs:
+                self._fetch_profit_in_session(bs, bs_code, data, missing)
+                self._fetch_growth_in_session(bs, bs_code, data, missing)
+                self._fetch_cashflow_in_session(bs, bs_code, data, missing)
+                self._fetch_balance_in_session(bs, bs_code, data, missing)
+        except DataProviderError:
+            raise
+        except Exception as exc:
+            logger.warning("Baostock fundamentals 失败 %s: %s", bs_code, exc)
+            return FetchResult(code=code, source=self.source_name,
+                               data=data, missing_fields=missing, error=str(exc))
 
         return FetchResult(code=code, source=self.source_name, data=data, missing_fields=missing)
 
-    # ── 私有：各财务接口 ──────────────────────────────────────────────────────
+    # ── 私有：在已有 session 内查询各财务接口 ─────────────────────────────────
 
-    def _fetch_profit(self, bs_code: str, data: dict, missing: list) -> None:
-        try:
-            with self._session() as bs:
-                rs = bs.query_profit_data(code=bs_code, year=0, quarter=0)
+    def _query_with_quarter_fallback(
+        self,
+        bs: Any,
+        query_fn_name: str,
+        bs_code: str,
+    ) -> Optional[dict]:
+        """对 Baostock 季频接口，按最近季度回溯直到取到数据。
+
+        返回第一条有效行数据的字典，无数据返回 None。
+        """
+        for year, quarter in _recent_quarters(5):
+            try:
+                rs = getattr(bs, query_fn_name)(
+                    code=bs_code, year=year, quarter=quarter
+                )
                 if rs.error_code != "0":
-                    missing.append("profit_data")
-                    return
+                    logger.debug("%s year=%d quarter=%d 失败: %s",
+                                 query_fn_name, year, quarter, rs.error_msg)
+                    continue
                 rows = []
                 while rs.next():
                     rows.append(dict(zip(rs.fields, rs.get_row_data())))
-                if not rows:
-                    missing.append("profit_data")
-                    return
-                latest = rows[0]
-                for col, field_name in PROFIT_DATA_FIELD_MAP.items():
-                    v = _parse_bs_value(latest.get(col))
-                    if v is not None:
-                        data[field_name] = v
-                    else:
-                        missing.append(field_name)
-        except Exception as exc:
-            logger.warning("Baostock profit_data 失败 %s: %s", bs_code, exc)
+                if rows:
+                    logger.debug("%s 命中 year=%d quarter=%d", query_fn_name, year, quarter)
+                    return rows[0]
+            except Exception as e:
+                logger.debug("%s year=%d quarter=%d 异常: %s", query_fn_name, year, quarter, e)
+                continue
+        return None
+
+    def _fetch_profit_in_session(self, bs: Any, bs_code: str, data: dict, missing: list) -> None:
+        row = self._query_with_quarter_fallback(bs, "query_profit_data", bs_code)
+        if row is None:
             missing.append("profit_data")
+            return
+        for col, field_name in PROFIT_DATA_FIELD_MAP.items():
+            v = _parse_bs_value(row.get(col))
+            if v is not None:
+                data[field_name] = v
+            else:
+                missing.append(field_name)
 
-    def _fetch_growth(self, bs_code: str, data: dict, missing: list) -> None:
-        try:
-            with self._session() as bs:
-                rs = bs.query_growth_data(code=bs_code, year=0, quarter=0)
-                if rs.error_code != "0":
-                    missing.append("growth_data")
-                    return
-                rows = []
-                while rs.next():
-                    rows.append(dict(zip(rs.fields, rs.get_row_data())))
-                if not rows:
-                    missing.append("growth_data")
-                    return
-                latest = rows[0]
-                for col, field_name in GROWTH_DATA_FIELD_MAP.items():
-                    if field_name.startswith("_"):
-                        continue
-                    v = _parse_bs_value(latest.get(col))
-                    if v is not None:
-                        data[field_name] = v
-        except Exception as exc:
-            logger.warning("Baostock growth_data 失败 %s: %s", bs_code, exc)
+    def _fetch_growth_in_session(self, bs: Any, bs_code: str, data: dict, missing: list) -> None:
+        row = self._query_with_quarter_fallback(bs, "query_growth_data", bs_code)
+        if row is None:
+            return
+        for col, field_name in GROWTH_DATA_FIELD_MAP.items():
+            if field_name.startswith("_"):
+                continue
+            v = _parse_bs_value(row.get(col))
+            if v is not None:
+                data[field_name] = v
 
-    def _fetch_cashflow(self, bs_code: str, data: dict, missing: list) -> None:
-        try:
-            with self._session() as bs:
-                rs = bs.query_cash_flow_data(code=bs_code, year=0, quarter=0)
-                if rs.error_code != "0":
-                    missing.append("cashflow_data")
-                    return
-                rows = []
-                while rs.next():
-                    rows.append(dict(zip(rs.fields, rs.get_row_data())))
-                if not rows:
-                    missing.append("cashflow_data")
-                    return
-                latest = rows[0]
-                for col, field_name in CASHFLOW_DATA_FIELD_MAP.items():
-                    if field_name.startswith("_"):
-                        continue
-                    v = _parse_bs_value(latest.get(col))
-                    if v is not None:
-                        data[field_name] = v
-        except Exception as exc:
-            logger.warning("Baostock cashflow_data 失败 %s: %s", bs_code, exc)
+    def _fetch_cashflow_in_session(self, bs: Any, bs_code: str, data: dict, missing: list) -> None:
+        row = self._query_with_quarter_fallback(bs, "query_cash_flow_data", bs_code)
+        if row is None:
+            return
+        for col, field_name in CASHFLOW_DATA_FIELD_MAP.items():
+            if field_name.startswith("_"):
+                continue
+            v = _parse_bs_value(row.get(col))
+            if v is not None:
+                data[field_name] = v
 
-    def _fetch_balance(self, bs_code: str, data: dict, missing: list) -> None:
-        """偿债能力用于计算资产负债率等，提供辅助校验字段。"""
-        try:
-            with self._session() as bs:
-                rs = bs.query_balance_data(code=bs_code, year=0, quarter=0)
-                if rs.error_code != "0":
-                    return
-                rows = []
-                while rs.next():
-                    rows.append(dict(zip(rs.fields, rs.get_row_data())))
-                if not rows:
-                    return
-                latest = rows[0]
-                # liabilityToAsset 用于存储资产负债率
-                v = _parse_bs_value(latest.get("liabilityToAsset"))
-                if v is not None:
-                    data["_liability_to_asset"] = v
-        except Exception as exc:
-            logger.warning("Baostock balance_data 失败 %s: %s", bs_code, exc)
+    def _fetch_balance_in_session(self, bs: Any, bs_code: str, data: dict, missing: list) -> None:
+        row = self._query_with_quarter_fallback(bs, "query_balance_data", bs_code)
+        if row is None:
+            return
+        v = _parse_bs_value(row.get("liabilityToAsset"))
+        if v is not None:
+            data["_liability_to_asset"] = v

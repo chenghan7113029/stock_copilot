@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from data_provider.baostock.fetcher import BaostockFetcher, _parse_bs_value
+from data_provider.baostock.fetcher import BaostockFetcher, _parse_bs_value, _recent_quarters
 
 # ── _parse_bs_value 工具测试 ──────────────────────────────────────────────────
 
@@ -167,3 +167,49 @@ def test_missing_field_is_none_not_zero(fetcher, mock_bs):
     result = fetcher.fetch_fundamentals("600519", "SH")
     assert result.data.get("roe") is None
     assert result.data.get("eps") is None
+
+
+# ── 季频参数修复测试 ──────────────────────────────────────────────────────────
+
+def test_recent_quarters_never_zero():
+    """_recent_quarters 返回的 quarter 值必须在 1–4 范围内，绝不为 0。"""
+    quarters = _recent_quarters(8)
+    for year, quarter in quarters:
+        assert 1 <= quarter <= 4, f"quarter={quarter} 超出范围"
+        assert year >= 2000
+
+
+def test_recent_quarters_length():
+    assert len(_recent_quarters(5)) == 5
+
+
+def test_fetch_fundamentals_quarter_not_zero(fetcher, mock_bs):
+    """fetch_fundamentals 调用 query_profit_data 时 quarter 参数不应为 0。"""
+    fetcher.fetch_fundamentals("600519", "SH")
+    # 检查所有调用，确认没有 quarter=0
+    for actual_call in mock_bs.query_profit_data.call_args_list:
+        _, kwargs = actual_call
+        assert kwargs.get("quarter", -1) != 0, "不应使用 quarter=0"
+        assert kwargs.get("year", -1) != 0, "不应使用 year=0"
+
+
+def test_fetch_fundamentals_fallback_to_previous_quarter(fetcher, mock_bs):
+    """当最近季度无数据时，应回溯到上一季度。"""
+    call_count = 0
+
+    def profit_side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return FakeRS(fields=["roeAvg", "epsTTM", "MBRevenue", "netProfit", "grossProfitMargin"],
+                          rows=[])  # 第一次返回空
+        return FakeRS(
+            fields=["roeAvg", "epsTTM", "MBRevenue", "netProfit", "grossProfitMargin"],
+            rows=[["20.0", "5.0", "1000000", "500000", "60.0"]],
+        )
+
+    mock_bs.query_profit_data.side_effect = profit_side_effect
+    result = fetcher.fetch_fundamentals("600519", "SH")
+    assert result.ok
+    assert result.data.get("roe") == pytest.approx(20.0)
+    assert call_count == 2, "应经过一次回溯"

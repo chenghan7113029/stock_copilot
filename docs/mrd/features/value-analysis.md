@@ -12,6 +12,7 @@
 |------|--------|------|
 | 2026-05-31 | init | 从接入方案提取需求摘要 |
 | 2026-06-13 | value-explore | 基于自选股探索，确立估值原型分类、方法论路由、输出规格、范围与优先级 |
+| 2026-06-14 | fix-value-data-pipeline-e2e | §9 补充 E2E 验收机制与字段缺口说明 |
 
 ---
 
@@ -245,6 +246,34 @@
 - **持久化**：SQLAlchemy + SQLite（默认），`db.url` 可配置切换 MySQL；唯一键 `(code, source, report_period)` upsert；**禁止写本地 csv**；
 - **配置驱动**：`config/app.yaml` 的 `data_sources.enabled` 控制启用哪些源及其优先级；
 
+### 关键修复（fix-value-data-pipeline-e2e）
+
+- **`fetch_all` 签名统一**：`BaseFetcher.fetch_all(code, exchange)` 与 `fetch_quote`/`fetch_fundamentals` 对齐；
+- **Baostock 季频参数**：`query_*_data` 使用有效 `(year, quarter)` 参数（1–4），支持最多 4 季回溯；单次 session 减少登录次数；
+- **Provider 持久化解耦**：先完成全部网络取数，再开短生命周期 Session 批量 upsert，消除 SQLite `database is locked`；
+- **Config Bootstrap**：`src/common/config_loader.py` 在 `app.yaml` 缺失时自动从 example 复制；
+
+### E2E 验收与字段缺口报告
+
+通过 `pytest -m network test/e2e/` 可运行端到端验收，产出两份报告：
+
+| 报告 | 路径 | 内容 |
+|------|------|------|
+| 字段覆盖率 | `reports/value-data-field-coverage-*.json` | 每只样本股 + 跨样本聚合的字段覆盖详情 |
+| 字段缺口 | `reports/value-data-field-gaps-*.json` | blocked 字段清单，供产品决策 |
+
+**当前已知缺口（AKShare 不稳定时）**：bvps, dividend_*, ebit, fcf, market_cap, operating_margin, revenue, roic, shareholder_equity, shares_outstanding, total_assets/liabilities。这些字段需等 AKShare API 稳定后重新验证，或引入备选数据源。
+
+使用方法：
+
+```bash
+# 采集全部样本（6 只）并打印摘要
+python scripts/fetch_value_data.py
+
+# E2E 验收并生成报告
+pytest -m network test/e2e/ -v -s
+```
+
 ### 代码落点
 
 | 模块 | 路径 |
@@ -254,8 +283,11 @@
 | Baostock fetcher | `src/data_provider/baostock/` |
 | 多源管理 | `src/data_provider/manager.py` |
 | Provider Facade | `src/data_provider/provider.py` |
-| 完备性校验 | `src/data_provider/validation/` |
+| 完备性校验 | `src/data_provider/validation/completeness.py` |
+| 字段覆盖分析 | `src/data_provider/validation/field_coverage.py` |
 | DAO 持久化 | `src/dao/` |
+| 配置加载器 | `src/common/config_loader.py` |
+| E2E 采集脚本 | `scripts/fetch_value_data.py` |
 
 ---
 

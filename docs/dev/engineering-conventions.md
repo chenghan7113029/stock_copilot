@@ -1,6 +1,6 @@
 # stock_copilot 工程约定与架构
 
-> 最后更新：2026-06-13  
+> 最后更新：2026-06-14  
 > **本文档是工程结构、模块分层与编码约束的唯一真源。**  
 > 阶段功能范围见 [docs/mrd/](../mrd/)；专项技术方案见 [docs/design/](../design/)（不含重复架构内容）。
 
@@ -10,6 +10,7 @@
 |------|--------|------|
 | 2026-06-13 | merge-arch | 合并原 architecture.md 与工程约定；确立 ref/、flat src/、reports/、三层防御 LLM 规范 |
 | 2026-06-13 | add-value-data-provider-v1 | 新增 dao 持久化层（SQLAlchemy + SQLite）；data_sources/db 配置节；importlib pytest 模式 |
+| 2026-06-14 | fix-value-data-pipeline-e2e | fetch_all 签名统一；Baostock 季频参数修复；Provider 持久化解耦（防 SQLite 锁）；config_loader bootstrap；E2E 验收脚本与字段覆盖报告 |
 
 ---
 
@@ -38,7 +39,8 @@
 | Lint | ruff（line-length 120） |
 | 持久化 | SQLAlchemy + SQLite（`dao/`），`db.url` 配置可切换 MySQL |
 | 数据依赖 | akshare >= 1.18.54、baostock >= 0.9.2（见 `requirements.txt`） |
-| 脚本 | `scripts/*.sh` 仅 devops；业务逻辑不放 shell |
+| 脚本 | `scripts/*.sh` 仅 devops；`scripts/*.py` 可承载 E2E / 运维批处理；业务核心逻辑不放 scripts |
+| 配置加载 | `src/common/config_loader.py`：加载 `config/app.yaml`（缺失时 bootstrap from example）；提供 `load_validation_stocks()` |
 | 前端 | 是否建设 Web UI 由 MRD / OpenSpec 决定，不在本文档限定 |
 
 ---

@@ -92,17 +92,22 @@ class BaseFetcher(ABC):
     source_name: str = ""
     priority: int = 99
 
-    def fetch_all(self, code: str) -> FetchResult:
-        """获取所有可用字段（行情 + 基本面合并）。"""
-        code_std, exchange = normalize_stock_code(code)
-        quote = self.fetch_quote(code_std, exchange)
+    def fetch_all(self, code: str, exchange: str) -> FetchResult:
+        """获取所有可用字段（行情 + 基本面合并）。
+
+        签名与 fetch_quote / fetch_fundamentals 对齐，均接收已标准化的
+        (code, exchange)，避免 SourceManager / Provider 层的特殊分支。
+        """
+        quote = self.fetch_quote(code, exchange)
         if not quote.ok:
             return quote
-        fundamentals = self.fetch_fundamentals(code_std, exchange)
+        fundamentals = self.fetch_fundamentals(code, exchange)
         merged_data = {**fundamentals.data, **quote.data}
-        merged_missing = list(set(quote.missing_fields + fundamentals.missing_fields) - set(merged_data.keys()))
+        merged_missing = list(
+            set(quote.missing_fields + fundamentals.missing_fields) - set(merged_data.keys())
+        )
         return FetchResult(
-            code=code_std,
+            code=code,
             source=self.source_name,
             data=merged_data,
             missing_fields=merged_missing,
