@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from common.exceptions import DataProviderError
@@ -42,9 +43,11 @@ class SourceManager:
             name = src.get("name", "").lower()
             priority_override = src.get("priority")
 
-            fetcher = cls._build_fetcher(name, priority_override)
+            fetcher = cls._build_fetcher(name, priority_override, src)
             if fetcher is not None:
                 fetchers.append(fetcher)
+            elif name == "tushare":
+                pass  # 已在 _build_fetcher 内记录 token 缺失 warning
             else:
                 logger.warning("未知数据源 %r，跳过", name)
 
@@ -54,7 +57,11 @@ class SourceManager:
         return cls(fetchers)
 
     @staticmethod
-    def _build_fetcher(name: str, priority_override: int | None) -> BaseFetcher | None:
+    def _build_fetcher(
+        name: str,
+        priority_override: int | None,
+        src: dict | None = None,
+    ) -> BaseFetcher | None:
         """根据名称构建 fetcher 实例，可覆写优先级。"""
         if name == "akshare":
             from data_provider.akshare.fetcher import AKShareFetcher
@@ -66,6 +73,17 @@ class SourceManager:
         if name == "baostock":
             from data_provider.baostock.fetcher import BaostockFetcher
             f = BaostockFetcher()
+            if priority_override is not None:
+                f.priority = priority_override
+            return f
+
+        if name == "tushare":
+            token = ((src or {}).get("token") or os.environ.get("TUSHARE_TOKEN") or "").strip()
+            if not token:
+                logger.warning("Tushare 已启用但未配置 token，跳过（请编辑 config/app.yaml 或设置 TUSHARE_TOKEN）")
+                return None
+            from data_provider.tushare.fetcher import TushareFetcher
+            f = TushareFetcher(token=token)
             if priority_override is not None:
                 f.priority = priority_override
             return f

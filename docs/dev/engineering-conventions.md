@@ -38,7 +38,7 @@
 | 测试 | pytest + `test/` 目录 |
 | Lint | ruff（line-length 120） |
 | 持久化 | SQLAlchemy + SQLite（`dao/`），`db.url` 配置可切换 MySQL |
-| 数据依赖 | akshare >= 1.18.54、baostock >= 0.9.2（见 `requirements.txt`） |
+| 数据依赖 | akshare >= 1.18.54、baostock >= 0.9.2、tushare >= 1.4.0（见 `requirements.txt`） |
 | 脚本 | `scripts/*.sh` 仅 devops；`scripts/*.py` 可承载 E2E / 运维批处理；业务核心逻辑不放 scripts |
 | 配置加载 | `src/common/config_loader.py`：加载 `config/app.yaml`（缺失时 bootstrap from example）；提供 `load_validation_stocks()` |
 | 前端 | 是否建设 Web UI 由 MRD / OpenSpec 决定，不在本文档限定 |

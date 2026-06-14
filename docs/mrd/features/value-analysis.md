@@ -12,7 +12,7 @@
 |------|--------|------|
 | 2026-05-31 | init | 从接入方案提取需求摘要 |
 | 2026-06-13 | value-explore | 基于自选股探索，确立估值原型分类、方法论路由、输出规格、范围与优先级 |
-| 2026-06-14 | fix-value-data-pipeline-e2e | §9 补充 E2E 验收机制与字段缺口说明 |
+| 2026-06-14 | add-tushare-data-source | §9 补充 Tushare Pro 数据源与 Token 配置 |
 
 ---
 
@@ -238,6 +238,7 @@
 |--------|--------|-----------|------|
 | AKShare | 1（主源） | 无 | 行情 + 三大财报 + 分红 + 财务指标；字段最全 |
 | Baostock | 2（第二源） | 无 | 行情 + 季频财务；交叉校验用 |
+| Tushare Pro | 3（第三源，可上调） | **是** | 财报兜底强；需 Token，见下方配置 |
 
 ### 关键设计决策
 
@@ -245,6 +246,23 @@
 - **缺失语义**：字段无法获取时置 `None`（区别于真实零值），加入 `missing_fields`；下游方法据此判断可靠性；
 - **持久化**：SQLAlchemy + SQLite（默认），`db.url` 可配置切换 MySQL；唯一键 `(code, source, report_period)` upsert；**禁止写本地 csv**；
 - **配置驱动**：`config/app.yaml` 的 `data_sources.enabled` 控制启用哪些源及其优先级；
+
+### Tushare Token 配置
+
+1. 在 [tushare.pro](https://tushare.pro) 注册并获取 Token
+2. 本地编辑 `config/app.yaml`（已在 `.gitignore`），在 `data_sources.enabled` 中启用 tushare 并填写 `token`
+3. 或设置环境变量 `TUSHARE_TOKEN`（CI / 临时验证）
+4. **切勿**将 Token 提交到 Git 或粘贴到公开渠道
+
+验收命令：
+
+```bash
+pytest -m network test/e2e/test_tushare_pipeline.py -v
+```
+
+无 Token 时该测试自动 skip，不影响离线 CI。
+
+**Tushare 积分要求**：新账号需在 [tushare.pro](https://tushare.pro) 完成实名认证并积累积分后，方可调用 `stock_basic`、`daily`、`fina_indicator` 等接口。积分不足时网络 E2E 会 skip 并提示「无接口权限」。
 
 ### 关键修复（fix-value-data-pipeline-e2e）
 

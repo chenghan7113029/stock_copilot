@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -72,3 +73,45 @@ def load_validation_stocks() -> list[dict[str, str]]:
     stocks: list[dict[str, str]] = data.get("stocks", [])
     logger.debug("加载了 %d 只样本股票", len(stocks))
     return stocks
+
+
+def resolve_tushare_token(config: dict[str, Any] | None = None) -> str | None:
+    """解析 Tushare Pro Token。
+
+    优先级：config/app.yaml 中 tushare 条目的 token > 环境变量 TUSHARE_TOKEN。
+    Token 仅存在于本地配置或环境变量，切勿提交到 Git 或粘贴到公开渠道。
+    """
+    if config is None:
+        config = load_app_config()
+    for src in config.get("data_sources", {}).get("enabled", []):
+        if src.get("name", "").lower() == "tushare":
+            cfg_token = (src.get("token") or "").strip()
+            if cfg_token:
+                return cfg_token
+    env_token = os.environ.get("TUSHARE_TOKEN", "").strip()
+    return env_token or None
+
+
+def has_tushare_token(config: dict[str, Any] | None = None) -> bool:
+    """是否已配置可用的 Tushare Token（用于网络测试 skip 判断）。"""
+    return resolve_tushare_token(config) is not None
+
+
+def verify_tushare_access(config: dict[str, Any] | None = None) -> bool:
+    """探测 Token 是否具备至少一个 Pro 接口权限（如 stock_basic）。
+
+    新注册账号需完成 tushare.pro 实名/积分任务后才会返回 True。
+    """
+    token = resolve_tushare_token(config)
+    if not token:
+        return False
+    try:
+        import tushare as ts
+
+        ts.set_token(token)
+        pro = ts.pro_api()
+        df = pro.stock_basic(ts_code="600519.SH", fields="ts_code,name")
+        return df is not None and not df.empty
+    except Exception as exc:
+        logger.debug("Tushare 接口探测失败: %s", exc)
+        return False
