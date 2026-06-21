@@ -437,7 +437,9 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 
 ### 13.2 实现 Phase 划分
 
-#### Phase 0 — 基础设施
+> **状态（2026-06-21）**：Phase 0–3 已在 `add-valuation-methods-core` 归档完成；Phase 4–7 已在 `add-valuation-methods-full` 实现（Owner Earnings、DCF 族、质量评分、成长/相对估值共 13 种 method_key 已注册至 `default_engine()`）。
+
+#### Phase 0 — 基础设施 ✅
 
 目标：建立方法论层骨架，可离线跑通最小 fixture。
 
@@ -449,7 +451,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `ValuationEngine`（注册表骨架）| `valuation/engine.py` | `run_single` / `run_all` |
 | 单元测试：None 语义、adapter 转换 | `test/service/value/test_base.py` | — |
 
-#### Phase 1 — Graham 体系（字段轻、最快验证）
+#### Phase 1 — Graham 体系（字段轻、最快验证） ✅
 
 | 任务 | 文件 | 关键输入 |
 |------|------|----------|
@@ -458,7 +460,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `NCAV` | `valuation/graham.py` | current_assets, total_liabilities |
 | 单元测试 ±0.1% | `test/service/value/test_graham.py` | fixture 贵州茅台、工商银行 |
 
-#### Phase 2 — 银行专用
+#### Phase 2 — 银行专用 ✅
 
 | 任务 | 文件 | 关键输入 |
 |------|------|----------|
@@ -466,7 +468,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `ResidualIncome` | `valuation/bank.py` | bvps, roe, 预测期 |
 | 单元测试 ±0.1% | `test/service/value/test_bank.py` | fixture 工商银行 601398 |
 
-#### Phase 3 — 股息模型
+#### Phase 3 — 股息模型 ✅
 
 | 任务 | 文件 | 关键输入 |
 |------|------|----------|
@@ -474,7 +476,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `TwoStageDDM` | `valuation/ddm.py` | 同上 + 两阶段参数 |
 | 单元测试 ±0.1% | `test/service/value/test_ddm.py` | fixture 长江电力 600900 |
 
-#### Phase 4 — 盈利力价值
+#### Phase 4 — 盈利力价值 ✅
 
 | 任务 | 文件 | 关键输入 |
 |------|------|----------|
@@ -482,7 +484,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `OwnerEarnings` | `valuation/quality.py` | net_income, depreciation, capex, nwc |
 | 单元测试 ±0.1% | `test/service/value/test_epv.py` | fixture 茅台 + 长江电力 |
 
-#### Phase 5 — DCF 族（最重，依赖 WACC）
+#### Phase 5 — DCF 族（最重，依赖 WACC） ✅
 
 | 任务 | 文件 | 关键输入 |
 |------|------|----------|
@@ -491,7 +493,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `ReverseDCF` | `valuation/dcf.py` | 同上 + current_price |
 | 单元测试 ±0.1% | `test/service/value/test_dcf.py` | fixture 贵州茅台 |
 
-#### Phase 6 — 质量/风险评分
+#### Phase 6 — 质量/风险评分 ✅
 
 > 这些方法产出分数而非公允价，不参与区间聚合，进入 `warnings`。
 
@@ -502,7 +504,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `BeneishMScore` | `valuation/mscore.py` | Beneish 8 组件字段 |
 | 单元测试 | `test/service/value/test_quality.py` | 阈值断言（Z>2.99 安全等） |
 
-#### Phase 7 — 成长/相对估值
+#### Phase 7 — 成长/相对估值 ✅
 
 | 任务 | 文件 | 关键输入 |
 |------|------|----------|

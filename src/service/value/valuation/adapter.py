@@ -34,10 +34,6 @@ class StockDataAdapter:
         return self._assumptions.get_discount_rate(self._data)
 
     @property
-    def discount_rate(self) -> float:
-        return self.cost_of_capital
-
-    @property
     def aaa_corporate_yield(self) -> float:
         return self._assumptions.aaa_corporate_yield
 
@@ -102,6 +98,50 @@ class StockDataAdapter:
         if self._data.tax_rate is not None:
             return self._data.tax_rate
         return self._assumptions.get_tax_rate(self._data)
+
+    @property
+    def ticker(self) -> str:
+        return self._data.code or self._data.name or "UNKNOWN"
+
+    @property
+    def discount_rate(self) -> float:
+        return self._assumptions.get_discount_rate(self._data)
+
+    @property
+    def growth_rate_1_5(self) -> float:
+        return self._assumptions.get_growth_rate_1_5(self._data)
+
+    @property
+    def growth_rate_6_10(self) -> float:
+        return self._assumptions.get_growth_rate_6_10(self._data)
+
+    @property
+    def terminal_growth(self) -> float:
+        return self._assumptions.get_terminal_growth(self._data)
+
+    @property
+    def growth_rate(self) -> float | None:
+        return self._data.growth_rate
+
+    @property
+    def historical_pe(self) -> list[float] | None:
+        return self._data.historical_pe
+
+    @property
+    def historical_pb(self) -> list[float] | None:
+        return self._data.historical_pb
+
+    @property
+    def ev_ebitda_multiple(self) -> float:
+        return self._assumptions.get_ev_ebitda_multiple(self._data)
+
+    @property
+    def retained_earnings(self) -> float | None:
+        return getattr(self._data, "retained_earnings", None)
+
+    @property
+    def operating_cash_flow(self) -> float | None:
+        return getattr(self._data, "operating_cash_flow", None)
 
     @property
     def extra(self) -> dict[str, Any]:

@@ -8,9 +8,15 @@ from .adapter import StockDataAdapter
 from .assumptions import AssumptionProvider
 from .bank import PBValuation, ResidualIncome
 from .base import BaseValuation, ValuationResult
+from .dcf import DCF, ReverseDCF
 from .ddm import DDM, TwoStageDDM
 from .epv import EPV
 from .graham import NCAV, GrahamFormula, GrahamNumber
+from .growth import EVEBITDA, GARP, PEG, RuleOf40
+from .magic_formula import MagicFormula
+from .mscore import BeneishMScore
+from .quality import AltmanZScore, OwnerEarnings, PiotroskiFScore
+from .relative import PBRelativeValuation, PERelativeValuation
 
 
 class ValuationEngine:
@@ -58,4 +64,17 @@ def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEn
     engine.register("ddm", DDM())
     engine.register("two_stage_ddm", TwoStageDDM())
     engine.register("epv", EPV())
+    engine.register("owner_earnings", OwnerEarnings())
+    engine.register("dcf", DCF())
+    engine.register("reverse_dcf", ReverseDCF())
+    engine.register("altman_z", AltmanZScore())
+    engine.register("piotroski_f", PiotroskiFScore())
+    engine.register("beneish_m", BeneishMScore())
+    engine.register("peg", PEG())
+    engine.register("garp", GARP())
+    engine.register("rule_of_40", RuleOf40())
+    engine.register("ev_ebitda", EVEBITDA())
+    engine.register("magic_formula", MagicFormula())
+    engine.register("pe_relative", PERelativeValuation())
+    engine.register("pb_relative", PBRelativeValuation())
     return engine
