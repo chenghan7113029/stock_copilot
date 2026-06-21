@@ -13,6 +13,8 @@ from .magic_formula import MagicFormula
 from .mscore import BeneishMScore, MScoreResult, calculate_m_score
 from .quality import AltmanZScore, OwnerEarnings, PiotroskiFScore
 from .relative import PBRelativeValuation, PERelativeValuation
+from .sbc import SBCAnalysis
+from .value_trap import ValueTrapDetector
 from .wacc import WACCResult, calculate_wacc
 
 __all__ = [
@@ -40,11 +42,13 @@ __all__ = [
     "PiotroskiFScore",
     "ResidualIncome",
     "ReverseDCF",
+    "SBCAnalysis",
     "RuleOf40",
     "TwoStageDDM",
     "ValuationEngine",
     "ValuationRange",
     "ValuationResult",
+    "ValueTrapDetector",
     "WACCResult",
     "calculate_m_score",
     "calculate_wacc",

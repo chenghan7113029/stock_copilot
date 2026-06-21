@@ -17,6 +17,8 @@ from .magic_formula import MagicFormula
 from .mscore import BeneishMScore
 from .quality import AltmanZScore, OwnerEarnings, PiotroskiFScore
 from .relative import PBRelativeValuation, PERelativeValuation
+from .sbc import SBCAnalysis
+from .value_trap import ValueTrapDetector
 
 
 class ValuationEngine:
@@ -77,4 +79,6 @@ def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEn
     engine.register("magic_formula", MagicFormula())
     engine.register("pe_relative", PERelativeValuation())
     engine.register("pb_relative", PBRelativeValuation())
+    engine.register("value_trap", ValueTrapDetector())
+    engine.register("sbc", SBCAnalysis())
     return engine

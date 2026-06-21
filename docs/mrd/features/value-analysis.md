@@ -515,13 +515,15 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | Port `PBRelativeValuation` | `valuation/relative.py` | historical_pb（同上） |
 | 单元测试 | `test/service/value/test_growth.py` | fixture 含历史序列 |
 
-#### Phase 8 — 后置（非 V1 阻塞项）
+#### Phase 8 — 后置（非 V1 阻塞项）（ValueTrap + SBC 已完成；Cyclical 延迟至 V2）
 
-| 任务 | 文件 | 说明 |
-|------|------|------|
-| Port `ValueTrapDetector` | `valuation/value_trap.py` | 5 维度陷阱检测 |
-| Port `SBCAnalysis` | `valuation/sbc.py` | 股权激励稀释分析 |
-| Cyclical 4 种方法 | `valuation/cyclical.py` | 依赖独立 `CyclicalStock`，V2 |
+> **状态（2026-06-21）**：`ValueTrapDetector`（value_trap）和 `SBCAnalysis`（sbc）已在 `add-valuation-methods-phase8` 实现。`default_engine()` 共注册 **23 个** method_key。Cyclical 4 种方法因依赖 V2 `CyclicalStock` 延迟至独立 change。
+
+| 任务 | 文件 | 说明 | 状态 |
+|------|------|------|------|
+| Port `ValueTrapDetector` | `valuation/value_trap.py` | 5 维度陷阱检测 | 完成 |
+| Port `SBCAnalysis` | `valuation/sbc.py` | 股权激励稀释分析 | 完成 |
+| Cyclical 4 种方法 | `valuation/cyclical.py` | 依赖独立 `CyclicalStock`，V2 | V2 待做 |
 
 ### 13.3 V1 三原型冒烟清单（路由后置时的手动验证）
 
