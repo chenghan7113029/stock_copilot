@@ -55,6 +55,15 @@ class ValuationEngine:
             results[key] = self.run_single(key, stock_data)
         return results
 
+    def run_selected(
+        self, keys: list[str], stock_data: StockData
+    ) -> dict[str, ValuationResult]:
+        results: dict[str, ValuationResult] = {}
+        for key in keys:
+            if key in self._methods:
+                results[key] = self.run_single(key, stock_data)
+        return results
+
 
 def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEngine:
     engine = ValuationEngine(assumptions=assumptions)

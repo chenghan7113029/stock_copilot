@@ -1,7 +1,7 @@
 # 价值面分析模块 — 需求细则（MRD）
 
-> 最后更新：2026-06-13  
-> 状态：细则 v1（探索沉淀，待 propose 转技术设计）  
+> 最后更新：2026-06-21  
+> 状态：细则 v2（方法论库 Phase 0–8 已交付；编排层与上层集成待建）  
 > 上级文档：[product-overview.md](../product-overview.md) §5.1.1  
 > 关联设计：[value-analysis-integration.md](../design/value-analysis-integration.md)  
 > 参考实现：`valueinvest/`、`FinanceToolkit/`
@@ -13,6 +13,8 @@
 | 2026-05-31 | init | 从接入方案提取需求摘要 |
 | 2026-06-13 | value-explore | 基于自选股探索，确立估值原型分类、方法论路由、输出规格、范围与优先级 |
 | 2026-06-14 | add-tushare-data-source | §9 补充 Tushare Pro 数据源与 Token 配置 |
+| 2026-06-21 | valuation-methods-phase8 | §13 Phase 8 完成；新增 §14 实现现状与 Feature 缺口；更新 §8/§11/§12/§15 |
+| 2026-06-21 | decision-historical-multiples | **D-E 已确定**：历史 PE/PB 序列由 Tushare Pro 提供（付费/积分由运营方承担） |
 
 ---
 
@@ -121,7 +123,8 @@
 | 相对估值（PE/PB 历史分位） | 相对 | 全部（分位计算） | ✅ `relative` |
 | Altman-Z / Piotroski-F | 质量/风险 | 全部（财务健康） | ✅ `quality` |
 | Beneish-M | 造假风险 | 全部（红旗） | ✅ `mscore` |
-| 价值陷阱检测 | 风险 | 全部 | ✅ `value_trap`（见 §8 TODO） |
+| 价值陷阱检测 | 风险 | 全部 | ✅ `value_trap`（§13 Phase 8 已 port） |
+| SBC 稀释分析 | 风险 | 成长/科技 | ✅ `sbc`（§13 Phase 8 已 port） |
 | 周期调整估值（PB/PE/FCF/股息） | 周期 | 周期类（V2） | ✅ `cyclical` |
 
 **缺口（需后续新增）：** 保险内含价值（EV/NBV）模型、军工订单/资产重估模型。
@@ -214,17 +217,26 @@
 
 - **VA-DATA-1**：每个方法须声明所需字段；字段缺失时该方法标注"数据缺失不可靠"，不参与区间聚合；
 - **VA-DATA-2**：数据须带**来源与时效**标注（呼应产品总览数据时效要求）；
-- **VA-DATA-3**：A 股财报数据完整度（尤其银行专用指标、历史 PE/PB 序列）须在 propose 阶段验证。
+- **VA-DATA-3**：历史 PE/PB 序列数据源已确定为 Tushare Pro（§13.1 D-E）；银行专用指标完整度仍待 E2E 验证。
 
 ---
 
-## 8. 价值陷阱检测（TODO，非 V1 重点）
+## 8. 价值陷阱检测与 SBC 稀释分析
 
 > 用户 user_story 明确点出"便宜但不涨/越跌越便宜"是价值面最大短板。
 
-- `valueinvest` 已有 `value_trap.ValueTrapDetector`（营收 CAGR、利润率趋势、ROE 趋势、市场份额、行业 AI 脆弱性等）。
-- **TODO（V1.x / V2）**：将价值陷阱检测作为价值面输出的风险校验项，命中时降低置信度并在 `warnings` 提示"疑似价值陷阱"。
-- 第一期可不实现，但 MRD 保留该需求位，避免后续遗漏。
+### 8.1 价值陷阱检测（已实现）
+
+- **代码落点**：`src/service/value/valuation/value_trap.py` → `ValueTrapDetector`（method_key: `value_trap`）
+- **五维度**：财务健康、业务恶化、护城河侵蚀、AI/技术脆弱性（占位）、股息可持续性
+- **输出**：`details.output_type = "score"`；`details.overall_risk` = Low/Medium/High；不参与区间聚合
+- **编排层待接（§14）**：命中 High 时在 `ValueAnalysisResult.warnings` 提示"疑似价值陷阱"，并降低 `confidence`
+
+### 8.2 SBC 稀释分析（已实现）
+
+- **代码落点**：`src/service/value/valuation/sbc.py` → `SBCAnalysis`（method_key: `sbc`）
+- **关键指标**：SBC/净利润、SBC/营收、年稀释率、调整后 EPS、稀释性评级
+- **A 股注意**：多数公司 `StockData.sbc = None` → 返回 `applicability = "Not Applicable"`（预期行为）
 
 ---
 
@@ -238,7 +250,7 @@
 |--------|--------|-----------|------|
 | AKShare | 1（主源） | 无 | 行情 + 三大财报 + 分红 + 财务指标；字段最全 |
 | Baostock | 2（第二源） | 无 | 行情 + 季频财务；交叉校验用 |
-| Tushare Pro | 3（第三源，可上调） | **是** | 财报兜底强；需 Token，见下方配置 |
+| Tushare Pro | 3（第三源，可上调） | **是** | 财报兜底；**历史 PE/PB 序列主源（D-E）** |
 
 ### 关键设计决策
 
@@ -263,6 +275,8 @@ pytest -m network test/e2e/test_tushare_pipeline.py -v
 无 Token 时该测试自动 skip，不影响离线 CI。
 
 **Tushare 积分要求**：新账号需在 [tushare.pro](https://tushare.pro) 完成实名认证并积累积分后，方可调用 `stock_basic`、`daily`、`fina_indicator` 等接口。积分不足时网络 E2E 会 skip 并提示「无接口权限」。
+
+**历史 PE/PB（D-E）**：相对估值所需的 `historical_pe` / `historical_pb` 序列**仅通过 Tushare Pro 获取**；若接口需更高积分或付费包，由运营方自行解决，开发侧在 fetcher 中按权限 graceful 降级（字段保持 `None`）。
 
 ### 关键修复（fix-value-data-pipeline-e2e）
 
@@ -351,28 +365,40 @@ pytest -m network test/e2e/ -v -s
 
 ## 11. 开放问题 / TODO 清单
 
-| 编号 | 项 | 阶段 |
-|------|----|------|
-| T-1 | 安全边际阈值是否按原型差异化（§6.2 VA-OUT-3） | V1.x |
-| T-2 | 价值陷阱检测接入（§8） | V1.x / V2 |
-| T-3 | 银行专用指标（净息差/不良率等）数据完整度验证 | propose |
-| T-4 | 保险内含价值（EV/NBV）模型 | V2 |
-| T-5 | 军工·订单驱动估值模型 | V2 |
-| T-6 | 数据源选型与字段映射 | propose |
-| T-7 | 自动分类器的 A 股行业映射规则 | propose |
-| T-8 | 人工覆盖的持久化方案（落 dao） | 技术设计 |
+| 编号 | 项 | 阶段 | 状态 |
+|------|----|------|------|
+| T-1 | 安全边际阈值是否按原型差异化（§6.2 VA-OUT-3） | V1.x | 待设计 |
+| T-2 | 价值陷阱检测接入编排层（§8.1 → warnings/confidence） | V1.x | 方法已实现，编排待接 |
+| T-3 | 银行专用指标（净息差/不良率等）数据完整度验证 | V1.x | 待验证 |
+| T-4 | 保险内含价值（EV/NBV）模型 | V2 | 未开始 |
+| T-5 | 军工·订单驱动估值模型 | V2 | 未开始 |
+| T-6 | 历史 PE/PB 序列 data_provider（§14.2-D，**数据源：Tushare D-E**） | P1 | **已决策**，fetcher 待 implement |
+| T-7 | 自动分类器的 A 股行业映射规则（§14.2-C） | P0 | 未开始 |
+| T-8 | 人工覆盖的持久化方案（落 dao） | P0 | 未开始 |
+| T-9 | ValueAnalyzer Facade（§14.2-A） | P0 | 未开始 |
+| T-10 | 区间聚合 Aggregator（§14.2-B） | P0 | 未开始 |
+| T-11 | ValueScore 综合评分（估值40+质量30+护城河20+风险10） | P1 | 未开始 |
+| T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | 未开始 |
+| T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
+| T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
 
 ---
 
 ## 12. 与现有资产映射
 
-| MRD 需求 | 复用资产 | 缺口 |
-|----------|----------|------|
-| 方法论清单 | `valueinvest.valuation.*`（23 种） | 保险、军工模型 |
-| 原型路由 | `ValuationEngine.get_recommended_methods()` | A 股行业映射、人工覆盖层 |
-| 数据模型 | `valueinvest.Stock` | A 股字段完整度 |
-| 数据获取 | `daily_stock_analysis/data_provider/`、valueinvest fetcher | 选型留 propose |
-| 价值陷阱 | `valueinvest.value_trap` | 接入编排 |
+| MRD 需求 | stock_copilot 现状 | 缺口 |
+|----------|---------------------|------|
+| 方法论计算库（23 method_key） | ✅ `src/service/value/valuation/`（Phase 0–8） | Cyclical 4 种（V2） |
+| 数据模型 | ✅ `src/common/models/stock_data.py` | 历史 PE/PB 填充（Tushare D-E）；CyclicalStock（V2） |
+| 数据获取 | ✅ `src/data_provider/`（AKShare/Baostock/Tushare） | Tushare 历史倍数 fetcher（D-E）；部分字段覆盖率待提升 |
+| 价值面编排 Facade | ❌ 未建 | `ValueAnalyzer`（§14.2-A） |
+| 区间聚合 | ❌ 未建 | `aggregator.py`（§14.2-B） |
+| 原型路由 | ❌ 未建 | `router.py`（§14.2-C）；可参考 `valueinvest.get_recommended_methods()` |
+| 综合评分 | ❌ 未建 | `ValueScore`（§14.2 待建） |
+| API / CLI | ❌ `controller/`、`apps/` 为空壳 | REST 端点、CLI 入口（§14.2-E/F） |
+| 双轨 LLM 集成 | ❌ 未建 | ContextPack 价值面 block（§14.2-G） |
+| 价值陷阱 / SBC | ✅ `value_trap.py`、`sbc.py` | 编排层 warnings 接入（T-2） |
+| 保险 / 军工模型 | ❌ | V2 新增 |
 
 ---
 
@@ -413,13 +439,29 @@ Rd = interest_expense / total_debt（有数据时），或 aaa_corporate_yield�
 
 #### D-B：历史 PE/PB 序列
 
-`pe_relative` / `pb_relative` 两种相对估值方法依赖历史倍数序列（`historical_pe: List[float]`）。
-本期 V1 方法论实现中：
+`pe_relative` / `pb_relative` 两种相对估值方法依赖历史倍数序列（`historical_pe: List[float]`、`historical_pb: List[float]`）。
 
-- 在 `StockData` 扩展 `historical_pe` / `historical_pb` 字段（可空列表）
-- data_provider 层需新增历史 K 线 + 历史财报逐季计算支持（**独立 change**，非本期）
-- 本期实现中若字段为空，`pe_relative` / `pb_relative` 返回 `applicability="Not Applicable"`（不阻断其他方法）
-- 单元测试级别：fixture 注入历史序列，验证计算结果与 `ref/valueinvest` ±0.1% 一致
+**方法论层（已完成）：**
+
+- `StockData` 已扩展 `historical_pe` / `historical_pb` 字段（可空列表）
+- 字段为空时，`pe_relative` / `pb_relative` 返回 `applicability="Not Applicable"`（不阻断其他方法）
+- 单元测试以 fixture 注入历史序列，验证与 ref ±0.1%
+
+**数据层（待 implement，数据源见 D-E）：**
+
+- data_provider 负责填充上述字段；实现独立于方法论库（change：`add-historical-multiples-provider`）
+
+#### D-E：历史 PE/PB 数据源 — Tushare Pro（已确定，2026-06-21）
+
+| 项 | 决策 |
+|----|------|
+| **数据源** | **Tushare Pro** 作为历史 PE/PB 序列的主源（AKShare/Baostock 不作为该字段的主实现路径） |
+| **实现路径** | 在现有 `src/data_provider/tushare/` 扩展：拉取历史行情/估值指标（如 `daily_basic` 的 `pe_ttm`、`pb` 等，或等价接口），按报告期/交易日对齐后写入 `StockData.historical_pe` / `historical_pb` |
+| **付费与积分** | Tushare 部分历史/高频接口需更高积分或付费权限；**由产品运营方自行开通/充值**，不纳入代码仓库 |
+| **配置** | 沿用 §9 `TUSHARE_TOKEN` / `config/app.yaml`；无 Token 或权限不足时：`historical_pe`/`historical_pb` 保持 `None`，相对估值方法降级为 Not Applicable，**不阻断**其余 21 种方法 |
+| **验收** | 网络 E2E：样本股（工行/长江电力/茅台）`historical_*` 非空且长度 ≥ 3；离线 CI 无 Token 时 skip |
+
+> **分工**：数据权限与费用 — 运营方；fetcher 实现与字段映射 — 开发（`add-historical-multiples-provider` change）。
 
 #### D-C：验收标准
 
@@ -437,7 +479,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 
 ### 13.2 实现 Phase 划分
 
-> **状态（2026-06-21）**：Phase 0–3 已在 `add-valuation-methods-core` 归档完成；Phase 4–7 已在 `add-valuation-methods-full` 实现（Owner Earnings、DCF 族、质量评分、成长/相对估值共 13 种 method_key 已注册至 `default_engine()`）。
+> **状态（2026-06-21）**：Phase 0–8 方法论库已全部交付（23 method_key）。编排层（§14.2 A/B/C）与上层集成（§14.2 E/F/G）待建。
 
 #### Phase 0 — 基础设施 ✅
 
@@ -527,21 +569,220 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 
 ### 13.3 V1 三原型冒烟清单（路由后置时的手动验证）
 
-实现 Phase 0–7 后，可用以下 method_key 组合手动验证三原型覆盖：
+实现 Phase 0–8 后，可用以下 method_key 组合手动验证三原型覆盖（完整路由见 §5）：
 
 | 原型 | 应跑通的 method_key |
 |------|---------------------|
-| 银行（工行 601398） | `pb`, `residual_income`, `ddm`, `graham_number`, `altman_z`, `pb_relative` |
-| 高股息（长江电力 600900） | `ddm`, `two_stage_ddm`, `epv`, `owner_earnings`, `graham_number` |
-| 价值成长（茅台 600519） | `dcf`, `epv`, `owner_earnings`, `graham_formula`, `ev_ebitda`, `piotroski_f`, `beneish_m` |
+| 银行（工行 601398） | `pb`, `residual_income`, `ddm`, `graham_number`, `altman_z`, `pb_relative`, `value_trap` |
+| 高股息（长江电力 600900） | `ddm`, `two_stage_ddm`, `epv`, `owner_earnings`, `graham_number`, `value_trap` |
+| 价值成长（茅台 600519） | `dcf`, `epv`, `owner_earnings`, `graham_formula`, `ev_ebitda`, `piotroski_f`, `beneish_m`, `value_trap` |
 
 ---
 
-## 14. 下一步
+## 14. 实现现状与待完善 Feature
 
-1. 本 MRD 细则评审确认；
-2. 对 V1 方法论层发起 OpenSpec 提案（推荐分两期）：
-   - **Phase 0–2**：`/opsx-propose add-valuation-methods-core`（Graham + 银行，最小可交付）
-   - **Phase 3–7**：`/opsx-propose add-valuation-methods-full`（完整 20 种方法）
-3. 数据层扩展（历史 PE/PB）：`/opsx-propose add-historical-multiples-provider`
-4. 归档后将本细则增量合并回 [product-overview.md](../product-overview.md) §5.1.1 与 [engineering-conventions.md](../../dev/engineering-conventions.md)。
+> 本节整合 2026-06-21 探索结论，对照 [product-overview.md](../product-overview.md) §5.1.1 与当前代码库，
+> 明确**已交付**与**待建**边界。方法论库（§13 Phase 0–8）已完成；价值面**可对外交付**尚缺编排层与上层集成。
+
+### 14.1 已交付能力总览
+
+| 层级 | 模块 | 路径 | 状态 |
+|------|------|------|------|
+| 数据模型 | `StockData` | `src/common/models/stock_data.py` | ✅ 含 historical_pe/pb、sbc 等预留字段 |
+| 数据获取 | 多源 Provider | `src/data_provider/` | ✅ AKShare / Baostock / Tushare |
+| 持久化 | DAO + SQLite | `src/dao/` | ✅ |
+| 方法论库 | 23 种估值方法 | `src/service/value/valuation/` | ✅ `default_engine()` 全量注册 |
+| 单元测试 | 70+ 用例 | `test/service/value/` | ✅ 离线可跑 |
+
+**23 个 method_key 分组：**
+
+| 分组 | method_key |
+|------|------------|
+| Graham | `graham_number`, `graham_formula`, `ncav` |
+| 银行 | `pb`, `residual_income` |
+| 股息 | `ddm`, `two_stage_ddm` |
+| 盈利力 | `epv`, `owner_earnings` |
+| DCF | `dcf`, `reverse_dcf` |
+| 质量/风险 | `altman_z`, `piotroski_f`, `beneish_m`, `value_trap`, `sbc` |
+| 成长/相对 | `peg`, `garp`, `rule_of_40`, `ev_ebitda`, `magic_formula`, `pe_relative`, `pb_relative` |
+
+### 14.2 分层缺口地图
+
+```text
+用户 ──▶ apps/ ──▶ controller/ ──▶ service/value/
+         ❌           ❌              ✅ valuation/（23 方法）
+         CLI/Web      API 端点        ✅ analyzer / aggregator / router
+         看板         请求路由        ✅ data_provider（via 外部调用）
+```
+
+#### A. ValueAnalyzer Facade（P0，✅ 已交付）
+
+**职责**：把数据获取、原型路由、方法运行、区间聚合串成一次分析调用。
+
+```text
+输入: stock_code
+  │
+  ├─1→ data_provider.fetch(code) → StockData
+  ├─2→ router.route(StockData) → [method_keys]            ← ✅
+  ├─3→ engine.run_selected(method_keys, StockData) → {results}
+  ├─4→ aggregator.aggregate(results) → FairValueRange     ← ✅
+  └─5→ build ValueAnalysisResult（§6.1 输出字段）          ← ✅
+```
+
+**建议落点**：`src/service/value/analyzer.py`  
+**输出契约**：见 [value-analysis-integration.md](../design/value-analysis-integration.md) §3.2 `ValueAnalysisResult`
+
+#### B. 区间聚合 Aggregator（P0，✅ 已交付）
+
+**职责**：将多方法 `ValuationResult` 转为 §6.1 规定的 `fair_value_range` + `margin_of_safety` + `price_percentile`。
+
+```text
+多方法输出示例（茅台）:
+  DCF:           709
+  EPV:           680
+  Owner Earnings: 1249   ← 可能为异常值，需过滤
+  Graham Formula: 580
+
+  过滤 Not Applicable / Limited / score 类方法
+  → 可靠公允价集合 → 中位/分布 → [low, base, high]
+  → MOS = (base - current_price) / base
+  → 分位 = 当前价在区间中的位置
+```
+
+**需求对齐**：§6.2 VA-OUT-1 ~ VA-OUT-4  
+**建议落点**：`src/service/value/aggregator.py`
+
+**已定稿（add-value-analyzer-core）：**
+
+- 聚合算法：中位数 + IQR 异常值过滤（V1 不加权）
+- 评分类方法（`output_type = "score"`）明确排除，摘要进入 `warnings`
+- 离散度大（cv ≥ 0.3）或方法数不足时降低 `confidence`
+
+#### C. 原型路由 Router（P0，✅ 已交付）
+
+**职责**：实现 §3/§5 的"先分类、再选方法"；银行排除 DCF，高股息优先 DDM 等。
+
+**建议落点**：`src/service/value/router.py`  
+**参考**：`ref/valueinvest` 的 `get_recommended_methods()`（银行/分红/成长/价值粗路由）  
+**V1 策略选项**：
+
+1. **硬编码样本映射**（工行→银行、长江电力→高股息、茅台→价值成长）— 最快验证
+2. **行业代码 + 财务特征启发**（高杠杆→银行，高分红低成长→高股息）— 中期
+3. **人工覆盖层**（§3.2 VA-CLS-2，持久化落 dao）— 与 B 并行
+
+#### D. 历史 PE/PB data_provider（P1）— 数据源已确定
+
+**决策（2026-06-21，D-E）**：历史 PE/PB 序列由 **Tushare Pro** 提供；付费/积分由运营方承担，开发实现 fetcher + 降级逻辑。
+
+**现状**：`StockData.historical_pe` / `historical_pb` 字段已预留，Tushare fetcher 尚未写入该序列 → `pe_relative` / `pb_relative` 多数返回 Not Applicable。
+
+**实现要点**：
+
+- 扩展 `src/data_provider/tushare/`（或专用 multiples 子模块）
+- 拉取历史估值指标并对齐为 `List[float]`（降序，与 relative 方法约定一致）
+- 无 Token / 权限不足：`historical_* = None`，E2E skip，离线 CI 不受影响
+
+**建议 change**：`add-historical-multiples-provider`
+
+#### E. controller API 层（P2，依赖 P0）
+
+| 端点 | 说明 |
+|------|------|
+| `POST /api/v1/analysis/value` | 触发单票价值面分析 |
+| `GET /api/v1/stocks/{code}/valuation` | 查询估值结果 |
+
+**建议落点**：`src/controller/value_controller.py`
+
+#### F. CLI / 看板入口（P2）
+
+| 入口 | 说明 |
+|------|------|
+| CLI | `python -m apps.cli analyze 600519`（或等价命令） |
+| 看板 | 单票一页：价值区间 + MOS + 分位 + method_breakdown（MRD §6 + product-overview §5.3） |
+
+#### G. 与技术面双轨集成 + LLM（P2）
+
+**职责**：价值面结果注入 LLM ContextPack，与技术面并行输出综合建议。
+
+```text
+技术面: signal_score=72, 多头排列
+价值面: value_score=65, MOS=16.7%, fair_value_range=[620,680,750]
+         ↓
+LLM 综合报告（数值来自确定性模块，LLM 仅叙述）
+```
+
+**参考**：[value-analysis-integration.md](../design/value-analysis-integration.md) §4.2 `ValueAnalysisBlock`  
+**双轨决策矩阵**：integration 文档 §5 Phase 2 表格（技术×价值 → 综合建议）
+
+#### H. Cyclical 4 种方法（V2，非 V1 阻塞）
+
+来自 `ref/valueinvest` 的 `cyclical/` 模块，依赖独立 `CyclicalStock` 数据模型（周期位置、均值化财务数据）：
+
+| method_key | 类 | 说明 |
+|------------|-----|------|
+| `cyclical_pb` | `CyclicalPBValuation` | 周期调整 P/B |
+| `cyclical_pe` | `CyclicalPEValuation` | 周期调整 P/E（均值化盈利） |
+| `cyclical_fcf` | `CyclicalFCFValuation` | 周期调整 FCF |
+| `cyclical_dividend` | `CyclicalDividendValuation` | 周期调整股息 |
+
+**适用原型**：§2.2 周期+资产（北大荒）、现金流+广告周期（分众传媒）等 V2 样本。
+
+#### I. 决策护航 / 情绪 / 复盘（V2+，归属 product-overview，非价值面子模块）
+
+| 能力 | 归属 | 与价值面关系 |
+|------|------|-------------|
+| 红蓝对抗、Checklist、假设首开仓 | product-overview §5.2 | 消费价值面输出作为 Checklist 输入 |
+| 情绪量化 | product-overview §5.1.3 P1 | 三维联合解读 |
+| 复盘归因 | product-overview §6 Phase 4 | 独立模块 |
+
+### 14.3 优先级路线图
+
+```text
+P0（价值面内部可独立交付）
+├── A. ValueAnalyzer Facade
+├── B. 区间聚合 Aggregator
+└── C. 原型路由 Router
+
+P1（数据完整性 + 评分增强）
+├── D. 历史 PE/PB provider
+└── 综合 ValueScore（可选，integration 文档 §3.2）
+
+P2（上层集成，依赖 P0）
+├── E. controller API
+├── F. CLI / 看板
+└── G. 技术面双轨 + LLM ContextPack
+
+V2（后置）
+├── H. Cyclical 4 种 + CyclicalStock
+├── 保险 EV/NBV、军工订单模型
+└── I. 决策护航 / 情绪 / 复盘（跨模块）
+```
+
+### 14.4 建议 OpenSpec Change 顺序
+
+| 顺序 | Change 名称（建议） | 范围 | 依赖 |
+|------|---------------------|------|------|
+| 1 | `add-value-analyzer-core` | Facade + Aggregator + Router + ValueAnalysisResult | Phase 0–8 方法论库 |
+| 2 | `add-historical-multiples-provider` | Tushare 拉取 historical_pe/pb（D-E） | data_provider + Tushare Token |
+| 3 | `add-value-api-cli` | controller + CLI 最小入口 | #1 |
+| 4 | `add-dual-track-llm-integration` | ContextPack + 双轨决策 | #1 + 技术面模块 |
+| 5 | `add-cyclical-valuation`（V2） | CyclicalStock + 4 方法 | V2 原型定义 |
+
+### 14.5 开放设计问题（propose 前需定稿）
+
+1. **区间聚合算法**：中位数 vs 加权？异常值剔除规则（IQR？固定倍数？）
+2. **原型路由 V1 策略**：硬编码样本 vs 行业映射 vs 两者结合？
+3. **ValueAnalyzer 边界**：直接调 `data_provider.provider`，还是经独立 `ValueDataService`？
+4. **ValueScore 权重**：integration 文档建议估值 40 + 质量 30 + 护城河 20 + 风险 10，是否纳入 V1？
+5. **安全边际阈值**：§6.2 VA-OUT-3 按原型差异化，V1 是否先用统一阈值？
+
+---
+
+## 15. 下一步
+
+1. ~~方法论库 Phase 0–8~~ ✅ 已完成（23 method_key）
+2. **优先 propose**：`add-value-analyzer-core`（Facade + Aggregator + Router）— 价值面从"计算器库"变为"可调用分析服务"
+3. **并行或紧随其后**：`add-historical-multiples-provider` — 解锁 pe_relative / pb_relative
+4. **V1 三原型端到端验收**：工行 / 长江电力 / 茅台，对照 §10 场景 1–3 + §13.3 冒烟清单
+5. **上层集成**：API + CLI → 双轨 LLM（依赖 product-overview Phase 1–2）
+6. **文档同步**：归档后将 §14 摘要合并回 [product-overview.md](../product-overview.md) §5.1.1
