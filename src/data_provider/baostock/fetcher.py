@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from datetime import date
 from typing import Any, Generator, Optional
 
+import pandas as pd
+
 from common.exceptions import DataProviderError
 from data_provider.baostock.field_mapping import (
     CASHFLOW_DATA_FIELD_MAP,
@@ -156,6 +158,43 @@ class BaostockFetcher(BaseFetcher):
             return FetchResult(code=code, source=self.source_name, error=str(exc))
 
         return FetchResult(code=code, source=self.source_name, data=data, missing_fields=missing)
+
+    def fetch_kline(
+        self,
+        code: str,
+        exchange: str,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        """获取日 K 线 OHLCV（前复权）。"""
+        if exchange == "BJ":
+            raise DataProviderError(f"Baostock 不支持北交所代码 {code}")
+
+        bs_code = _to_bs_code(code, exchange)
+        with self._session() as bs:
+            rs = bs.query_history_k_data_plus(
+                code=bs_code,
+                fields="date,open,high,low,close,volume",
+                start_date=start_date,
+                end_date=end_date,
+                frequency="d",
+                adjustflag="2",
+            )
+            if rs.error_code != "0":
+                raise DataProviderError(f"Baostock K线查询失败: {rs.error_msg}")
+
+            rows = []
+            while rs.next():
+                rows.append(rs.get_row_data())
+
+        if not rows:
+            raise DataProviderError(f"Baostock 未查询到 {code} 的 K 线数据")
+
+        df = pd.DataFrame(rows, columns=rs.fields)
+        for col in ("open", "high", "low", "close", "volume"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["date"] = df["date"].astype(str)
+        return df[["date", "open", "high", "low", "close", "volume"]]
 
     # ── 基本面（单次 session，减少 login 次数）───────────────────────────────
 

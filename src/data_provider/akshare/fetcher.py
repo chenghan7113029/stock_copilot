@@ -15,6 +15,9 @@ import logging
 from datetime import date, datetime
 from typing import Any, Optional
 
+import pandas as pd
+
+from common.exceptions import DataProviderError
 from data_provider.akshare.field_mapping import (
     BALANCE_SHEET_FIELD_MAP,
     CASHFLOW_FIELD_MAP,
@@ -95,6 +98,41 @@ class AKShareFetcher(BaseFetcher):
             return FetchResult(code=code, source=self.source_name, error=str(exc))
 
         return FetchResult(code=code, source=self.source_name, data=data, missing_fields=missing)
+
+    def fetch_kline(
+        self,
+        code: str,
+        exchange: str,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        """获取日 K 线 OHLCV（前复权），列名与 Baostock 对齐。"""
+        del exchange  # AKShare 使用 6 位代码即可
+        ak = self._get_ak()
+        raw_df = retry_with_backoff(
+            ak.stock_zh_a_hist,
+            symbol=code,
+            period="daily",
+            start_date=start_date.replace("-", ""),
+            end_date=end_date.replace("-", ""),
+            adjust="qfq",
+        )
+        if raw_df is None or raw_df.empty:
+            raise DataProviderError(f"AKShare 未查询到 {code} 的 K 线数据")
+
+        column_map = {
+            "日期": "date",
+            "开盘": "open",
+            "最高": "high",
+            "最低": "low",
+            "收盘": "close",
+            "成交量": "volume",
+        }
+        df = raw_df.rename(columns=column_map)
+        df["date"] = df["date"].astype(str).str[:10]
+        for col in ("open", "high", "low", "close", "volume"):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df[["date", "open", "high", "low", "close", "volume"]]
 
     # ── 基本面 ────────────────────────────────────────────────────────────────
 

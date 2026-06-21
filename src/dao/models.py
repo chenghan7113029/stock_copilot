@@ -110,3 +110,24 @@ class StockSnapshot(Base):
 
     def __repr__(self) -> str:
         return f"<StockSnapshot code={self.code} source={self.source} period={self.report_period}>"
+
+
+class Kline(Base):
+    """日 K 线 OHLCV 缓存表。"""
+
+    __tablename__ = "kline"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    open: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+    low: Mapped[float | None] = mapped_column(Float)
+    close: Mapped[float | None] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float)
+
+    __table_args__ = (
+        Index("ix_kline_code_date", "code", "trade_date"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Kline code={self.code} date={self.trade_date}>"

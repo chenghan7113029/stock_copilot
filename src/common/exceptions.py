@@ -15,3 +15,7 @@ class DataProviderError(StockCopilotError):
 
 class UnsupportedMarketError(StockCopilotError):
     """不支持的市场（V1 仅支持 A 股）。"""
+
+
+class KlineUnavailableError(DataProviderError):
+    """K 线数据无法从任何数据源获取。"""
