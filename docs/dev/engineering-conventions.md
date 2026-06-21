@@ -69,6 +69,7 @@ stock_copilot/                    # 本 git 仓库根
 │   ├── apps/                     # CLI / 交互入口
 │   ├── controller/               # HTTP API
 │   ├── service/                  # 领域编排
+│   │   └── value/valuation/      # 估值方法论（BaseValuation、Graham/DDM/EPV 等）
 │   ├── data_provider/            # 外部数据适配
 │   ├── dao/                      # 持久化
 │   └── common/                   # 共享类型/工具/异常
@@ -90,7 +91,7 @@ stock_copilot/                    # 本 git 仓库根
 
 | 子域 | 职责 |
 |------|------|
-| `service/value/` | 价值面：估值原型路由、区间聚合 |
+| `service/value/` | 价值面：估值方法论计算（`valuation/`）、原型路由、区间聚合 |
 | `service/technical/` | 技术面：指标、趋势信号 |
 | `service/report/` | 报告 Context 打包、LLM 编排、写入 reports/ |
 | `service/guard/` | 决策护航：Checklist、红蓝对抗（MRD 定义范围） |

@@ -376,8 +376,168 @@ pytest -m network test/e2e/ -v -s
 
 ---
 
-## 13. 下一步
+## 13. 方法论实现计划（Phase 0–8）
+
+> 本节记录方法论代码层的实现路线，供后续 propose 使用。方法论不含原型路由，
+> 仅关注"计算器库"的建设；路由层（§5）作为独立 change 后置实现。
+>
+> 代码落点：`src/service/value/valuation/`（对齐 §3.1 目录约定）
+> 参考文档：[docs/design/valuation-methods-reference.md](../design/valuation-methods-reference.md)
+
+### 13.1 设计决策（已确定）
+
+#### D-A：缺失参数配置化 + WACC 推导
+
+所有估值方法的假设参数（折现率、增长率、股权成本等）均通过 `AssumptionProvider` 配置化，
+并从 `StockData` 字段按以下优先级推导：
+
+| 参数 | 推导来源（优先级高→低） |
+|------|------------------------|
+| `discount_rate` / WACC | `interest_expense/total_debt` → CAPM(β·ERP) → `cost_of_capital` 字段 → 配置默认 10% |
+| `growth_rate_1_5` | `StockData.growth_rate` × 放大系数 → 配置默认 5% |
+| `growth_rate_6_10` | 配置默认 3% |
+| `terminal_growth` | 配置默认 2% |
+| `dividend_growth_rate` | `StockData.dividend_growth_rate` → 配置默认 3% |
+| 无风险利率 | A 股：中国 10 年期国债收益率（配置，默认 1.80%）；USD：4.30% |
+| 股权风险溢价 | 配置默认 6.0% |
+| AAA 债券收益率（负债成本 fallback） | 配置默认 5.30% |
+| 税率 | `StockData.tax_rate` → 配置默认 25% |
+
+WACC 计算公式（port 自 `ref/valueinvest/valueinvest/roic/wacc.py`）：
+
+```
+WACC = (E/V) × Re + (D/V) × Rd × (1 - T)
+Re = Rf + β × ERP（有 β 时），或直接用 cost_of_capital（简化）
+Rd = interest_expense / total_debt（有数据时），或 aaa_corporate_yield（fallback）
+```
+
+#### D-B：历史 PE/PB 序列
+
+`pe_relative` / `pb_relative` 两种相对估值方法依赖历史倍数序列（`historical_pe: List[float]`）。
+本期 V1 方法论实现中：
+
+- 在 `StockData` 扩展 `historical_pe` / `historical_pb` 字段（可空列表）
+- data_provider 层需新增历史 K 线 + 历史财报逐季计算支持（**独立 change**，非本期）
+- 本期实现中若字段为空，`pe_relative` / `pb_relative` 返回 `applicability="Not Applicable"`（不阻断其他方法）
+- 单元测试级别：fixture 注入历史序列，验证计算结果与 `ref/valueinvest` ±0.1% 一致
+
+#### D-C：验收标准
+
+| 情形 | 标准 |
+|------|------|
+| 相同输入（fixture）vs ref/valueinvest | 公允价差异 ≤ ±0.1% |
+| `StockData.xxx = None` 触发缺失 | 方法返回 `missing_fields` 含该字段，`fair_value=0`，不抛异常 |
+| `StockData.xxx = 0.0`（真实零值） | 按真实 0 处理，不作为缺失（区别 None 语义） |
+| applicability="Not Applicable" | 不参与区间聚合，但记录在 `method_breakdown.warnings` |
+
+#### D-D：None vs 0 贯穿全库
+
+原 `ref/valueinvest` 的 `DataValidator` 把 `value == 0` 视为缺失。
+Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
+
+### 13.2 实现 Phase 划分
+
+#### Phase 0 — 基础设施
+
+目标：建立方法论层骨架，可离线跑通最小 fixture。
+
+| 任务 | 文件 | 说明 |
+|------|------|------|
+| Port `ValuationResult`、`ValuationRange`、`BaseValuation` | `valuation/base.py` | 改 None 语义（D-D） |
+| 新增 `AssumptionProvider` | `valuation/assumptions.py` | 配置化参数（D-A） |
+| 新增 `StockDataAdapter` | `valuation/adapter.py` | `StockData` → 估值输入的 duck-typing |
+| Port `ValuationEngine`（注册表骨架）| `valuation/engine.py` | `run_single` / `run_all` |
+| 单元测试：None 语义、adapter 转换 | `test/service/value/test_base.py` | — |
+
+#### Phase 1 — Graham 体系（字段轻、最快验证）
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port `GrahamNumber` | `valuation/graham.py` | eps, bvps |
+| Port `GrahamFormula` | `valuation/graham.py` | eps, growth_rate, aaa_yield |
+| Port `NCAV` | `valuation/graham.py` | current_assets, total_liabilities |
+| 单元测试 ±0.1% | `test/service/value/test_graham.py` | fixture 贵州茅台、工商银行 |
+
+#### Phase 2 — 银行专用
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port `PBValuation` | `valuation/bank.py` | bvps, roe, cost_of_equity |
+| Port `ResidualIncome` | `valuation/bank.py` | bvps, roe, 预测期 |
+| 单元测试 ±0.1% | `test/service/value/test_bank.py` | fixture 工商银行 601398 |
+
+#### Phase 3 — 股息模型
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port `DDM` | `valuation/ddm.py` | dividend_per_share, dividend_growth_rate, cost_of_capital |
+| Port `TwoStageDDM` | `valuation/ddm.py` | 同上 + 两阶段参数 |
+| 单元测试 ±0.1% | `test/service/value/test_ddm.py` | fixture 长江电力 600900 |
+
+#### Phase 4 — 盈利力价值
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port `EPV` | `valuation/epv.py` | revenue, operating_margin, tax_rate, capex, cost_of_capital |
+| Port `OwnerEarnings` | `valuation/quality.py` | net_income, depreciation, capex, nwc |
+| 单元测试 ±0.1% | `test/service/value/test_epv.py` | fixture 茅台 + 长江电力 |
+
+#### Phase 5 — DCF 族（最重，依赖 WACC）
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port WACC 计算 | `valuation/wacc.py` | StockData 字段推导（D-A） |
+| Port `DCF` | `valuation/dcf.py` | fcf, shares, WACC, 三阶段增长率 |
+| Port `ReverseDCF` | `valuation/dcf.py` | 同上 + current_price |
+| 单元测试 ±0.1% | `test/service/value/test_dcf.py` | fixture 贵州茅台 |
+
+#### Phase 6 — 质量/风险评分
+
+> 这些方法产出分数而非公允价，不参与区间聚合，进入 `warnings`。
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port `AltmanZScore` | `valuation/quality.py` | 资产负债各字段 |
+| Port `PiotroskiFScore` | `valuation/quality.py` | 当期 + prior_* 对比字段 |
+| Port `BeneishMScore` | `valuation/mscore.py` | Beneish 8 组件字段 |
+| 单元测试 | `test/service/value/test_quality.py` | 阈值断言（Z>2.99 安全等） |
+
+#### Phase 7 — 成长/相对估值
+
+| 任务 | 文件 | 关键输入 |
+|------|------|----------|
+| Port `PEG`, `GARP`, `RuleOf40` | `valuation/growth.py` | eps, growth_rate, revenue_growth |
+| Port `EVEBITDA` | `valuation/growth.py` | ebitda, net_debt, 行业基准倍数 |
+| Port `MagicFormula` | `valuation/magic_formula.py` | ebit, ev, invested_capital |
+| Port `PERelativeValuation` | `valuation/relative.py` | historical_pe（D-B：空时返回 Not Applicable） |
+| Port `PBRelativeValuation` | `valuation/relative.py` | historical_pb（同上） |
+| 单元测试 | `test/service/value/test_growth.py` | fixture 含历史序列 |
+
+#### Phase 8 — 后置（非 V1 阻塞项）
+
+| 任务 | 文件 | 说明 |
+|------|------|------|
+| Port `ValueTrapDetector` | `valuation/value_trap.py` | 5 维度陷阱检测 |
+| Port `SBCAnalysis` | `valuation/sbc.py` | 股权激励稀释分析 |
+| Cyclical 4 种方法 | `valuation/cyclical.py` | 依赖独立 `CyclicalStock`，V2 |
+
+### 13.3 V1 三原型冒烟清单（路由后置时的手动验证）
+
+实现 Phase 0–7 后，可用以下 method_key 组合手动验证三原型覆盖：
+
+| 原型 | 应跑通的 method_key |
+|------|---------------------|
+| 银行（工行 601398） | `pb`, `residual_income`, `ddm`, `graham_number`, `altman_z`, `pb_relative` |
+| 高股息（长江电力 600900） | `ddm`, `two_stage_ddm`, `epv`, `owner_earnings`, `graham_number` |
+| 价值成长（茅台 600519） | `dcf`, `epv`, `owner_earnings`, `graham_formula`, `ev_ebitda`, `piotroski_f`, `beneish_m` |
+
+---
+
+## 14. 下一步
 
 1. 本 MRD 细则评审确认；
-2. 对 V1 三原型发起 OpenSpec 提案：`/opsx-propose add-value-analysis-v1`，在 design 阶段定数据源与模块边界；
-3. 归档后将本细则增量合并回 [product-overview.md](../product-overview.md) §5.1.1 与 [engineering-conventions.md](../../dev/engineering-conventions.md)（若涉及模块边界）。
+2. 对 V1 方法论层发起 OpenSpec 提案（推荐分两期）：
+   - **Phase 0–2**：`/opsx-propose add-valuation-methods-core`（Graham + 银行，最小可交付）
+   - **Phase 3–7**：`/opsx-propose add-valuation-methods-full`（完整 20 种方法）
+3. 数据层扩展（历史 PE/PB）：`/opsx-propose add-historical-multiples-provider`
+4. 归档后将本细则增量合并回 [product-overview.md](../product-overview.md) §5.1.1 与 [engineering-conventions.md](../../dev/engineering-conventions.md)。
