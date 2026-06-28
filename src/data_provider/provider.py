@@ -106,10 +106,61 @@ class StockDataProvider:
 
         return stock
 
+    def get_stock_data_offline(self, raw_code: str) -> StockData | None:
+        """从本地快照合并重建 StockData，不触发网络请求。"""
+        if not is_a_share(raw_code.strip()):
+            raise UnsupportedMarketError(
+                f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
+            )
+        if self._repo is None:
+            return None
+
+        code, exchange = normalize_stock_code(raw_code)
+        snapshots = self._repo.find_by_code(code)
+        if not snapshots:
+            return None
+
+        by_source: dict[str, Any] = {}
+        for snap in snapshots:
+            if snap.source not in by_source:
+                by_source[snap.source] = snap
+
+        priority_order = {f.source_name: f.priority for f in self._manager.fetchers}
+        sorted_sources = sorted(by_source.keys(), key=lambda s: priority_order.get(s, 999))
+
+        stock = StockData(code=code, exchange=exchange)
+        for source in sorted_sources:
+            data = self._snapshot_to_dict(by_source[source])
+            self._merge_result(stock, data, source)
+
+        self._derive_ratios(stock)
+        self._audit_missing(stock)
+        return stock
+
     # ── 私有辅助 ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _snapshot_to_dict(snapshot: Any) -> dict[str, Any]:
+        """将 ORM 快照转为与 FetchResult.data 兼容的 dict。"""
+        data: dict[str, Any] = {}
+        for field_name in _STOCK_DATA_FIELDS:
+            v = getattr(snapshot, field_name, None)
+            if v is not None:
+                data[field_name] = v
+        if snapshot.data_timestamp is not None:
+            data["data_timestamp"] = snapshot.data_timestamp
+        if snapshot.name:
+            data["name"] = snapshot.name
+        if snapshot.exchange:
+            data["exchange"] = snapshot.exchange
+        return data
 
     def _merge_result(self, stock: StockData, data: dict[str, Any], source: str) -> None:
         """将 FetchResult.data 中的字段合并到 StockData（高优先级先写，不被覆盖）。"""
+        self._merge_fields(stock, data, source)
+
+    def _merge_fields(self, stock: StockData, data: dict[str, Any], source: str) -> None:
+        """将 data dict 中的字段合并到 StockData（高优先级先写，不被覆盖）。"""
         # 元数据单独处理
         if "data_timestamp" in data and stock.data_timestamp is None:
             ts = data["data_timestamp"]

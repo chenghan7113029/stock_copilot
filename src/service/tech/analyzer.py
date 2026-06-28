@@ -45,7 +45,7 @@ class TechAnalyzer:
         )
         return cls(kline_provider=provider, config=tech_cfg)
 
-    def analyze(self, raw_code: str, use_realtime: bool = False) -> TechAnalysisResult:
+    def analyze(self, raw_code: str, use_realtime: bool = False, offline: bool = False) -> TechAnalysisResult:
         if not is_a_share(raw_code.strip()):
             raise UnsupportedMarketError(
                 f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
@@ -56,7 +56,10 @@ class TechAnalyzer:
 
         try:
             df, kline_warnings, quote_mode = self._kline_provider.get_kline(
-                code, days=self._config.kline_days, use_realtime=use_realtime
+                code,
+                days=self._config.kline_days,
+                use_realtime=use_realtime,
+                offline=offline,
             )
             result.quote_mode = quote_mode
             result.warnings.extend(kline_warnings)
@@ -66,10 +69,21 @@ class TechAnalyzer:
             result.warnings.append(str(exc))
             return result
 
-        if df is None or df.empty or len(df) < 20:
+        if df is None or df.empty:
+            if offline:
+                result.warnings.append("无缓存数据")
+                result.risk_factors.append("无缓存数据，请先运行 sync")
+            else:
+                result.risk_factors.append("数据不足，无法完成分析")
+            result.buy_signal = BuySignal.WAIT
+            return result
+
+        if len(df) < 20:
             result.buy_signal = BuySignal.WAIT
             result.risk_factors.append("数据不足，无法完成分析")
             return result
+
+        result.kline_last_date = str(df.iloc[-1]["date"])[:10]
 
         indicators = self._calculator.calculate(
             df, code, self._config.indicator_params

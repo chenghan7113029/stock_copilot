@@ -7,7 +7,9 @@
 | 文档 | 说明 | 状态 |
 |------|------|------|
 | [product-overview.md](product-overview.md) | 产品总览、能力域、决策护航与验收标准 | **主文档** |
-| [features/value-analysis.md](features/value-analysis.md) | 价值面分析模块需求细则 | 细则 v1（待 propose） |
+| [roadmap-todo.md](roadmap-todo.md) | **功能待办清单**（已交付 vs 待实现，便于自检） | 维护中 |
+| [features/value-analysis.md](features/value-analysis.md) | 价值面分析模块需求细则 | 细则 v3 |
+| [features/tech-analysis.md](features/tech-analysis.md) | 技术面分析模块需求细则 | 细则 v3 |
 | [../user_story.md](../user_story.md) | 原始用户故事与期望（素材） | 已纳入 product-overview |
 
 ## 维护规则

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""端到端数据采集脚本：fetch → upsert → 打印读回摘要。
+"""端到端数据采集脚本：委托 CLI sync 逻辑。
 
 用法：
     # 采集 config/value_data_validation_stocks.yaml 中全部样本
@@ -14,7 +14,7 @@
 说明：
     - 首次运行若缺少 config/app.yaml，会自动从 app.example.yaml 复制。
     - 数据写入 config 中 db.url 指定的数据库（默认 data/stock_copilot.db）。
-    - 打印每只股票各数据源的字段覆盖摘要（covered/missing）。
+    - 内部调用 apps.cli.run_sync，同步价值面快照与 K 线。
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ import logging
 import sys
 from pathlib import Path
 
-# 确保 src/ 在 PYTHONPATH（从仓库根运行时有效）
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
@@ -52,14 +51,14 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _print_result_summary(code: str, name: str, stock) -> None:
+def _print_result_summary(code: str, stock) -> None:
     total_numeric = sum(
         1 for f in stock.__dataclass_fields__
         if f not in ("code", "name", "exchange", "field_sources",
                      "data_timestamp", "fundamental_report_date", "missing_fields")
     )
     covered_count = total_numeric - len(stock.missing_fields or [])
-    print(f"\n  [{code}] {name}")
+    print(f"\n  [{code}] {stock.name or code}")
     print(f"    字段覆盖: {covered_count}/{total_numeric}")
     if stock.current_price:
         print(f"    当前价:  {stock.current_price:.2f}")
@@ -80,11 +79,10 @@ def main() -> None:
     from dao.engine import Base, create_db_engine, make_session_factory
     from dao.stock_snapshot_repo import StockSnapshotRepo
     from data_provider.provider import StockDataProvider
+    from apps.cli import run_sync
 
-    # 加载配置
     config = load_app_config()
 
-    # 决定要采集的股票列表
     if args.codes:
         stocks = [{"code": c, "name": c, "prototype": "unknown"} for c in args.codes]
         logger.info("手动模式：采集 %d 只股票", len(stocks))
@@ -92,13 +90,12 @@ def main() -> None:
         stocks = load_validation_stocks()
         logger.info("清单模式：采集 %d 只样本股票", len(stocks))
 
-    # 初始化数据库
     engine = create_db_engine(config)
     Base.metadata.create_all(engine)
     session_factory = make_session_factory(engine)
 
     print("\n" + "=" * 60)
-    print("  价值面数据采集任务开始")
+    print("  数据同步任务开始（价值面 + K线）")
     print("=" * 60)
 
     success_count = 0
@@ -109,17 +106,18 @@ def main() -> None:
         name: str = item.get("name", code)
 
         try:
+            run_sync(code, config=config)
             session = session_factory()
             repo = StockSnapshotRepo(session)
             provider = StockDataProvider.from_config(config, repo=repo)
-
-            stock = provider.get_stock_data(code)
-            session.commit()
+            stock = provider.get_stock_data_offline(code)
             session.close()
-
-            _print_result_summary(code, name, stock)
+            if stock:
+                _print_result_summary(code, stock)
             success_count += 1
-
+        except SystemExit:
+            logger.error("采集失败 [%s] %s", code, name)
+            fail_count += 1
         except Exception as exc:
             logger.error("采集失败 [%s] %s: %s", code, name, exc)
             fail_count += 1

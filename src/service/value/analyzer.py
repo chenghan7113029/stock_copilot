@@ -33,6 +33,15 @@ class ValueAnalyzer:
 
     def analyze(self, code: str) -> ValueAnalysisResult:
         stock = self._provider.get_stock_data(code)
+        return self._analyze_stock(stock)
+
+    def analyze_offline(self, code: str) -> ValueAnalysisResult | None:
+        stock = self._provider.get_stock_data_offline(code)
+        if stock is None:
+            return None
+        return self._analyze_stock(stock)
+
+    def _analyze_stock(self, stock) -> ValueAnalysisResult:
         prototype, method_keys = self._router.route(stock)
 
         warnings: list[str] = []

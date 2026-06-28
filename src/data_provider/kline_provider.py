@@ -46,13 +46,21 @@ class KlineProvider:
         self._realtime_overlay = realtime_overlay or RealtimeOverlayProvider(quote_fetcher)
 
     def get_kline(
-        self, code: str, days: int = 90, use_realtime: bool = False
+        self,
+        code: str,
+        days: int = 90,
+        use_realtime: bool = False,
+        offline: bool = False,
+        persist_today: bool = False,
     ) -> tuple[pd.DataFrame, list[str], str]:
         """获取 K 线 DataFrame、warnings 与 quote_mode。"""
         norm_code, exchange = normalize_stock_code(code)
         today = date.today()
         end_date = today.strftime("%Y-%m-%d")
         start_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+
+        if offline:
+            return self._get_kline_offline(norm_code, start_date, end_date)
 
         cached_rows = self._repo.query_range(norm_code, start_date, end_date)
         cached_dates = {row["trade_date"] for row in cached_rows}
@@ -108,7 +116,7 @@ class KlineProvider:
                 df = pd.concat([df, pd.DataFrame([last_row])], ignore_index=True)
 
             df = df.sort_values("date").reset_index(drop=True)
-            return self._finalize(df, warnings, norm_code, use_realtime)
+            return self._finalize(df, warnings, norm_code, use_realtime, persist_today)
 
         if cached_rows:
             gap_count = self._estimate_gap_count(cached_rows, start_date, end_date)
@@ -118,9 +126,26 @@ class KlineProvider:
                 warnings.append(f"K 线实时拉取失败，已使用缓存数据: {fetch_error}")
             df = pd.DataFrame(cached_rows).drop(columns=["trade_date"], errors="ignore")
             df = df.sort_values("date").reset_index(drop=True)
-            return self._finalize(df, warnings, norm_code, use_realtime)
+            return self._finalize(df, warnings, norm_code, use_realtime, persist_today)
 
         raise KlineUnavailableError(fetch_error or "K 线数据不可用")
+
+    def _get_kline_offline(
+        self,
+        norm_code: str,
+        start_date: str,
+        end_date: str,
+    ) -> tuple[pd.DataFrame, list[str], str]:
+        """仅读 SQLite 缓存，不触发任何外部 API。"""
+        warnings: list[str] = []
+        cached_rows = self._repo.query_range(norm_code, start_date, end_date)
+        if not cached_rows:
+            warnings.append("无缓存数据")
+            empty = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+            return empty, warnings, "eod"
+        df = pd.DataFrame(cached_rows).drop(columns=["trade_date"], errors="ignore")
+        df = df.sort_values("date").reset_index(drop=True)
+        return df, warnings, "eod"
 
     def _finalize(
         self,
@@ -128,12 +153,35 @@ class KlineProvider:
         warnings: list[str],
         code: str,
         use_realtime: bool,
+        persist_today: bool = False,
     ) -> tuple[pd.DataFrame, list[str], str]:
         quote_mode = "eod"
         if use_realtime:
             df, quote_mode, overlay_warnings = self._realtime_overlay.overlay(df, code)
             warnings.extend(overlay_warnings)
+        if persist_today and use_realtime and not df.empty:
+            self._persist_today_row(df, code)
         return df, warnings, quote_mode
+
+    def _persist_today_row(self, df: pd.DataFrame, code: str) -> None:
+        today_str = date.today().strftime("%Y-%m-%d")
+        today_rows = df[df["date"].astype(str).str[:10] == today_str]
+        if today_rows.empty:
+            return
+        row = today_rows.iloc[-1]
+        self._repo.upsert_batch(
+            [
+                {
+                    "code": code,
+                    "trade_date": today_str,
+                    "open": float(row["open"]) if pd.notna(row["open"]) else None,
+                    "high": float(row["high"]) if pd.notna(row["high"]) else None,
+                    "low": float(row["low"]) if pd.notna(row["low"]) else None,
+                    "close": float(row["close"]) if pd.notna(row["close"]) else None,
+                    "volume": float(row["volume"]) if pd.notna(row["volume"]) else None,
+                }
+            ]
+        )
 
     def _fetch_from_sources(
         self,

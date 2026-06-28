@@ -121,6 +121,7 @@ class TechAnalysisResult:
     warnings: list[str] = field(default_factory=list)
     data_timestamp: datetime | None = None
     quote_mode: str = "eod"
+    kline_last_date: str = ""
 
     weekly_trend_status: WeeklyTrendStatus | None = None
     weekly_ma_alignment: str = ""
