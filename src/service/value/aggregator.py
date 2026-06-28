@@ -9,6 +9,16 @@ from service.value.valuation.base import ValuationRange, ValuationResult
 
 SCORE_METHOD_KEYS = frozenset({"altman_z", "piotroski_f", "beneish_m", "value_trap", "sbc"})
 
+PRIMARY_METHODS_BY_PROTOTYPE: dict[str, frozenset[str]] = {
+    "value_growth": frozenset({"dcf", "pe_relative"}),
+    "bank": frozenset({"pb_relative", "residual_income"}),
+    "high_dividend": frozenset({"ddm", "two_stage_ddm"}),
+}
+
+_UNRELIABLE_WARNING = (
+    "⚠ 核心估值方法均因数据不足未运行，当前区间参考意义有限"
+)
+
 
 @dataclass
 class AggregateResult:
@@ -68,6 +78,11 @@ class ValuationAggregator:
 
         confidence = _confidence(filtered)
 
+        primary_methods = self._detect_primary_methods(results)
+        if primary_methods and self._all_primary_na(results, primary_methods):
+            confidence = "不可信"
+            warnings.insert(0, _UNRELIABLE_WARNING)
+
         return AggregateResult(
             fair_value_range=fair_value_range,
             margin_of_safety=mos,
@@ -121,6 +136,39 @@ class ValuationAggregator:
         if removed:
             warnings.append(f"IQR 过滤剔除异常公允价: {removed}")
         return filtered, warnings
+
+    @staticmethod
+    def _detect_prototype(results: dict[str, ValuationResult]) -> str | None:
+        keys = set(results.keys())
+        if "dcf" in keys or "pe_relative" in keys:
+            return "value_growth"
+        if "pb_relative" in keys or "residual_income" in keys:
+            return "bank"
+        if "ddm" in keys or "two_stage_ddm" in keys:
+            return "high_dividend"
+        return None
+
+    @classmethod
+    def _detect_primary_methods(cls, results: dict[str, ValuationResult]) -> frozenset[str]:
+        proto = cls._detect_prototype(results)
+        if proto is None:
+            return frozenset()
+        return PRIMARY_METHODS_BY_PROTOTYPE.get(proto, frozenset())
+
+    @staticmethod
+    def _all_primary_na(
+        results: dict[str, ValuationResult],
+        primary_methods: frozenset[str],
+    ) -> bool:
+        if not primary_methods:
+            return False
+        for key in primary_methods:
+            result = results.get(key)
+            if result is None:
+                continue
+            if result.applicability != "Not Applicable" and result.fair_value > 0:
+                return False
+        return True
 
 
 def _percentile(values: list[float], p: float) -> float:

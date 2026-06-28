@@ -43,6 +43,10 @@ data_sources:
     #   priority: 3
     #   token: ""          # 从 tushare.pro 个人中心复制，勿提交到 Git
 
+# 价值面分析假设（Baostock FCF 推导 fallback 等）
+value_analysis:
+  fcf_rate: 0.85  # FCF/净利润比率 fallback（白酒等轻资产行业参考值）
+
 # 外部参考仓库本地路径（只读查阅，不参与 import；整个 ref/ 目录不进 git）
 ref:
   daily_stock_analysis: ref/daily_stock_analysis

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -43,6 +43,18 @@ def create_db_engine(config: dict[str, Any]) -> Engine:
 
     logger.info("数据库 engine 创建完成: %s", url.split("?")[0])
     return engine
+
+
+def ensure_sqlite_schema(engine: Engine) -> None:
+    """SQLite 轻量 schema 补丁（create_all 不修改已有表结构）。"""
+    if not str(engine.url).startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(stock_snapshots)")).fetchall()
+        col_names = {row[1] for row in rows}
+        if "historical_pe_json" not in col_names:
+            conn.execute(text("ALTER TABLE stock_snapshots ADD COLUMN historical_pe_json TEXT"))
+            logger.info("已添加列 stock_snapshots.historical_pe_json")
 
 
 class Base(DeclarativeBase):

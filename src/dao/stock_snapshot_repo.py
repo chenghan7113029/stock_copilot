@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -112,10 +113,26 @@ class StockSnapshotRepo:
             v = result.data.get(f)
             if v is not None:
                 record[f] = v
+        hist_pe = result.data.get("historical_pe")
+        if isinstance(hist_pe, list) and len(hist_pe) >= 3:
+            record["historical_pe_json"] = json.dumps(hist_pe)
         if "data_timestamp" in result.data:
             ts = result.data["data_timestamp"]
             record["data_timestamp"] = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
         return record
+
+    @staticmethod
+    def historical_pe_from_snapshot(snapshot: StockSnapshot) -> list[float] | None:
+        raw = getattr(snapshot, "historical_pe_json", None)
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list) and len(parsed) >= 3:
+                return [float(x) for x in parsed]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning("historical_pe_json 解析失败: %s", snapshot.code)
+        return None
 
     def _upsert_dict(self, record: dict[str, Any]) -> None:
         """SQLite insert or replace（通用 upsert）。"""

@@ -25,7 +25,7 @@ PROFIT_DATA_FIELD_MAP: dict[str, str] = {
     "roeAvg": "roe",             # 净资产收益率（平均）%
     "epsTTM": "eps",             # 每股收益 TTM
     "MBRevenue": "revenue",      # 主营业务收入（元）
-    "netProfit": "net_income",   # 净利润（元）
+    "netProfit": "_quarterly_net_profit",  # 单季/累计净利润（内部字段，勿直接当年度净利）
     "grossProfitMargin": "operating_margin",  # 毛利率（%），作为营业利润率近似
 }
 
@@ -50,7 +50,7 @@ GROWTH_DATA_FIELD_MAP: dict[str, str] = {
 
 # ── query_cash_flow_data 现金流（季频）───────────────────────────────────────
 CASHFLOW_DATA_FIELD_MAP: dict[str, str] = {
-    "operCashTTM": "fcf",         # 经营性现金流 TTM（近似 FCF，无 capex 拆分）
+    "operCashTTM": "_operating_cashflow_ttm",  # 经营现金流 TTM（内部，经 FCF 推导链写入 fcf）
     "CFOToOR": "_cfo_to_or",
     "CFOToNP": "_cfo_to_np",
     "CFOToGr": "_cfo_to_gr",

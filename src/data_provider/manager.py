@@ -43,7 +43,7 @@ class SourceManager:
             name = src.get("name", "").lower()
             priority_override = src.get("priority")
 
-            fetcher = cls._build_fetcher(name, priority_override, src)
+            fetcher = cls._build_fetcher(name, priority_override, src, config)
             if fetcher is not None:
                 fetchers.append(fetcher)
             elif name == "tushare":
@@ -61,6 +61,7 @@ class SourceManager:
         name: str,
         priority_override: int | None,
         src: dict | None = None,
+        config: dict | None = None,
     ) -> BaseFetcher | None:
         """根据名称构建 fetcher 实例，可覆写优先级。"""
         if name == "akshare":
@@ -72,7 +73,7 @@ class SourceManager:
 
         if name == "baostock":
             from data_provider.baostock.fetcher import BaostockFetcher
-            f = BaostockFetcher()
+            f = BaostockFetcher(config=config or {})
             if priority_override is not None:
                 f.priority = priority_override
             return f

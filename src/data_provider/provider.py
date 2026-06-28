@@ -22,6 +22,7 @@ from common.exceptions import UnsupportedMarketError
 from common.models.stock_data import StockData
 from data_provider.base import is_a_share, normalize_stock_code
 from data_provider.manager import SourceManager
+from dao.stock_snapshot_repo import StockSnapshotRepo
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +50,15 @@ _STOCK_DATA_FIELDS = {
 class StockDataProvider:
     """统一 A 股数据提供者。"""
 
-    def __init__(self, manager: SourceManager, repo: Any = None) -> None:
+    def __init__(self, manager: SourceManager, repo: Any = None, config: dict[str, Any] | None = None) -> None:
         self._manager = manager
         self._repo = repo  # 可选 DAO，若注入则落库
+        self._config = config or {}
 
     @classmethod
     def from_config(cls, config: dict[str, Any], repo: Any = None) -> "StockDataProvider":
         manager = SourceManager.from_config(config)
-        return cls(manager, repo)
+        return cls(manager, repo, config)
 
     def get_stock_data(self, raw_code: str) -> StockData:
         """获取指定 A 股的完整估值数据。
@@ -100,6 +102,8 @@ class StockDataProvider:
 
         # 计算派生字段（PE/PB/dividend_yield 若可得）
         self._derive_ratios(stock)
+        self._derive_ttm_fields(stock)
+        self._derive_fcf_fields(stock)
 
         # 最终整理 missing_fields
         self._audit_missing(stock)
@@ -134,6 +138,8 @@ class StockDataProvider:
             self._merge_result(stock, data, source)
 
         self._derive_ratios(stock)
+        self._derive_ttm_fields(stock)
+        self._derive_fcf_fields(stock)
         self._audit_missing(stock)
         return stock
 
@@ -147,6 +153,9 @@ class StockDataProvider:
             v = getattr(snapshot, field_name, None)
             if v is not None:
                 data[field_name] = v
+        hist_pe = StockSnapshotRepo.historical_pe_from_snapshot(snapshot)
+        if hist_pe is not None:
+            data["historical_pe"] = hist_pe
         if snapshot.data_timestamp is not None:
             data["data_timestamp"] = snapshot.data_timestamp
         if snapshot.name:
@@ -173,6 +182,17 @@ class StockDataProvider:
         if stock.name == "" and data.get("name"):
             stock.name = str(data["name"])
 
+        hist_pe = data.get("historical_pe")
+        if (
+            isinstance(hist_pe, list)
+            and len(hist_pe) >= 3
+            and stock.historical_pe is None
+        ):
+            stock.historical_pe = hist_pe
+            stock.field_sources["historical_pe"] = source
+            if "historical_pe" in stock.missing_fields:
+                stock.missing_fields.remove("historical_pe")
+
         for field_name in _STOCK_DATA_FIELDS - {"name", "exchange"}:
             v = data.get(field_name)
             if v is not None and isinstance(v, (int, float)):
@@ -192,6 +212,35 @@ class StockDataProvider:
                 stock.set_field("pb_ratio", price / bvps, "derived")
             if dps and dps > 0 and stock.dividend_yield is None:
                 stock.set_field("dividend_yield", (dps / price) * 100, "derived")
+
+    def _derive_ttm_fields(self, stock: StockData) -> None:
+        """用 epsTTM × 总股本推导 TTM 净利润（跨源合并后执行）。"""
+        eps = stock.eps
+        shares = stock.shares_outstanding
+        if eps and shares and eps > 0 and shares > 0:
+            stock.net_income = eps * shares
+            stock.field_sources["net_income"] = "derived"
+            if "net_income" in stock.missing_fields:
+                stock.missing_fields.remove("net_income")
+
+    def _derive_fcf_fields(self, stock: StockData) -> None:
+        """net_income TTM 修正后，用同一推导链刷新 FCF。"""
+        if stock.field_sources.get("net_income") != "derived":
+            return
+        from data_provider.baostock.fetcher import derive_fcf
+
+        fcf_rate = float(self._config.get("value_analysis", {}).get("fcf_rate", 0.85))
+        data = {
+            "revenue": stock.revenue,
+            "net_income": stock.net_income,
+            "operating_margin": stock.operating_margin,
+        }
+        fcf, _ = derive_fcf(data, fcf_rate)
+        if fcf is not None and fcf > 0:
+            stock.fcf = fcf
+            stock.field_sources["fcf"] = "derived"
+            if "fcf" in stock.missing_fields:
+                stock.missing_fields.remove("fcf")
 
     def _audit_missing(self, stock: StockData) -> None:
         """遍历所有数值字段，将 None 字段加入 missing_fields。"""

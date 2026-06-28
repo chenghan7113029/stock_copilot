@@ -14,6 +14,7 @@
 | 2026-06-28 | 初稿：汇总 P0–V2 待办；标记 F-16/F-20/双轨 Facade 已交付 |
 | 2026-06-28 | 新增 §5.1 CLI 核心设计（add-cli-core 提案）；更新 §5 阶段 A 状态 |
 | 2026-06-28 | add-cli-core 实现完成：sync / report tech / report value |
+| 2026-06-28 | fix-baostock-data-quality 实现：historical_pe、FCF 推导链、CAGR、Aggregator 可信度守卫 |
 
 ---
 
@@ -118,10 +119,33 @@
 
 | ID | 项 | 说明 | 建议 change | 状态 |
 |----|-----|------|-------------|------|
-| D-E | 历史 PE/PB 序列 | Tushare Pro → `historical_pe/pb`；解锁 `pe_relative`/`pb_relative` | `add-historical-multiples-provider` | [ ] 待建 |
+| D-E | 历史 PE/PB 序列 | Baostock 季末价÷epsTTM → `historical_pe`；解锁 `pe_relative` | `fix-baostock-data-quality` | [x] Baostock 层已实现 |
+| D-F | FCF 推导链 | operCashTTM → CFOToOR×revenue → net_income×fcf_rate | `fix-baostock-data-quality` | [x] 已实现 |
+| D-G | 聚合可信度守卫 | 核心方法全 N/A 时标「不可信」 | `fix-baostock-data-quality` | [x] 已实现 |
+| D-H | Tushare 财报补全 | income/cashflow/balance → 全方法 ±5% | `add-tushare-financials` | [ ] 待 Token 升级 |
 | E | REST API | `POST /api/v1/analysis/value` 等 | `add-value-api`（待定） | [ ] 待建 |
 | F | CLI / 看板 | `python -m apps.cli sync/report ...` | 与 PO-08 合并 | [x] CLI 核心 |
 | G | LLM ContextPack | 价值面块注入双轨 + LLM 叙述 | 与 PO-02 合并 | [ ] 待建 |
+
+### 5.2 数据质量修复（fix-baostock-data-quality）
+
+> OpenSpec change：`openspec/changes/fix-baostock-data-quality/`  
+> 状态：✅ 已实现
+
+| 修复项 | 说明 | 验证（600519） |
+|--------|------|----------------|
+| `net_income` TTM | `epsTTM × shares_outstanding`（Provider 层跨源合并后推导） | ~825 亿 |
+| `historical_pe` | 季末收盘价 ÷ epsTTM，最近 2 年 8 季 | 8 个有效值 |
+| `growth_rate` | 2 年 epsTTM CAGR，退化 YOYNI | ~3.1% |
+| FCF 推导链 | operCashTTM → CFOToOR×revenue → net_income×fcf_rate | DCF 可运行 |
+| Aggregator 守卫 | dcf + pe_relative 均 N/A → confidence「不可信」 | — |
+| sync 稳定性 | 禁用 AKShare、Baostock 单 session fetch_all、CLI 静默 WARNING | sync ~30s |
+
+**600519 验证结果（2026-06-28）：**
+
+- pe_relative：1452.78（目标 1380–1480，✅）
+- DCF：773.44（可运行，FCF 仍为 fallback 估算）
+- 聚合中位：810（较修复前 405 翻倍；全方法 ±5% 待层 B）
 
 ### 4.3 V2 原型与方法（明确后置）
 
@@ -145,7 +169,8 @@
 |------|--------|------|------|
 | **A** | CLI 核心入口（`add-cli-core`） | 已有 `DualTrackAnalyzer`，缺对外入口 | ✅ 已实现 |
 | **B** | LLM 综合报告（PO-02 / G） | 双轨结果可直接打包；情绪维可后补 | ⬜ 待立项 |
-| **C** | 历史 PE/PB（D-E） | 解锁 relative 估值，价值面完整度提升明显 | ⬜ 待立项 |
+| **C** | 历史 PE/PB（D-E） | 解锁 relative 估值，价值面完整度提升明显 | ✅ Baostock 层（fix-baostock-data-quality） |
+| **C2** | Tushare 财报补全（D-H） | 全方法 ±5% 精度 | ⬜ add-tushare-financials |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ⬜ 待立项 |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ⬜ 待立项 |
 | **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ⬜ 待立项 |
@@ -236,4 +261,4 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 | 价值面 V1.x 增强 | 编排 P0 | ~6 项（T-1/2/3/7/8/15 + D-E） |
 | 价值面 V2 | — | 7+ 项（原型与方法扩展） |
 
-**OpenSpec 队列：** `add-cli-core`（✅ 已实现，待 `/opsx-archive` 归档）
+**OpenSpec 队列：** `add-tushare-financials`（层 B，待 Token 升级后实施）

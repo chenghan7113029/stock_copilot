@@ -148,3 +148,32 @@ def test_confidence_medium_with_two_values():
     }
     out = agg.aggregate(results, current_price=750.0)
     assert out.confidence == "Medium"
+
+
+def test_all_primary_na_marks_unreliable():
+    agg = ValuationAggregator()
+    results = {
+        "dcf": ValuationResult(
+            method="DCF",
+            fair_value=0,
+            current_price=1168.0,
+            premium_discount=0,
+            assessment="N/A",
+            error="missing fcf",
+            applicability="Not Applicable",
+        ),
+        "pe_relative": ValuationResult(
+            method="PE Relative",
+            fair_value=0,
+            current_price=1168.0,
+            premium_discount=0,
+            assessment="N/A - Insufficient historical PE data",
+            error="historical_pe",
+            applicability="Not Applicable",
+        ),
+        "owner_earnings": _value_result(157.0, method="Owner Earnings"),
+        "graham_formula": _value_result(467.0, method="Graham Formula"),
+    }
+    out = agg.aggregate(results, current_price=1168.0)
+    assert out.confidence == "不可信"
+    assert out.warnings[0].startswith("⚠ 核心估值方法")

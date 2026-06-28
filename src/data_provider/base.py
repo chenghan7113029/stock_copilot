@@ -125,6 +125,14 @@ class BaseFetcher(ABC):
 
 # ── 指数退避重试工具 ──────────────────────────────────────────────────────────
 
+_NON_RETRYABLE_MARKERS = (
+    "Length mismatch",
+    "Expected axis has",
+    "invalid literal",
+    "No columns to parse",
+)
+
+
 def retry_with_backoff(
     func: Callable,
     *args,
@@ -141,6 +149,9 @@ def retry_with_backoff(
         try:
             return func(*args, **kwargs)
         except Exception as exc:
+            msg = str(exc)
+            if any(marker in msg for marker in _NON_RETRYABLE_MARKERS):
+                raise
             if attempt == max_attempts:
                 raise
             delay = min(base_delay * (2 ** (attempt - 1)), max_delay)

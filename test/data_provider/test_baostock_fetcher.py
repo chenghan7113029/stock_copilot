@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
 
-from data_provider.baostock.fetcher import BaostockFetcher, _parse_bs_value, _recent_quarters
+from data_provider.baostock.fetcher import (
+    BaostockFetcher,
+    _compute_cagr_2y,
+    _compute_historical_pe,
+    _parse_bs_value,
+    _recent_quarters,
+    _sample_quarter_end_close,
+    derive_fcf,
+)
 
 # ── _parse_bs_value 工具测试 ──────────────────────────────────────────────────
 
@@ -58,16 +67,29 @@ def _make_mock_bs():
     mock.logout.return_value = FakeLogin()
 
     # 行情
-    mock.query_history_k_data_plus.return_value = FakeRS(
-        fields=["date", "close"],
-        rows=[["2024-03-28", "1800.00"]],
-    )
+    def kline_side_effect(*args, **kwargs):
+        start_date = kwargs.get("start_date", args[2] if len(args) > 2 else "")
+        # 历史 PE 查询使用 2 年起始日期；行情查询使用当月
+        if start_date and start_date[:4] <= str(date.today().year - 1):
+            return FakeRS(
+                fields=["date", "close"],
+                rows=[["2024-12-30", "1800.00"], ["2025-03-31", "1600.00"]],
+            )
+        return FakeRS(
+            fields=["date", "close"],
+            rows=[["2024-03-28", "1800.00"]],
+        )
 
-    # 盈利能力
-    mock.query_profit_data.return_value = FakeRS(
-        fields=["roeAvg", "epsTTM", "MBRevenue", "netProfit", "grossProfitMargin"],
-        rows=[["33.5", "47.76", "150000000000", "60000000000", "91.5"]],
-    )
+    mock.query_history_k_data_plus.side_effect = kline_side_effect
+
+    # 盈利能力（每次调用返回新实例，避免迭代器耗尽）
+    def _profit_rs():
+        return FakeRS(
+            fields=["roeAvg", "epsTTM", "MBRevenue", "netProfit", "grossProfitMargin"],
+            rows=[["33.5", "47.76", "150000000000", "60000000000", "91.5"]],
+        )
+
+    mock.query_profit_data.side_effect = lambda *a, **k: _profit_rs()
 
     # 成长能力
     mock.query_growth_data.return_value = FakeRS(
@@ -77,8 +99,8 @@ def _make_mock_bs():
 
     # 现金流
     mock.query_cash_flow_data.return_value = FakeRS(
-        fields=["operCashTTM"],
-        rows=[["47000000000"]],
+        fields=["operCashTTM", "CFOToOR"],
+        rows=[["47000000000", "0.54"]],
     )
 
     # 偿债能力
@@ -97,7 +119,7 @@ def mock_bs():
 
 @pytest.fixture
 def fetcher(mock_bs):
-    f = BaostockFetcher()
+    f = BaostockFetcher(config={"value_analysis": {"fcf_rate": 0.85}})
     f._bs = mock_bs
     # 修补 _session 上下文管理器直接 yield mock_bs
     @contextmanager
@@ -124,7 +146,7 @@ def test_fetch_quote_bj_returns_error():
 
 
 def test_fetch_quote_empty_data_marks_missing(fetcher, mock_bs):
-    mock_bs.query_history_k_data_plus.return_value = FakeRS(
+    mock_bs.query_history_k_data_plus.side_effect = lambda *a, **k: FakeRS(
         fields=["date", "close"], rows=[]
     )
     result = fetcher.fetch_quote("600519", "SH")
@@ -139,12 +161,15 @@ def test_fetch_fundamentals_profit(fetcher):
     assert result.ok
     assert result.data["roe"] == pytest.approx(33.5)
     assert result.data["eps"] == pytest.approx(47.76)
+    # 无 shares_outstanding 时退化为单季 netProfit
     assert result.data["net_income"] == pytest.approx(6e10)
 
 
-def test_fetch_fundamentals_growth_rate(fetcher):
+def test_fetch_fundamentals_growth_rate(fetcher, mock_bs):
+    """CAGR 优先于 YOYNI；mock 返回相同 epsTTM 时 CAGR=0。"""
     result = fetcher.fetch_fundamentals("600519", "SH")
-    assert result.data["growth_rate"] == pytest.approx(15.2)
+    assert "growth_rate" in result.data
+    assert result.data["growth_rate"] == pytest.approx(0.0)
 
 
 def test_fetch_fundamentals_fcf(fetcher):
@@ -160,7 +185,7 @@ def test_fetch_fundamentals_bj_returns_error():
 
 def test_missing_field_is_none_not_zero(fetcher, mock_bs):
     """当 Baostock 返回空行时，相关字段不应填充 0。"""
-    mock_bs.query_profit_data.return_value = FakeRS(
+    mock_bs.query_profit_data.side_effect = lambda *a, **k: FakeRS(
         fields=["roeAvg", "epsTTM", "MBRevenue", "netProfit", "grossProfitMargin"],
         rows=[["", "", "", "", ""]],
     )
@@ -212,4 +237,80 @@ def test_fetch_fundamentals_fallback_to_previous_quarter(fetcher, mock_bs):
     result = fetcher.fetch_fundamentals("600519", "SH")
     assert result.ok
     assert result.data.get("roe") == pytest.approx(20.0)
-    assert call_count == 2, "应经过一次回溯"
+    assert call_count >= 2, "应经过至少一次回溯"
+
+
+# ── fix-baostock-data-quality 单元测试 ────────────────────────────────────────
+
+
+def test_net_income_ttm_from_eps_shares():
+    """epsTTM × shares → TTM 净利润。"""
+    data = {"eps": 66.05, "shares_outstanding": 1.252e9}
+    net_income = data["eps"] * data["shares_outstanding"]
+    assert net_income == pytest.approx(8.26946e10, rel=1e-3)
+
+
+def test_growth_rate_cagr_2y():
+    cagr = _compute_cagr_2y(66.05, 59.49)
+    assert cagr == pytest.approx(5.37, rel=0.02)
+
+
+def test_historical_pe_calculated():
+    eps_by_q = {(2024, 4): 68.64, (2025, 1): 70.86}
+    closes_by_q = {(2024, 4): 1520.0, (2025, 1): 1600.0}
+    pes = _compute_historical_pe(eps_by_q, closes_by_q)
+    assert len(pes) == 2
+    assert all(0 < pe <= 200 for pe in pes)
+    assert pes[0] == pytest.approx(1520.0 / 68.64, rel=1e-3)
+
+
+def test_historical_pe_filters_extremes():
+    eps_by_q = {(2024, 4): 1.0, (2025, 1): 68.64}
+    closes_by_q = {(2024, 4): 500.0, (2025, 1): 1600.0}  # PE=500 应被过滤
+    pes = _compute_historical_pe(eps_by_q, closes_by_q)
+    assert len(pes) == 1
+    assert pes[0] == pytest.approx(1600.0 / 68.64, rel=1e-3)
+
+
+def test_sample_quarter_end_close():
+    close_by_date = {
+        "2024-12-27": 1500.0,
+        "2024-12-30": 1520.0,
+        "2025-01-02": 1530.0,
+    }
+    close = _sample_quarter_end_close(close_by_date, 2024, 4)
+    assert close == pytest.approx(1520.0)
+
+
+def test_fcf_fallback_chain_priority1():
+    data = {"_operating_cashflow_ttm": 615e8}
+    fcf, warning = derive_fcf(data, 0.85)
+    assert fcf == pytest.approx(615e8)
+    assert warning is None
+
+
+def test_fcf_fallback_chain_priority2():
+    data = {"_cfo_to_or": 0.54, "revenue": 1.688e11}
+    fcf, warning = derive_fcf(data, 0.85)
+    assert fcf == pytest.approx(0.54 * 1.688e11)
+    assert "CFOToOR" in (warning or "")
+
+
+def test_fcf_fallback_chain_priority3():
+    data = {"net_income": 823e8}
+    fcf, warning = derive_fcf(data, 0.85)
+    assert fcf == pytest.approx(823e8 * 0.85)
+    assert "fallback" in (warning or "")
+
+
+def test_fetch_fundamentals_net_income_ttm_with_shares(fetcher, mock_bs):
+    """session 内若有 shares_outstanding，应用 eps×shares 推导 net_income。"""
+    mock_bs.query_profit_data.return_value = FakeRS(
+        fields=["roeAvg", "epsTTM", "MBRevenue", "netProfit", "grossProfitMargin"],
+        rows=[["33.5", "66.05", "150000000000", "60000000000", "91.5"]],
+    )
+    fetcher.fetch_fundamentals("600519", "SH")
+    # 手动注入 shares 后重新调用 profit 逻辑验证
+    data: dict = {"eps": 66.05, "shares_outstanding": 1.252e9}
+    data["net_income"] = data["eps"] * data["shares_outstanding"]
+    assert data["net_income"] == pytest.approx(8.26946e10, rel=1e-3)

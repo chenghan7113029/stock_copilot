@@ -10,7 +10,8 @@ from typing import Any
 from apps.formatters import format_tech_report, format_value_report
 from common.config_loader import load_app_config
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
-from dao.engine import Base, create_db_engine, make_session_factory
+from common.win_console import setup_utf8_console
+from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
 from dao.kline_repo import KlineRepo
 from dao.models import Kline  # noqa: F401 — register ORM model
 from dao.stock_snapshot_repo import StockSnapshotRepo
@@ -20,11 +21,27 @@ from service.tech.analyzer import TechAnalyzer
 from service.value.analyzer import ValueAnalyzer
 
 
+def _configure_cli_logging(level_name: str = "ERROR") -> None:
+    """CLI 默认仅向 stderr 输出 ERROR，避免 PowerShell 将 WARNING 误判为失败。"""
+    import logging
+
+    level = getattr(logging, level_name.upper(), logging.ERROR)
+    root = logging.getLogger()
+    root.handlers.clear()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    root.addHandler(handler)
+    root.setLevel(level)
+
+
 def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = None) -> None:
     """同步单票价值面快照与 K 线数据（唯一联网路径）。"""
     cfg = config or load_app_config()
+    _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
     engine = create_db_engine(cfg)
     Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
     session_factory = make_session_factory(engine)
     session = session_factory()
 
@@ -44,14 +61,14 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
 
         session.commit()
 
-        kline_status = f"K线 {len(df)}行 ✓"
+        kline_status = f"K线 {len(df)}行 OK"
         if realtime:
             kline_status += f" (quote_mode: {quote_mode})"
         for w in kline_warnings:
             if "realtime" in w.lower() or "overlay" in w.lower() or "降级" in w:
                 print(f"[warn] {w}", file=sys.stderr)
 
-        print(f"[sync] {stock.code} 完成：价值快照 ✓ | {kline_status}")
+        print(f"[sync] {stock.code} done: value snapshot OK | {kline_status}")
     except Exception as exc:
         session.rollback()
         print(f"[error] 数据拉取失败：{exc}", file=sys.stderr)
@@ -91,6 +108,7 @@ def run_report_value(
     cfg = config or load_app_config()
     engine = create_db_engine(cfg)
     Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
     session_factory = make_session_factory(engine)
     session = session_factory()
 
@@ -149,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    setup_utf8_console()
     args = build_parser().parse_args(argv)
 
     try:

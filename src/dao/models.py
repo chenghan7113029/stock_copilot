@@ -16,6 +16,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -101,6 +102,9 @@ class StockSnapshot(Base):
 
     # ── 成长 ──────────────────────────────────────────────────────────────────
     growth_rate: Mapped[float | None] = mapped_column(Float)
+
+    # ── 历史估值序列（JSON 数组）──────────────────────────────────────────────
+    historical_pe_json: Mapped[str | None] = mapped_column(Text)
 
     # ── 约束 ──────────────────────────────────────────────────────────────────
     __table_args__ = (
