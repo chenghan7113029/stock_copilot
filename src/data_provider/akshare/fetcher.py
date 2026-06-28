@@ -134,6 +134,51 @@ class AKShareFetcher(BaseFetcher):
             df[col] = pd.to_numeric(df[col], errors="coerce")
         return df[["date", "open", "high", "low", "close", "volume"]]
 
+    def fetch_realtime_quote(self, code: str) -> dict[str, float | str]:
+        """从 stock_zh_a_spot_em 获取当日实时 OHLCV 快照。"""
+        norm_code = code.strip()[-6:].zfill(6)
+        try:
+            ak = self._get_ak()
+            raw_df = retry_with_backoff(ak.stock_zh_a_spot_em)
+        except Exception as exc:
+            raise DataProviderError(f"AKShare 实时行情接口失败: {exc}") from exc
+
+        if raw_df is None or raw_df.empty:
+            raise DataProviderError(f"AKShare 实时行情无数据: {code}")
+
+        if "代码" not in raw_df.columns:
+            raise DataProviderError("AKShare 实时行情缺少代码列")
+
+        matched = raw_df[
+            raw_df["代码"]
+            .astype(str)
+            .str.replace(r"\D", "", regex=True)
+            .str[-6:]
+            .str.zfill(6)
+            == norm_code
+        ]
+        if matched.empty:
+            raise DataProviderError(f"AKShare 未找到 {code} 的实时行情")
+
+        row = matched.iloc[0]
+        close = _parse_value(row.get("最新价"))
+        if close is None or close <= 0:
+            raise DataProviderError(f"AKShare 实时行情价格无效: {code}")
+
+        open_ = _parse_value(row.get("今开"))
+        high = _parse_value(row.get("最高"))
+        low = _parse_value(row.get("最低"))
+        volume = _parse_value(row.get("成交量"))
+
+        return {
+            "date": date.today().strftime("%Y-%m-%d"),
+            "open": float(open_ if open_ is not None else close),
+            "high": float(high if high is not None else close),
+            "low": float(low if low is not None else close),
+            "close": float(close),
+            "volume": float(volume if volume is not None else 0.0),
+        }
+
     # ── 基本面 ────────────────────────────────────────────────────────────────
 
     def fetch_fundamentals(self, code: str, exchange: str) -> FetchResult:

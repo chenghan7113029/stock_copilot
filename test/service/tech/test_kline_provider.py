@@ -34,9 +34,10 @@ def test_empty_cache_fetches_and_upserts():
     akshare = MagicMock()
 
     provider = KlineProvider(repo, baostock_fetcher=baostock, akshare_fetcher=akshare)
-    df, warnings = provider.get_kline("600519", days=90)
+    df, warnings, quote_mode = provider.get_kline("600519", days=90)
 
     assert not df.empty
+    assert quote_mode == "eod"
     baostock.fetch_kline.assert_called_once()
     assert repo.upsert_batch.called
     upserted = repo.upsert_batch.call_args[0][0]
@@ -74,8 +75,9 @@ def test_partial_cache_only_fetches_gaps():
     baostock.fetch_kline.return_value = _sample_df("2025-01-01", 5)
     provider = KlineProvider(repo, baostock_fetcher=baostock, akshare_fetcher=MagicMock())
 
-    df, _ = provider.get_kline("600519", days=90)
+    df, _, quote_mode = provider.get_kline("600519", days=90)
     assert not df.empty
+    assert quote_mode == "eod"
     baostock.fetch_kline.assert_called_once()
 
 
@@ -88,9 +90,10 @@ def test_baostock_fallback_to_akshare():
     akshare.fetch_kline.return_value = _sample_df("2025-01-01", 5)
 
     provider = KlineProvider(repo, baostock_fetcher=baostock, akshare_fetcher=akshare)
-    df, _ = provider.get_kline("600519", days=90)
+    df, _, quote_mode = provider.get_kline("600519", days=90)
 
     assert not df.empty
+    assert quote_mode == "eod"
     akshare.fetch_kline.assert_called_once()
 
 
@@ -129,9 +132,10 @@ def test_cache_fallback_with_warning_when_fetch_fails():
     akshare.fetch_kline.side_effect = Exception("down")
 
     provider = KlineProvider(repo, baostock_fetcher=baostock, akshare_fetcher=akshare)
-    df, warnings = provider.get_kline("600519", days=90)
+    df, warnings, quote_mode = provider.get_kline("600519", days=90)
 
     assert not df.empty
+    assert quote_mode == "eod"
     assert any("缺口" in w or "缓存" in w for w in warnings)
 
 

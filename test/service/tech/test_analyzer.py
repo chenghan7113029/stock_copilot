@@ -36,7 +36,7 @@ def _sample_kline(n: int = 60) -> pd.DataFrame:
 
 def test_analyze_returns_complete_result():
     provider = MagicMock()
-    provider.get_kline.return_value = (_sample_kline(), [])
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
     analyzer = TechAnalyzer(kline_provider=provider)
 
     result = analyzer.analyze("600519")
@@ -111,7 +111,7 @@ def test_from_config_factory():
 
 def test_custom_scoring_params():
     provider = MagicMock()
-    provider.get_kline.return_value = (_sample_kline(), [])
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
     config = TechAnalysisConfig(scoring_params=ScoringParams(bias_threshold=3.0))
     analyzer = TechAnalyzer(kline_provider=provider, config=config)
 
@@ -121,7 +121,7 @@ def test_custom_scoring_params():
 
 def test_weekly_trend_included_in_result():
     provider = MagicMock()
-    provider.get_kline.return_value = (_sample_kline(60), [])
+    provider.get_kline.return_value = (_sample_kline(60), [], "eod")
     analyzer = TechAnalyzer(kline_provider=provider)
 
     result = analyzer.analyze("600519")
@@ -184,3 +184,40 @@ def test_weekly_filter_disabled():
 
     assert signal.buy_signal == BuySignal.STRONG_BUY
     assert not any("周线空头" in r for r in signal.risk_factors)
+
+
+def test_analyze_default_quote_mode_eod():
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
+    analyzer = TechAnalyzer(kline_provider=provider)
+
+    result = analyzer.analyze("600519")
+
+    assert result.quote_mode == "eod"
+    provider.get_kline.assert_called_once_with("600519", days=90, use_realtime=False)
+
+
+def test_analyze_use_realtime_sets_quote_mode():
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(), [], "realtime")
+    analyzer = TechAnalyzer(kline_provider=provider)
+
+    result = analyzer.analyze("600519", use_realtime=True)
+
+    assert result.quote_mode == "realtime"
+    provider.get_kline.assert_called_once_with("600519", days=90, use_realtime=True)
+
+
+def test_analyze_realtime_fallback_quote_mode():
+    provider = MagicMock()
+    provider.get_kline.return_value = (
+        _sample_kline(),
+        ["实时报价获取失败，已降级为 EOD: network down"],
+        "eod_fallback",
+    )
+    analyzer = TechAnalyzer(kline_provider=provider)
+
+    result = analyzer.analyze("600519", use_realtime=True)
+
+    assert result.quote_mode == "eod_fallback"
+    assert any("实时报价" in w for w in result.warnings)

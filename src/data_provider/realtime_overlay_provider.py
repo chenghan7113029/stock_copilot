@@ -1,0 +1,60 @@
+"""将 AKShare 实时报价叠加到 K 线 DataFrame 末端。"""
+
+from __future__ import annotations
+
+import math
+from typing import Protocol
+
+import pandas as pd
+
+from common.exceptions import DataProviderError
+from data_provider.akshare.fetcher import AKShareFetcher
+
+
+class _RealtimeQuoteFetcher(Protocol):
+    def fetch_realtime_quote(self, code: str) -> dict[str, float | str]: ...
+
+
+class RealtimeOverlayProvider:
+    """将当日实时报价注入 K 线末端，失败时安全降级。"""
+
+    def __init__(self, fetcher: _RealtimeQuoteFetcher | None = None) -> None:
+        self._fetcher = fetcher or AKShareFetcher()
+
+    def overlay(self, df: pd.DataFrame, code: str) -> tuple[pd.DataFrame, str, list[str]]:
+        warnings: list[str] = []
+        if df is None or df.empty:
+            warnings.append("K 线为空，无法叠加实时报价")
+            return df, "eod_fallback", warnings
+
+        try:
+            quote = self._fetcher.fetch_realtime_quote(code)
+        except DataProviderError as exc:
+            warnings.append(f"实时报价获取失败，已降级为 EOD: {exc}")
+            return df.copy(), "eod_fallback", warnings
+
+        close = quote.get("close")
+        if close is None or not isinstance(close, (int, float)) or close <= 0 or math.isnan(close):
+            warnings.append("实时报价无效（价格为 0 或 NaN），已降级为 EOD")
+            return df.copy(), "eod_fallback", warnings
+
+        today = str(quote["date"])[:10]
+        row = {
+            "date": today,
+            "open": float(quote["open"]),
+            "high": float(quote["high"]),
+            "low": float(quote["low"]),
+            "close": float(quote["close"]),
+            "volume": float(quote["volume"]),
+        }
+
+        work = df.sort_values("date").copy().reset_index(drop=True)
+        work["date"] = work["date"].astype(str).str[:10]
+
+        if not work.empty and work.iloc[-1]["date"] == today:
+            for col, val in row.items():
+                work.at[work.index[-1], col] = val
+        else:
+            work = pd.concat([work, pd.DataFrame([row])], ignore_index=True)
+
+        return work, "realtime", warnings

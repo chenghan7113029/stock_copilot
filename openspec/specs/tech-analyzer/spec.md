@@ -6,11 +6,17 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 ## Requirements
 
 ### Requirement: TechAnalyzer.analyze(code) 完整分析流程
-`TechAnalyzer.analyze(code)` SHALL 完整执行：K 线获取 → 日线指标计算 → 周线指标计算 → 评分 → 组装 `TechAnalysisResult`。日线分析完成后，SHALL 自动基于同一份 DataFrame 调用 `IndicatorCalculator.calculate_weekly()` 追加周线分析。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
+`TechAnalyzer.analyze(code, use_realtime=False)` SHALL 完整执行：K 线获取 → 日线指标计算 → 周线指标计算 → 评分 → 组装 `TechAnalysisResult`。日线分析完成后，SHALL 自动基于同一份 DataFrame 调用 `IndicatorCalculator.calculate_weekly()` 追加周线分析。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
 
-#### Scenario: 正常分析流程（含周线）
+`use_realtime=True` 时，SHALL 透传至 `KlineProvider.get_kline()`，并将返回的 `quote_mode` 赋值给 `TechAnalysisResult.quote_mode`。
+
+#### Scenario: 正常分析流程（含周线，EOD 模式）
 - **WHEN** `analyze("600519")` 被调用且数据充足（≥ 25 日线）
-- **THEN** 返回的 `TechAnalysisResult` 包含完整日线字段，且 `weekly_trend_status` 非 None，`weekly_ma_alignment` 非空字符串
+- **THEN** 返回的 `TechAnalysisResult` 包含完整日线字段，且 `weekly_trend_status` 非 None，`quote_mode = "eod"`
+
+#### Scenario: 实时模式分析
+- **WHEN** `analyze("600519", use_realtime=True)` 被调用
+- **THEN** 返回完整 `TechAnalysisResult`，`quote_mode` 为 `"realtime"` 或 `"eod_fallback"`
 
 #### Scenario: 日线数据不足跳过周线
 - **WHEN** `analyze("600519")` 被调用但 K 线行数 < 25
@@ -73,6 +79,7 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 - **KDJ**：`kdj_k/d/j`（float）、`kdj_status`（KDJStatus 枚举）、`kdj_signal`（str）
 - **信号**：`buy_signal`（BuySignal 枚举）、`signal_score`（int 0~100）、`signal_reasons`（list[str]）、`risk_factors`（list[str]）
 - **周线**（F-20）：`weekly_trend_status`（WeeklyTrendStatus | None）、`weekly_ma_alignment`（str）、`weekly_macd_signal`（str）、`weekly_rsi_6`（float | None）、`weekly_ma5/10/20`（float | None）
+- **价格时效**（F-16）：`quote_mode`（str，`"eod"` / `"realtime"` / `"eod_fallback"`）
 - **元数据**：`warnings`（list[str]）、`data_timestamp`（datetime | None）
 
 #### Scenario: 完整输出包含所有分组

@@ -13,6 +13,7 @@ from dao.kline_repo import KlineRepo
 from data_provider.akshare.fetcher import AKShareFetcher
 from data_provider.baostock.fetcher import BaostockFetcher
 from data_provider.base import normalize_stock_code
+from data_provider.realtime_overlay_provider import RealtimeOverlayProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +34,21 @@ class KlineProvider:
         repo: KlineRepo,
         baostock_fetcher: _KlineFetcher | None = None,
         akshare_fetcher: _KlineFetcher | None = None,
+        realtime_overlay: RealtimeOverlayProvider | None = None,
     ) -> None:
         self._repo = repo
+        akshare = akshare_fetcher or AKShareFetcher()
         self._baostock = baostock_fetcher or BaostockFetcher()
-        self._akshare = akshare_fetcher or AKShareFetcher()
+        self._akshare = akshare
+        quote_fetcher = (
+            akshare if hasattr(akshare, "fetch_realtime_quote") else AKShareFetcher()
+        )
+        self._realtime_overlay = realtime_overlay or RealtimeOverlayProvider(quote_fetcher)
 
-    def get_kline(self, code: str, days: int = 90) -> tuple[pd.DataFrame, list[str]]:
-        """获取 K 线 DataFrame 与 warnings 列表。"""
+    def get_kline(
+        self, code: str, days: int = 90, use_realtime: bool = False
+    ) -> tuple[pd.DataFrame, list[str], str]:
+        """获取 K 线 DataFrame、warnings 与 quote_mode。"""
         norm_code, exchange = normalize_stock_code(code)
         today = date.today()
         end_date = today.strftime("%Y-%m-%d")
@@ -99,7 +108,7 @@ class KlineProvider:
                 df = pd.concat([df, pd.DataFrame([last_row])], ignore_index=True)
 
             df = df.sort_values("date").reset_index(drop=True)
-            return df, warnings
+            return self._finalize(df, warnings, norm_code, use_realtime)
 
         if cached_rows:
             gap_count = self._estimate_gap_count(cached_rows, start_date, end_date)
@@ -108,9 +117,23 @@ class KlineProvider:
             if fetch_error:
                 warnings.append(f"K 线实时拉取失败，已使用缓存数据: {fetch_error}")
             df = pd.DataFrame(cached_rows).drop(columns=["trade_date"], errors="ignore")
-            return df.sort_values("date").reset_index(drop=True), warnings
+            df = df.sort_values("date").reset_index(drop=True)
+            return self._finalize(df, warnings, norm_code, use_realtime)
 
         raise KlineUnavailableError(fetch_error or "K 线数据不可用")
+
+    def _finalize(
+        self,
+        df: pd.DataFrame,
+        warnings: list[str],
+        code: str,
+        use_realtime: bool,
+    ) -> tuple[pd.DataFrame, list[str], str]:
+        quote_mode = "eod"
+        if use_realtime:
+            df, quote_mode, overlay_warnings = self._realtime_overlay.overlay(df, code)
+            warnings.extend(overlay_warnings)
+        return df, warnings, quote_mode
 
     def _fetch_from_sources(
         self,

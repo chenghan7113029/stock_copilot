@@ -45,7 +45,7 @@ class TechAnalyzer:
         )
         return cls(kline_provider=provider, config=tech_cfg)
 
-    def analyze(self, raw_code: str) -> TechAnalysisResult:
+    def analyze(self, raw_code: str, use_realtime: bool = False) -> TechAnalysisResult:
         if not is_a_share(raw_code.strip()):
             raise UnsupportedMarketError(
                 f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
@@ -55,9 +55,10 @@ class TechAnalyzer:
         result = TechAnalysisResult(code=code)
 
         try:
-            df, kline_warnings = self._kline_provider.get_kline(
-                code, days=self._config.kline_days
+            df, kline_warnings, quote_mode = self._kline_provider.get_kline(
+                code, days=self._config.kline_days, use_realtime=use_realtime
             )
+            result.quote_mode = quote_mode
             result.warnings.extend(kline_warnings)
         except KlineUnavailableError as exc:
             result.buy_signal = BuySignal.WAIT

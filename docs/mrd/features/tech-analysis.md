@@ -1,7 +1,7 @@
 # 技术面分析模块 — 需求细则（MRD）
 
 > 最后更新：2026-06-28  
-> 状态：细则 v3（P0 核心 ✅ 已归档 `add-tech-analyzer-core`；F-20 周 K ✅ `add-weekly-kline`）  
+> 状态：细则 v3（P0 核心 ✅；F-16 实时行情 ✅；F-20 周 K ✅）  
 > 上级文档：[product-overview.md](../product-overview.md) §5.1.2  
 > 关联设计：[tech-analysis-reference.md](../../design/tech-analysis-reference.md)  
 > 参考实现：`ref/daily_stock_analysis/src/stock_analyzer.py`
@@ -16,6 +16,7 @@
 | 2026-06-21 | sync-implementation | §4/§6/§7/§10 与当前代码对齐：补齐 `warnings`/`data_timestamp`、实际缓存策略、`LegacyRefScorer`、`TechIndicators`、公共导出与 `from_config` 行为 |
 | 2026-06-21 | add-dual-track-analyzer | 双轨 Facade：`DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`；确定性 combined_signal 融合矩阵；39 项单测 |
 | 2026-06-28 | add-weekly-kline | F-20 周 K 线：日线聚合 `W-MON` → `WeeklyIndicators`；MACD(5/10/4)/RSI(6W)；`WeeklyTrendStatus` 5 级；`BullTrendScorer` 周线空头过滤 |
+| 2026-06-28 | add-realtime-overlay | F-16 实时行情：`fetch_realtime_quote` + `RealtimeOverlayProvider`；`use_realtime=True` 叠加当日报价；`quote_mode` 标识价格时效 |
 
 ---
 
@@ -47,7 +48,7 @@
 |---|--------|------|------|
 | F-01 | Baostock K 线数据获取 | ✅ | `BaostockFetcher.fetch_kline(code, exchange, start, end)` → OHLCV DataFrame |
 | F-02 | AKShare K 线数据获取（fallback） | ✅ | Baostock 不可用时自动切换 |
-| F-03 | KlineProvider 主备切换封装 | ✅ | `get_kline(code, days=90) → (DataFrame, warnings)` |
+| F-03 | KlineProvider 主备切换封装 | ✅ | `get_kline(code, days=90, use_realtime=False) → (DataFrame, warnings, quote_mode)` |
 | F-03a | K 线 SQLite 缓存（kline 表） | ✅ | 历史日期增量 upsert；当日实时合并、不写入缓存 |
 | F-04 | MA5/10/20/60 计算 | ✅ | 简单移动平均；`IndicatorCalculator` |
 | F-05 | 乖离率（BIAS）计算 | ✅ | 相对 MA5/10/20 的偏离百分比 |
@@ -66,7 +67,7 @@
 
 | # | 功能点 | 状态 | 说明 |
 |---|--------|------|------|
-| F-16 | 实时行情融合 | 待建 | 当日开盘后用实时价格补充 K 线末端，使 MA 计算不滞后一天 |
+| F-16 | 实时行情融合 | ✅ | AKShare `stock_zh_a_spot_em` 拉取当日报价；`RealtimeOverlayProvider` 替换 K 线末端；`analyze(use_realtime=True)` 启用；`quote_mode` 标识 eod/realtime/eod_fallback |
 | F-17 | 筹码分布 | 待建 | 获利比例、套牢盘比例（AKShare `stock_cyq_em`） |
 | F-18 | K 线形态识别 | 待建 | 锤头线、吞没、十字星等经典形态 |
 | F-19 | 布林带（Bollinger Bands） | 待建 | 均值 ± N×σ，判断波动率收缩/扩张 |
@@ -205,6 +206,9 @@ class TechAnalysisResult:
     weekly_ma5: float | None
     weekly_ma10: float | None
     weekly_ma20: float | None
+
+    # 价格时效（F-16）
+    quote_mode: str                   # "eod" / "realtime" / "eod_fallback"
 
     # 元数据
     warnings: list[str]              # 数据/计算层警告（含 MA60 替代、K 线缺口等）
@@ -392,7 +396,9 @@ V1 采用「整段 API 拉取 + 增量 upsert 未缓存历史行」，而非先�
 | DAO | `KlineRepo` | `src/dao/kline_repo.py` | `query_range` / `upsert_batch` |
 | 数据 | `BaostockFetcher.fetch_kline` | `src/data_provider/baostock/fetcher.py` | 前复权日 K |
 | 数据 | `AKShareFetcher.fetch_kline` | `src/data_provider/akshare/fetcher.py` | fallback 日 K |
-| 数据 | `KlineProvider` | `src/data_provider/kline_provider.py` | 主备 + 缓存 + 当日合并 |
+| 数据 | `KlineProvider` | `src/data_provider/kline_provider.py` | 主备 + 缓存 + 当日合并 + 可选实时叠加 |
+| 数据 | `RealtimeOverlayProvider` | `src/data_provider/realtime_overlay_provider.py` | 实时报价注入 K 线末端 |
+| 数据 | `AKShareFetcher.fetch_realtime_quote` | `src/data_provider/akshare/fetcher.py` | AKShare 实时 OHLCV 快照 |
 | 配置 | `TechAnalysisConfig` 等 | `src/service/tech/config.py` | 指标/评分/kline_days |
 | 计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | 纯 pandas；`TechIndicators` + `WeeklyIndicators` + `WeeklyKlineAggregator` |
 | 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | 生产默认；含周线空头过滤；`ScoringEngine` Protocol |
@@ -401,13 +407,14 @@ V1 采用「整段 API 拉取 + 增量 upsert 未缓存历史行」，而非先�
 | 模型 | `TechAnalysisResult` + 枚举 | `src/service/tech/models/tech_result.py` | 输出契约（含 `WeeklyTrendStatus`） |
 | 公共导出 | `__all__` | `src/service/tech/__init__.py` | `TechAnalyzer`, `TechAnalysisConfig`, `TechAnalysisResult`, `BuySignal`, `TrendStatus` |
 
-**单元测试（34 项，`test/service/tech/`）：**
+**单元测试（44 项，`test/data_provider/` + `test/service/tech/` 相关）：**
 
 | 文件 | 用例数 | 覆盖 |
 |------|--------|------|
 | `test_calculator.py` | 14 | MA/MACD/RSI/KDJ/量能/趋势/支撑/周线聚合与指标 |
-| `test_kline_provider.py` | 6 | 缓存 upsert、主备切换、失败降级、当日不写缓存 |
-| `test_analyzer.py` | 10 | 完整结果、非 A 股、K 线失败降级、人工复核、空头强制卖、from_config、周线字段与过滤 |
+| `test_kline_provider.py` | 6 | 缓存 upsert、主备切换、失败降级、当日不写缓存、quote_mode |
+| `test_analyzer.py` | 13 | 完整结果、非 A 股、K 线失败降级、人工复核、空头强制卖、from_config、周线、quote_mode |
+| `test_realtime_overlay_provider.py` | 4 | 实时叠加/追加/失败降级/无效价格 |
 | `test_consistency_with_ref.py` | 4 | vs ref ±0.1% + `LegacyRefScorer` 整数对齐 |
 
 **OpenSpec 主 spec（已 sync）：** `openspec/specs/tech-analyzer/`、`tech-kline-provider/`、`tech-indicator-calculator/`
@@ -446,8 +453,8 @@ TechAnalyzer.analyze(code)
     │
     ├─ 0. is_a_share(code) → 否则 UnsupportedMarketError
     │
-    ├─ 1. KlineProvider.get_kline(code, kline_days)
-    │       → (df, kline_warnings) 合并到 result.warnings
+    ├─ 1. KlineProvider.get_kline(code, kline_days, use_realtime)
+    │       → (df, kline_warnings, quote_mode) 合并到 result.warnings / result.quote_mode
     │       失败 → buy_signal=WAIT, risk_factors 含原因, 直接返回
     │       len(df) < 20 → 同上「数据不足」
     │
