@@ -52,6 +52,7 @@ BALANCE_SHEET_FIELD_MAP: dict[str, str] = {
     "acct_payable": "accounts_payable",
     "st_borr": "short_term_debt",
     "lt_borr": "long_term_debt",
+    "money_cap": "cash",
     "fix_assets": "net_fixed_assets",
 }
 

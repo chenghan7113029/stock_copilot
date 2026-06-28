@@ -63,3 +63,47 @@ def test_get_stock_data_offline_empty():
 def test_get_stock_data_offline_no_repo():
     provider = StockDataProvider(_make_manager(), repo=None)
     assert provider.get_stock_data_offline("600519") is None
+
+
+def test_tushare_financials_override_baostock_estimates():
+    """Tushare 财报字段应覆盖 Baostock 估算值。"""
+    bs = MagicMock()
+    bs.source_name = "baostock"
+    bs.priority = 1
+    bs.fetch_all.return_value = MagicMock(
+        ok=True,
+        error=None,
+        data={
+            "current_price": 1400.0,
+            "eps": 50.0,
+            "shares_outstanding": 1_256_190_000.0,
+            "revenue": 100_000_000_000.0,
+            "fcf": 50_000_000_000.0,
+        },
+        missing_fields=[],
+    )
+
+    ts = MagicMock()
+    ts.source_name = "tushare"
+    ts.priority = 2
+    ts.fetch_all.return_value = MagicMock(
+        ok=True,
+        error=None,
+        data={
+            "revenue": 168_800_000_000.0,
+            "fcf": 59_000_000_000.0,
+            "total_assets": 303_800_000_000.0,
+        },
+        missing_fields=[],
+    )
+
+    manager = SourceManager([bs, ts])
+    provider = StockDataProvider(manager)
+    stock = provider.get_stock_data("600519")
+
+    assert stock.revenue == 168_800_000_000.0
+    assert stock.fcf == 59_000_000_000.0
+    assert stock.field_sources["revenue"] == "tushare"
+    assert stock.field_sources["fcf"] == "tushare"
+    assert stock.current_price == 1400.0
+    assert stock.field_sources["current_price"] == "baostock"

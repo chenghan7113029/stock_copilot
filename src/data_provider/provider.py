@@ -26,6 +26,12 @@ from dao.stock_snapshot_repo import StockSnapshotRepo
 
 logger = logging.getLogger(__name__)
 
+# Tushare 财报字段：后运行的 Tushare 应覆盖 Baostock 估算值
+FINANCIAL_STATEMENT_FIELDS = frozenset({
+    "revenue", "fcf", "capex", "net_debt", "ebit", "depreciation",
+    "total_assets", "total_liabilities", "bvps", "roic", "net_income",
+})
+
 # 需要从 FetchResult.data 映射到 StockData 字段的全部键名
 # （顺序不重要，set_field 会保留首次写入的高优先级值）
 _STOCK_DATA_FIELDS = {
@@ -36,7 +42,7 @@ _STOCK_DATA_FIELDS = {
     "roe", "roic", "tax_rate", "pe_ratio", "pb_ratio",
     "fcf", "capex", "depreciation",
     "total_assets", "total_liabilities", "current_assets", "current_liabilities",
-    "shareholder_equity", "net_debt", "short_term_debt", "long_term_debt",
+    "shareholder_equity", "net_debt", "cash", "short_term_debt", "long_term_debt",
     "interest_expense", "net_working_capital", "net_fixed_assets",
     "accounts_receivable", "inventory", "accounts_payable",
     "dividend_yield", "dividend_payout_ratio", "dividend_growth_rate",
@@ -196,7 +202,10 @@ class StockDataProvider:
         for field_name in _STOCK_DATA_FIELDS - {"name", "exchange"}:
             v = data.get(field_name)
             if v is not None and isinstance(v, (int, float)):
-                stock.set_field(field_name, float(v), source)
+                if source == "tushare" and field_name in FINANCIAL_STATEMENT_FIELDS:
+                    stock.override_field(field_name, float(v), source)
+                else:
+                    stock.set_field(field_name, float(v), source)
 
     def _derive_ratios(self, stock: StockData) -> None:
         """在字段合并后计算依赖行情的派生比率。"""
@@ -215,6 +224,8 @@ class StockDataProvider:
 
     def _derive_ttm_fields(self, stock: StockData) -> None:
         """用 epsTTM × 总股本推导 TTM 净利润（跨源合并后执行）。"""
+        if stock.net_income is not None:
+            return
         eps = stock.eps
         shares = stock.shares_outstanding
         if eps and shares and eps > 0 and shares > 0:
@@ -225,6 +236,8 @@ class StockDataProvider:
 
     def _derive_fcf_fields(self, stock: StockData) -> None:
         """net_income TTM 修正后，用同一推导链刷新 FCF。"""
+        if stock.fcf is not None and stock.field_sources.get("fcf") == "tushare":
+            return
         if stock.field_sources.get("net_income") != "derived":
             return
         from data_provider.baostock.fetcher import derive_fcf

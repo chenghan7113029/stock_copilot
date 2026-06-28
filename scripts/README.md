@@ -31,6 +31,9 @@ cp config/app.example.yaml config/app.yaml
 |------|------|------|
 | `setup-dev-env.sh` | Shell | 创建 venv、安装依赖（Linux/macOS） |
 | `fetch_value_data.py` | Python | 端到端数据采集：fetch → upsert → 读回摘要 |
+| `trial_cli_workflow.py` | Python | CLI 全流程试运行：sync → 技术面报告 → 价值面报告 |
+
+**CLI 全流程试运行**详见 [trial_cli_workflow.md](trial_cli_workflow.md)（Windows 请用 `scripts\run_trial.cmd`，勿用裸 `python`）。
 
 ## fetch_value_data.py 使用说明
 

@@ -170,3 +170,38 @@ def test_fetch_quote_derives_price_without_daily(mock_pro_api, mock_set_token):
 def test_init_empty_token_raises():
     with pytest.raises(DataProviderError):
         TushareFetcher(token="")
+
+
+def test_derive_net_debt_positive():
+    data: dict = {"cash": 50_000_000.0, "short_term_debt": 100_000_000.0, "long_term_debt": 200_000_000.0}
+    missing: list[str] = []
+    TushareFetcher._derive_net_debt(data, missing)
+    assert data["net_debt"] == 250_000_000.0
+
+
+def test_derive_net_debt_negative():
+    """净现金公司（如茅台）：net_debt 为负。"""
+    data: dict = {"cash": 180_000_000_000.0, "short_term_debt": 0.0, "long_term_debt": 0.0}
+    missing: list[str] = []
+    TushareFetcher._derive_net_debt(data, missing)
+    assert data["net_debt"] == -180_000_000_000.0
+
+
+@patch("tushare.set_token")
+@patch("tushare.pro_api")
+def test_income_prefers_annual_report(mock_pro_api, mock_set_token):
+    pro = MagicMock()
+    pro.income.return_value = pd.DataFrame([
+        {"ts_code": "600519.SH", "end_date": "20240630", "revenue": 80_000_000_000.0, "n_income_attr_p": 40_000_000_000.0},
+        {"ts_code": "600519.SH", "end_date": "20231231", "revenue": 168_800_000_000.0, "n_income_attr_p": 74_700_000_000.0},
+    ])
+    pro.fina_indicator.return_value = pd.DataFrame()
+    pro.balancesheet.return_value = pd.DataFrame()
+    pro.cashflow.return_value = pd.DataFrame()
+    pro.dividend.return_value = pd.DataFrame()
+    mock_pro_api.return_value = pro
+    fetcher = TushareFetcher(token="fake-token")
+
+    result = fetcher.fetch_fundamentals("600519", "SH")
+    assert result.ok
+    assert result.data["revenue"] == 168_800_000_000.0

@@ -68,6 +68,7 @@ class StockData:
     current_liabilities: Optional[float] = None  # 流动负债（元）
     shareholder_equity: Optional[float] = None   # 归母股东权益（元）
     net_debt: Optional[float] = None       # 净负债（元）
+    cash: Optional[float] = None           # 货币资金（元，用于推导 net_debt）
     short_term_debt: Optional[float] = None    # 短期借款（元）
     long_term_debt: Optional[float] = None     # 长期借款（元）
     interest_expense: Optional[float] = None   # 利息费用（元）
@@ -138,6 +139,14 @@ class StockData:
     def set_field(self, field_name: str, value: Optional[float], source: str) -> None:
         """设置字段值并记录来源（仅当当前为 None 时才写入，高优先级先写）。"""
         if getattr(self, field_name, None) is None and value is not None:
+            setattr(self, field_name, value)
+            self.field_sources[field_name] = source
+            if field_name in self.missing_fields:
+                self.missing_fields.remove(field_name)
+
+    def override_field(self, field_name: str, value: Optional[float], source: str) -> None:
+        """强制写入字段（低优先级源覆盖高优先级估算值时使用）。"""
+        if value is not None:
             setattr(self, field_name, value)
             self.field_sources[field_name] = source
             if field_name in self.missing_fields:

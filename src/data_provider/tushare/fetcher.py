@@ -217,6 +217,8 @@ class TushareFetcher(BaseFetcher):
         if dividend is not None:
             _apply_row_map(dividend, DIVIDEND_FIELD_MAP, data, missing)
 
+        self._derive_net_debt(data, missing)
+
         return FetchResult(
             code=code,
             source=self.source_name,
@@ -255,7 +257,12 @@ class TushareFetcher(BaseFetcher):
         if df is None or df.empty:
             return None
         sort_col = "end_date" if "end_date" in df.columns else "ann_date"
-        return df.sort_values(sort_col, ascending=False).iloc[0]
+        df = df.sort_values(sort_col, ascending=False)
+        if api_name == "income" and "end_date" in df.columns:
+            annual = df[df["end_date"].astype(str).str.endswith("1231")]
+            if not annual.empty:
+                return annual.iloc[0]
+        return df.iloc[0]
 
     def _fetch_latest_dividend(self, ts_code: str) -> Optional[pd.Series]:
         df = self._pro.dividend(ts_code=ts_code, limit=5)
@@ -290,6 +297,20 @@ class TushareFetcher(BaseFetcher):
         s = str(raw).strip()
         if len(s) >= 8:
             data["fundamental_report_date"] = date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+
+    @staticmethod
+    def _derive_net_debt(data: dict[str, Any], missing: list[str]) -> None:
+        if data.get("net_debt") is not None:
+            return
+        cash = data.get("cash")
+        if cash is None:
+            missing.append("net_debt")
+            return
+        st_debt = data.get("short_term_debt") or 0
+        lt_debt = data.get("long_term_debt") or 0
+        data["net_debt"] = st_debt + lt_debt - cash
+        if "net_debt" in missing:
+            missing.remove("net_debt")
 
     @staticmethod
     def _derive_fcf(row: pd.Series, data: dict[str, Any], missing: list[str]) -> None:
