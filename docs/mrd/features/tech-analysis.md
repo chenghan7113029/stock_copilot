@@ -14,6 +14,7 @@
 | 2026-06-21 | decisions | **D-1 已决策**：K 线持久化 SQLite，表名 `kline`，当日实时拉取，历史命中缓存；**D-4 已决策**：KDJ J 值保留原始值，枚举判断层处理超界；**D-6 已决策**：极强趋势低评分时输出提示并保留人工判断空间；**D-7 已决策**：V1.x 支持周 K 线趋势，月 K 线暂不实现 |
 | 2026-06-21 | add-tech-analyzer-core | P0 核心交付：KlineProvider + KlineRepo + IndicatorCalculator + BullTrendScorer + TechAnalyzer；Baostock/AKShare fetch_kline；27 项单测（含 ref 一致性 ±0.1%）；OpenSpec 已归档 |
 | 2026-06-21 | sync-implementation | §4/§6/§7/§10 与当前代码对齐：补齐 `warnings`/`data_timestamp`、实际缓存策略、`LegacyRefScorer`、`TechIndicators`、公共导出与 `from_config` 行为 |
+| 2026-06-21 | add-dual-track-analyzer | 双轨 Facade：`DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`；确定性 combined_signal 融合矩阵；39 项单测 |
 
 ---
 
@@ -530,10 +531,10 @@ class LegacyRefScorer(BullTrendScorer):
 #### 分层缺口地图
 
 ```text
-用户 ──▶ apps/ ──▶ controller/ ──▶ service/tech/
-         ❌           ❌              ✅ analyzer / calculator / scorer
-         CLI/Web      API 端点        ✅ kline_provider + dao
-         双轨看板     请求路由        ❌ DualTrackAnalyzer（待建）
+用户 ──▶ apps/ ──▶ controller/ ──▶ service/dual_track/ ──▶ service/{value,tech}/
+         ❌           ❌              ✅ DualTrackAnalyzer           ✅ 各轨 Facade
+         CLI/Web      API 端点        ✅ SignalFusion / DualTrackReport
+         双轨看板     请求路由        ❌ LLM 报告 / Web 看板（待建）
 ```
 
 ### 10.2 优先级路线图
@@ -541,7 +542,7 @@ class LegacyRefScorer(BullTrendScorer):
 | 优先级 | Change 名称（建议） | 内容 | 状态 |
 |--------|---------------------|------|------|
 | P0 | `add-tech-analyzer-core` | F-01~F-15 全量实现 | ✅ 已归档 2026-06-21 |
-| P1 | `add-dual-track-analyzer` | 价值面 + 技术面 Facade → `DualTrackReport` | 待建 |
+| P1 | `add-dual-track-analyzer` | 价值面 + 技术面 Facade → `DualTrackReport` | ✅ 已交付 2026-06-21 |
 | P1 | `add-realtime-overlay` | 实时行情融合（F-16） | 待建 |
 | P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20） | 待建 |
 | P2 | `add-chip-distribution` | 筹码分布（F-17） | 待建 |
@@ -550,14 +551,17 @@ class LegacyRefScorer(BullTrendScorer):
 
 ### 10.3 与双轨分析的集成点
 
-价值面（`ValueAnalyzer`，✅）与技术面（`TechAnalyzer`，✅）均已具备独立 Facade，下一个 P1 目标为统一双轨入口：
+价值面（`ValueAnalyzer`，✅）与技术面（`TechAnalyzer`，✅）均已具备独立 Facade；双轨入口 **`DualTrackAnalyzer`（✅）** 已交付：
 
 ```
-DualTrackAnalyzer.analyze(code)          ← 待建
+DualTrackAnalyzer.analyze(code)          ✅
     ├─ ValueAnalyzer.analyze(code)   → ValueAnalysisResult   ✅
     ├─ TechAnalyzer.analyze(code)    → TechAnalysisResult    ✅
-    └─ 组装 DualTrackReport {value, tech, combined_signal}
+    ├─ SignalFusion.fuse()           → combined_signal       ✅
+    └─ 组装 DualTrackReport {value, tech, combined_signal, analysis_summary}
 ```
+
+**落点**：`src/service/dual_track/`（`analyzer.py`、`signal_fusion.py`、`models/report.py`）
 
 对应 product-overview §5.3「多维立体看板」与 LLM 综合报告的上层需求。
 
