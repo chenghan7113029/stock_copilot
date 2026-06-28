@@ -1,7 +1,7 @@
 # 技术面分析模块 — 需求细则（MRD）
 
 > 最后更新：2026-06-21  
-> 状态：细则 v2（P0 核心实现 ✅；V1.x 扩展待建）  
+> 状态：细则 v3（P0 核心 ✅ 已归档 `add-tech-analyzer-core`；V1.x 扩展待建）  
 > 上级文档：[product-overview.md](../product-overview.md) §5.1.2  
 > 关联设计：[tech-analysis-reference.md](../../design/tech-analysis-reference.md)  
 > 参考实现：`ref/daily_stock_analysis/src/stock_analyzer.py`
@@ -12,7 +12,8 @@
 |------|--------|------|
 | 2026-06-21 | explore | 初稿：基于 `daily_stock_analysis` 探索，确立技术面指标体系、评分框架、交易风格抽象、数据层设计 |
 | 2026-06-21 | decisions | **D-1 已决策**：K 线持久化 SQLite，表名 `kline`，当日实时拉取，历史命中缓存；**D-4 已决策**：KDJ J 值保留原始值，枚举判断层处理超界；**D-6 已决策**：极强趋势低评分时输出提示并保留人工判断空间；**D-7 已决策**：V1.x 支持周 K 线趋势，月 K 线暂不实现 |
-| 2026-06-21 | add-tech-analyzer-core | P0 核心交付：KlineProvider + KlineRepo + IndicatorCalculator + BullTrendScorer + TechAnalyzer；Baostock/AKShare fetch_kline；27 项单测（含 ref 一致性 ±0.1%） |
+| 2026-06-21 | add-tech-analyzer-core | P0 核心交付：KlineProvider + KlineRepo + IndicatorCalculator + BullTrendScorer + TechAnalyzer；Baostock/AKShare fetch_kline；27 项单测（含 ref 一致性 ±0.1%）；OpenSpec 已归档 |
+| 2026-06-21 | sync-implementation | §4/§6/§7/§10 与当前代码对齐：补齐 `warnings`/`data_timestamp`、实际缓存策略、`LegacyRefScorer`、`TechIndicators`、公共导出与 `from_config` 行为 |
 
 ---
 
@@ -38,26 +39,26 @@
 
 ## 2. 范围与优先级
 
-### 2.1 V1 必须实现（当前 OpenSpec 范围）
+### 2.1 V1 必须实现（P0，✅ 已交付）
 
-| # | 功能点 | 优先级 | 说明 |
-|---|--------|--------|------|
-| F-01 | Baostock K 线数据获取 | P0 | `fetch_kline(code, start, end)` → OHLCV DataFrame |
-| F-02 | AKShare K 线数据获取（fallback） | P0 | Baostock 不可用时自动切换 |
-| F-03 | KlineProvider 主备切换封装 | P0 | `get_kline(code, days=90)` 统一接口；内含缓存逻辑（见 F-03a） |
-| F-03a | K 线 SQLite 缓存（kline 表） | P0 | 当日实时拉取；历史日期命中缓存直接返回；缓存缺失时实时拉取并回填 |
-| F-04 | MA5/10/20/60 计算 | P0 | 简单移动平均 |
-| F-05 | 乖离率（BIAS）计算 | P0 | 相对 MA5/10/20 的偏离百分比 |
-| F-06 | MACD (12/26/9) 计算 | P0 | DIF / DEA / 柱状图 |
-| F-07 | RSI (6/12/24) 计算 | P0 | Wilder's EMA 口径 |
-| F-08 | KDJ (9/3/3) 计算 | P0 | 随机指标 K/D/J |
-| F-09 | 量能分析（volume_ratio_5d） | P0 | 当日量 / 5 日均量；量能状态枚举 |
-| F-10 | 支撑/压力位识别 | P0 | MA5/10/20 支撑 + 近 20 日高点压力 |
-| F-11 | 趋势状态评估（7 级） | P0 | 基于均线排列 + 趋势强度 |
-| F-12 | 综合评分系统（0-100 分） | P0 | 6 维度加权；权重可配置 |
-| F-13 | 买入信号枚举（6 级） | P0 | 强烈买入 → 强烈卖出 |
-| F-14 | TechAnalyzer Facade | P0 | `analyze(code) → TechAnalysisResult` |
-| F-15 | TechAnalysisConfig 可配置 | P0 | 所有参数有默认值，支持外部覆盖 |
+| # | 功能点 | 状态 | 说明 |
+|---|--------|------|------|
+| F-01 | Baostock K 线数据获取 | ✅ | `BaostockFetcher.fetch_kline(code, exchange, start, end)` → OHLCV DataFrame |
+| F-02 | AKShare K 线数据获取（fallback） | ✅ | Baostock 不可用时自动切换 |
+| F-03 | KlineProvider 主备切换封装 | ✅ | `get_kline(code, days=90) → (DataFrame, warnings)` |
+| F-03a | K 线 SQLite 缓存（kline 表） | ✅ | 历史日期增量 upsert；当日实时合并、不写入缓存 |
+| F-04 | MA5/10/20/60 计算 | ✅ | 简单移动平均；`IndicatorCalculator` |
+| F-05 | 乖离率（BIAS）计算 | ✅ | 相对 MA5/10/20 的偏离百分比 |
+| F-06 | MACD (12/26/9) 计算 | ✅ | DIF / DEA / 柱状图；`ewm(span, adjust=False)` |
+| F-07 | RSI (6/12/24) 计算 | ✅ | Wilder's EMA 口径；NaN 填 50 |
+| F-08 | KDJ (9/3/3) 计算 | ✅ | 随机指标 K/D/J；J 值不 clip |
+| F-09 | 量能分析（volume_ratio_5d） | ✅ | 当日量 / 5 日均量；5 级 `VolumeStatus` |
+| F-10 | 支撑/压力位识别 | ✅ | MA5/MA10 布尔支撑 + `support_levels`（含 MA20）+ 近 20 日高点压力 |
+| F-11 | 趋势状态评估（7 级） | ✅ | 均线排列 + 发散度 → `trend_strength` |
+| F-12 | 综合评分系统（0-100 分） | ✅ | `BullTrendScorer` 6 维度加权；`ScoringEngine` Protocol 可替换 |
+| F-13 | 买入信号枚举（6 级） | ✅ | `BuySignal` 6 级 |
+| F-14 | TechAnalyzer Facade | ✅ | `analyze(code) → TechAnalysisResult` |
+| F-15 | TechAnalysisConfig 可配置 | ✅ | `IndicatorParams` + `ScoringParams` + `kline_days` |
 
 ### 2.2 V1.x 扩展（已识别，待规划）
 
@@ -99,7 +100,7 @@
 | MACD | 15 分 | 零轴上金叉 15 > 金叉 12 > 上穿零轴 10 > 多头 8 > 空头 2 > 零轴下穿/死叉 0 |
 | 动量（RSI+KDJ） | 10 分 | RSI 分项 6 分 + KDJ 分项 4 分，超买扣分，超卖加分 |
 
-> **关键约束 1**：强势空头排列下（趋势强度 <25），最终 `buy_signal` 强制降为 SELL 或 STRONG_SELL，无视评分。
+> **关键约束 1**：趋势为 `BEAR` 或 `STRONG_BEAR` 时，最终 `buy_signal` 强制为 `STRONG_SELL`，无视评分。
 >
 > **关键约束 2（D-6 决策）**：若趋势状态为 STRONG_BULL（趋势强度 ≥ 90）但综合评分 < 45（例如量价严重背离、乖离率极高），系统**不自动升级信号**，保留低评分结论，同时在 `risk_factors` 中写入「趋势强劲但其他维度信号疲弱，建议人工复核量价背离情况」，供使用者自行判断是否介入。
 
@@ -129,7 +130,7 @@ DataFrame 标准列名：
   close  (float)         - 收盘价
   volume (float)         - 成交量
 
-要求：至少 26 个交易日（MACD 慢线最小要求）；推荐 90 天窗口（约 60 个交易日）以支持 MA60。
+要求：Analyzer 入口最少 **20** 个交易日；MACD 完整计算需 **26** 日；MA60 完整计算需 **60** 日（不足时 MA60=MA20）。推荐 90 天窗口（约 60 个交易日）。
 ```
 
 ### 4.2 输出：TechAnalysisResult
@@ -193,7 +194,13 @@ class TechAnalysisResult:
     signal_score: int                # 0–100
     signal_reasons: list[str]        # 看多理由
     risk_factors: list[str]          # 风险提示
+
+    # 元数据
+    warnings: list[str]              # 数据/计算层警告（含 MA60 替代、K 线缺口等）
+    data_timestamp: datetime | None   # 分析完成时间（UTC）
 ```
+
+> **降级语义**：K 线获取失败或行数 < 20 时，`buy_signal = WAIT`，`risk_factors` 含原因，不抛异常。MACD/RSI/KDJ 在各自最小周期不足时保留默认枚举/文案，`warnings` 或字段级「数据不足」说明。
 
 ### 4.3 状态枚举定义
 
@@ -206,7 +213,19 @@ class TechAnalysisResult:
 | `KDJStatus` | OVERBOUGHT / GOLDEN_CROSS / NEUTRAL / DEATH_CROSS / OVERSOLD |
 | `BuySignal` | STRONG_BUY / BUY / HOLD / WAIT / SELL / STRONG_SELL |
 
----
+**`trend_strength` 与 `TrendStatus` 对应（实现常量）：**
+
+| TrendStatus | trend_strength |
+|-------------|----------------|
+| STRONG_BULL | 90 |
+| BULL | 75 |
+| WEAK_BULL | 55 |
+| CONSOLIDATION | 50 |
+| WEAK_BEAR | 40 |
+| BEAR | 25 |
+| STRONG_BEAR | 10 |
+
+**支撑字段语义：** `support_ma5` / `support_ma10` 为布尔（价格 ≥ 均线且距离 ≤ `ma_support_tolerance`）；`support_levels`  additionally 含 MA20（当 price ≥ MA20）及有效 MA5/MA10 数值。
 
 ## 5. 配置模型
 
@@ -283,7 +302,7 @@ class TechAnalysisConfig:
 | 日 K 线 OHLCV | Baostock（主） | `bs.query_history_k_data_plus` | 前复权；免 token |
 | 日 K 线 OHLCV | AKShare（备） | `ak.stock_zh_a_hist` | Baostock 失败时自动切换 |
 
-> **与现有 data_provider 的关系**：现有 `BaostockFetcher`/`AKShareFetcher` 仅处理财报数据，K 线获取需在两个 fetcher 中**各新增一个 `fetch_kline()` 方法**，同时新建独立的 `KlineProvider` 管理主备切换（不走现有 `SourceManager`，因为 K 线是时序数据，逻辑不同于逐字段合并）。
+> **与现有 data_provider 的关系**：`BaostockFetcher`/`AKShareFetcher` 已各实现 `fetch_kline()`；独立 `KlineProvider`（`src/data_provider/kline_provider.py`）管理主备切换与缓存，**不走**现有 `SourceManager`（K 线为时序数据，逻辑不同于逐字段合并）。
 
 ### 6.2 K 线缓存策略（D-1 决策）
 
@@ -301,41 +320,33 @@ kline 表结构（SQLite）：
   PRIMARY KEY (code, trade_date)
 ```
 
-**读取逻辑（KlineProvider 内部）**：
+**读取逻辑（`KlineProvider.get_kline` 实际实现）**：
 
 ```
-get_kline(code, days=90):
-  1. 计算所需日期范围 [start_date, end_date]
-  2. 从 kline 表查询已有的 trade_date 集合（cached_dates）
-  3. 计算应有的交易日集合（expected_dates）：
-     - 直接用 [start_date, end_date] 区间向 Baostock 请求时
-       返回的日期即为真实交易日，无需维护独立交易日历
-  4. 识别需要拉取的日期：
-     - 当日（today）：始终实时拉取（价格可能盘中更新）
-     - 历史日期：gap_dates = expected_dates - cached_dates
-       （包含：程序多日未运行导致的中间空白 + 首次请求）
-  5. 若 gap_dates 非空：
-     - 以区间方式批量拉取 gap_dates（一次 API 调用覆盖整段缺失）
-     - 写入 kline 表（仅历史数据，当日不写）
-  6. 从 kline 表重新查询完整区间，合并当日实时数据
-  7. 返回按 trade_date 排序的完整 OHLCV DataFrame
+get_kline(code, days=90) → (DataFrame, warnings):
+  1. 计算 [start_date, end_date]（end_date = 今日）
+  2. KlineRepo.query_range → cached_dates
+  3. 尝试整段区间 API 拉取（Baostock → AKShare fallback）
+  4. 若 API 成功：
+     a. 对 API 返回中 trade_date < 今日 且不在 cached_dates 的行 → upsert_batch
+     b. 从 DB 重新 query_range，列名 date/open/high/low/close/volume
+     c. 用 API 的「今日」行（或最后一行）覆盖/追加到 DataFrame 末端（当日不写入 DB）
+     d. 返回排序后的完整 OHLCV
+  5. 若 API 失败但 DB 有缓存：
+     a. 若缓存首尾未覆盖 [start_date, end_date] → warnings 含「K 线数据存在缺口…」
+     b. warnings 追加「K 线实时拉取失败，已使用缓存数据: …」
+     c. 返回缓存 DataFrame（可能不完整）
+  6. 若 API 失败且无缓存 → 抛出 KlineUnavailableError
 ```
 
-**空洞检测举例**：
+**与逐日 gap 检测的差异（实现说明）**：
 
-```
-场景：程序上次运行在 6/16（周一），今日 6/21（周六，但分析昨日收盘）
-  DB 中已有：6/12, 6/13, 6/16
-  今日请求 90 天窗口，end_date = 6/20（最近交易日）
-  Baostock 返回的历史数据揭示真实交易日：6/12~6/20 共 7 天
-  gap_dates = {6/17, 6/18, 6/19, 6/20}（4天空洞）
-  → 批量拉取 6/17~6/20，写入 DB，合并后返回完整序列
-```
+V1 采用「整段 API 拉取 + 增量 upsert 未缓存历史行」，而非先算 expected_dates 再按日补洞。程序停运多日后再次运行时，步骤 3 的一次区间请求会自然带回中间缺失交易日并写入 DB。缺口告警（步骤 5a）在**拉取失败回退缓存**时触发，依据缓存是否覆盖请求区间边界，而非逐日 diff。
 
 > **关键约束**：
-> - 只有历史数据（日期 < 当日）才写入缓存；当日数据每次实时拉取，不缓存（防止盘中数据污染）；
-> - 空洞检测基于「请求时按区间拉取」自然覆盖，无需维护独立的 A 股交易日历表；
-> - 若 Baostock 拉取失败且缺口 > 5 个交易日，在 `warnings` 中注明「K 线数据存在缺口，指标计算可能不准确」。
+> - 只有历史数据（`trade_date < 今日`）才写入缓存；当日行从 API 合并到返回结果，不 upsert；
+> - 无需独立 A 股交易日历表；API 返回即真实交易日集合；
+> - API 失败回退缓存且区间边界未覆盖时，`warnings` 含「K 线数据存在缺口，指标计算可能不准确」。
 
 ### 6.3 不需要的数据（V1 明确排除）
 
@@ -350,63 +361,108 @@ get_kline(code, days=90):
 
 ## 7. 模块架构（代码层）
 
+### 7.1 已交付文件清单
+
+| 层级 | 模块 | 路径 | 职责 |
+|------|------|------|------|
+| 异常 | `KlineUnavailableError` | `src/common/exceptions.py` | K 线双源均失败 |
+| ORM | `Kline` | `src/dao/models.py` | `kline` 表 `(code, trade_date)` 主键 |
+| DAO | `KlineRepo` | `src/dao/kline_repo.py` | `query_range` / `upsert_batch` |
+| 数据 | `BaostockFetcher.fetch_kline` | `src/data_provider/baostock/fetcher.py` | 前复权日 K |
+| 数据 | `AKShareFetcher.fetch_kline` | `src/data_provider/akshare/fetcher.py` | fallback 日 K |
+| 数据 | `KlineProvider` | `src/data_provider/kline_provider.py` | 主备 + 缓存 + 当日合并 |
+| 配置 | `TechAnalysisConfig` 等 | `src/service/tech/config.py` | 指标/评分/kline_days |
+| 计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | 纯 pandas；中间态 `TechIndicators` |
+| 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | 生产默认；`ScoringEngine` Protocol |
+| 评分 | `LegacyRefScorer` | `src/service/tech/scorer.py` | ref 验收专用（RSI 10 分，无 KDJ） |
+| Facade | `TechAnalyzer` | `src/service/tech/analyzer.py` | `analyze(code)` 单一入口 |
+| 模型 | `TechAnalysisResult` + 枚举 | `src/service/tech/models/tech_result.py` | 输出契约 |
+| 公共导出 | `__all__` | `src/service/tech/__init__.py` | `TechAnalyzer`, `TechAnalysisConfig`, `TechAnalysisResult`, `BuySignal`, `TrendStatus` |
+
+**单元测试（27 项，`test/service/tech/`）：**
+
+| 文件 | 用例数 | 覆盖 |
+|------|--------|------|
+| `test_calculator.py` | 10 | MA/MACD/RSI/KDJ/量能/趋势/支撑 |
+| `test_kline_provider.py` | 6 | 缓存 upsert、主备切换、失败降级、当日不写缓存 |
+| `test_analyzer.py` | 7 | 完整结果、非 A 股、K 线失败降级、人工复核、空头强制卖、from_config |
+| `test_consistency_with_ref.py` | 4 | vs ref ±0.1% + `LegacyRefScorer` 整数对齐 |
+
+**OpenSpec 主 spec（已 sync）：** `openspec/specs/tech-analyzer/`、`tech-kline-provider/`、`tech-indicator-calculator/`
+
+### 7.2 目录结构
+
 ```
 src/
+├─ common/exceptions.py          ← KlineUnavailableError
 ├─ dao/
-│   └─ kline_repo.py           ← 新建：KlineRepo（SQLite kline 表 CRUD）
-│
+│   ├─ models.py                 ← Kline ORM
+│   └─ kline_repo.py
 ├─ data_provider/
-│   ├─ baostock/fetcher.py     ← 新增 fetch_kline(code, start, end) → DataFrame
-│   ├─ akshare/fetcher.py      ← 新增 fetch_kline(code, start, end) → DataFrame
-│   └─ kline_provider.py       ← 新建：KlineProvider（主备切换 + 缓存读写）
-│
+│   ├─ baostock/fetcher.py       ← fetch_kline()
+│   ├─ akshare/fetcher.py        ← fetch_kline()
+│   └─ kline_provider.py
 └─ service/tech/
-    ├─ __init__.py              ← 导出公共接口
-    ├─ config.py                ← TechAnalysisConfig, IndicatorParams, ScoringParams
-    ├─ calculator.py            ← IndicatorCalculator（纯 pandas，无 IO）
-    ├─ scorer.py                ← ScoringEngine（BullTrendScorer 实现）
-    ├─ analyzer.py              ← TechAnalyzer Facade（依赖注入 KlineProvider）
-    └─ models/
-        ├─ __init__.py
-        └─ tech_result.py       ← TechAnalysisResult + 所有状态枚举
+    ├─ __init__.py
+    ├─ config.py
+    ├─ calculator.py             ← IndicatorCalculator + TechIndicators
+    ├─ scorer.py                 ← BullTrendScorer + LegacyRefScorer
+    ├─ analyzer.py
+    └─ models/tech_result.py
 
 test/service/tech/
-    ├─ test_calculator.py       ← 固定 OHLCV → 验证 MA/MACD/RSI/KDJ 数值
-    ├─ test_kline_provider.py   ← mock DAO + fetcher，验证缓存命中/gap 检测/回填逻辑
-    └─ test_analyzer.py         ← mock KlineProvider → 验证 analyze 输出契约
+    ├─ test_calculator.py
+    ├─ test_kline_provider.py
+    ├─ test_analyzer.py
+    └─ test_consistency_with_ref.py
 ```
 
-### 7.1 调用流程
+### 7.3 调用流程
 
 ```
 TechAnalyzer.analyze(code)
     │
-    ├─ 1. KlineProvider.get_kline(code, days=90)
-    │       ├─ KlineRepo.query_range(code, start, end)  ← 查询已缓存日期集合
-    │       ├─ 空洞检测：gap_dates = 区间内应有日期 - 已缓存日期
-    │       │   （含：程序多日未运行导致的历史空白）
-    │       ├─ 当日：始终实时拉取（不走缓存）
-    │       ├─ gap_dates 非空：
-    │       │     try BaostockFetcher.fetch_kline(gap 区间)
-    │       │     fallback: AKShareFetcher.fetch_kline()
-    │       │     KlineRepo.upsert(回填历史)  ← 仅历史，当日不写
-    │       └─ gap > 5 日且拉取失败 → warnings 追加数据缺口提示
+    ├─ 0. is_a_share(code) → 否则 UnsupportedMarketError
     │
-    ├─ 2. IndicatorCalculator.calculate(df, indicator_params)
-    │       → TechIndicators(ma, macd, rsi, kdj, volume, bias, support)
+    ├─ 1. KlineProvider.get_kline(code, kline_days)
+    │       → (df, kline_warnings) 合并到 result.warnings
+    │       失败 → buy_signal=WAIT, risk_factors 含原因, 直接返回
+    │       len(df) < 20 → 同上「数据不足」
     │
-    ├─ 3. ScoringEngine.score(indicators, scoring_params)
+    ├─ 2. IndicatorCalculator.calculate(df, code, indicator_params)
+    │       → TechIndicators（含 warnings，如 MA60 替代）
+    │
+    ├─ 3. ScoringEngine.score(indicators, scoring_params)   # 默认 BullTrendScorer
     │       → TechSignal(score, buy_signal, reasons, risks)
-    │           └─ 若 STRONG_BULL + score < 45：risk_factors 追加人工复核提示
+    │           └─ STRONG_BULL + strength≥90 + score<45 → risk_factors 人工复核
+    │           └─ kdj_weight>0 且 J 超界 → risk_factors KDJ 提示
     │
-    └─ 4. 组装 TechAnalysisResult
+    └─ 4. 组装 TechAnalysisResult + data_timestamp(UTC)
+```
+
+### 7.4 构造与依赖注入
+
+```python
+# 生产：from_config 读 app 配置
+TechAnalyzer.from_config(config_dict)
+# 当前仅覆盖 config["tech"]["kline_days"]（默认 90）；
+# IndicatorParams / ScoringParams 需代码侧构造 TechAnalysisConfig 传入
+
+# 单测：注入 mock
+TechAnalyzer(
+    kline_provider=mock_provider,
+    config=TechAnalysisConfig(scoring_params=ScoringParams(...)),
+    scorer=BullTrendScorer(),  # 或 LegacyRefScorer() 用于 ref 对齐
+)
 ```
 
 ---
 
 ## 8. 交易风格可扩展性设计
 
-V1 实现 `BullTrendScorer`（多头趋势 + 严进策略）作为 `ScoringEngine` 的唯一实现。
+V1 生产路径使用 `BullTrendScorer`（RSI 6 + KDJ 4 动量维度）作为 `ScoringEngine` 的默认实现。  
+`LegacyRefScorer` 继承 `BullTrendScorer`，固定 `rsi_weight=10`、`kdj_weight=0`，**仅用于** `test_consistency_with_ref.py` 与 ref 整数对齐，不参与生产默认路径。
+
 架构预留替换能力：
 
 ```python
@@ -418,11 +474,15 @@ class ScoringEngine(Protocol):
         params: ScoringParams,
     ) -> TechSignal: ...
 
-# V1 实现
+# V1 生产实现
 class BullTrendScorer:
     """严进多头趋势风格：不追高 + 回踩支撑 + 量能验证。"""
-    def score(self, indicators: TechIndicators, params: ScoringParams) -> TechSignal:
-        ...
+    def score(self, indicators: TechIndicators, params: ScoringParams) -> TechSignal: ...
+
+# ref 验收专用（非生产）
+class LegacyRefScorer(BullTrendScorer):
+    """RSI 动量 10 分、无 KDJ，与 ref StockTrendAnalyzer 评分一致。"""
+    ...
 
 # 未来可添加
 # class BreakoutScorer: ...       # 放量突破风格
@@ -439,7 +499,7 @@ class BullTrendScorer:
 |---|------|------|------|
 | D-1 | K 线数据是否持久化到 DB | ✅ 已决策 | 持久化到 SQLite `kline` 表；当日实时拉取；历史数据启用空洞检测——每次请求时自动识别区间内缺失的交易日（含程序多日未运行导致的历史断档），批量拉取并回填；当日数据收盘前不写入缓存；缺口 >5 日且拉取失败时在 `warnings` 中提示数据不完整 |
 | D-2 | 前复权 vs 后复权 | ✅ 已决策 | 前复权（`adjustflag=2`）；与主流 K 线图一致，无异议 |
-| D-3 | MA60 数据不足时的 fallback | ✅ 已决策 | 数据 <60 日时用 MA20 替代 MA60，并在 `risk_factors` 注明「MA60 数据不足，以 MA20 替代」 |
+| D-3 | MA60 数据不足时的 fallback | ✅ 已决策 | 数据 <60 日时用 MA20 替代 MA60，并在 `warnings` 注明「MA60 数据不足，以 MA20 替代」 |
 | D-4 | KDJ J 值超界如何处理 | ✅ 已决策 | 保留原始值（不 clip）；枚举判断层显式处理：`J > 100` 视为极端超买叠加 OVERBOUGHT，`J < 0` 视为极端超卖叠加 OVERSOLD；`risk_factors` 中注明「KDJ J 值超界：{j:.1f}」 |
 | D-5 | 强势趋势乖离率宽松策略 | ✅ 已决策 | `trend_strength ≥ 70 且 STRONG_BULL` 时，`bias_threshold × 1.5` 生效；来自 ref 实现 |
 | D-6 | `signal_score` 低但趋势极强时如何处理 | ✅ 已决策 | 不自动升级信号；保留低分结论；在 `risk_factors` 追加「趋势强劲但其他维度信号疲弱，建议人工复核量价背离情况」；最终买卖决策由使用者判断 |
@@ -449,39 +509,53 @@ class BullTrendScorer:
 
 ## 10. 功能缺口与路线图
 
-### 10.1 当前状态
+### 10.1 实现现状与待完善 Feature
 
-```
-技术面模块实现现状（2026-06-21）
-═══════════════════════════════════
-✅ 参考实现分析（ref/daily_stock_analysis）
-✅ MRD & 方法论参考文档
-✅ K 线数据获取能力（Baostock 主 + AKShare 备 + SQLite 缓存/空洞回填）
-✅ 指标计算层（MA/MACD/RSI/KDJ/量能/支撑）
-✅ 评分引擎（BullTrendScorer，6 维度 100 分制）
-✅ TechAnalyzer Facade
-✅ 单元测试（27 项，含 ref 一致性 4 项 ±0.1%）
+> 对照 [product-overview.md](../product-overview.md) §5.1.2 与当前代码库。P0 技术面核心**已交付**；可对外交付（API/CLI/看板）与双轨 Facade **待建**。
+
+#### 已交付能力总览
+
+| 层级 | 模块 | 路径 | 状态 |
+|------|------|------|------|
+| 异常 | `KlineUnavailableError` | `src/common/exceptions.py` | ✅ |
+| 持久化 | `Kline` + `KlineRepo` | `src/dao/` | ✅ SQLite `kline` 表 |
+| 数据获取 | K 线 Provider | `src/data_provider/kline_provider.py` | ✅ Baostock 主 / AKShare 备 |
+| 指标计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | ✅ MA/MACD/RSI/KDJ/量能/支撑 |
+| 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | ✅ 6 维度 100 分 |
+| 编排 Facade | `TechAnalyzer` | `src/service/tech/analyzer.py` | ✅ `analyze(code) → TechAnalysisResult` |
+| 结果模型 | `TechAnalysisResult` | `src/service/tech/models/tech_result.py` | ✅ 含 warnings / data_timestamp |
+| 单元测试 | 27 用例 | `test/service/tech/` | ✅ 离线可跑；含 ref ±0.1% |
+| OpenSpec | 主 spec ×3 | `openspec/specs/tech-*/` | ✅ 已从 change sync |
+
+#### 分层缺口地图
+
+```text
+用户 ──▶ apps/ ──▶ controller/ ──▶ service/tech/
+         ❌           ❌              ✅ analyzer / calculator / scorer
+         CLI/Web      API 端点        ✅ kline_provider + dao
+         双轨看板     请求路由        ❌ DualTrackAnalyzer（待建）
 ```
 
 ### 10.2 优先级路线图
 
-| 优先级 | Change 名称（建议） | 内容 | 依赖 |
+| 优先级 | Change 名称（建议） | 内容 | 状态 |
 |--------|---------------------|------|------|
-| P0 | `add-tech-analyzer-core` | F-01~F-03a（含 kline 缓存）+ F-04~F-15 全量实现 | 无 |
-| P1 | `add-realtime-overlay` | 实时行情融合（F-16）：当日盘中价格叠加 K 线末端 | P0 |
-| P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20）：5 日聚合 + 周线 MA/MACD/RSI | P0 |
-| P2 | `add-chip-distribution` | 筹码分布（F-17）：获利/套牢比例 | P0 |
-| V2 | `add-pattern-recognition` | K 线形态识别（F-18）：锤头、吞没等 | P0 |
-| V2 | `add-bollinger-bands` | 布林带（F-19）：波动率收缩/扩张 | P0 |
+| P0 | `add-tech-analyzer-core` | F-01~F-15 全量实现 | ✅ 已归档 2026-06-21 |
+| P1 | `add-dual-track-analyzer` | 价值面 + 技术面 Facade → `DualTrackReport` | 待建 |
+| P1 | `add-realtime-overlay` | 实时行情融合（F-16） | 待建 |
+| P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20） | 待建 |
+| P2 | `add-chip-distribution` | 筹码分布（F-17） | 待建 |
+| V2 | `add-pattern-recognition` | K 线形态识别（F-18） | 待建 |
+| V2 | `add-bollinger-bands` | 布林带（F-19） | 待建 |
 
 ### 10.3 与双轨分析的集成点
 
-技术面 P0 完成后，下一个目标是将价值面（已完成）和技术面（待建）合并为统一的双轨分析 Facade：
+价值面（`ValueAnalyzer`，✅）与技术面（`TechAnalyzer`，✅）均已具备独立 Facade，下一个 P1 目标为统一双轨入口：
 
 ```
-DualTrackAnalyzer.analyze(code)
-    ├─ ValueAnalyzer.analyze(code)   → ValueAnalysisResult
-    ├─ TechAnalyzer.analyze(code)    → TechAnalysisResult
+DualTrackAnalyzer.analyze(code)          ← 待建
+    ├─ ValueAnalyzer.analyze(code)   → ValueAnalysisResult   ✅
+    ├─ TechAnalyzer.analyze(code)    → TechAnalysisResult    ✅
     └─ 组装 DualTrackReport {value, tech, combined_signal}
 ```
 
@@ -493,7 +567,7 @@ DualTrackAnalyzer.analyze(code)
 
 | 情形 | 标准 | 测试位置 |
 |------|------|----------|
-| 相同 OHLCV fixture vs ref `StockTrendAnalyzer` | 共有数值因子相对误差 ≤ ±0.1% | `test/service/tech/test_consistency_with_ref.py` |
+| 相同 OHLCV fixture vs ref `StockTrendAnalyzer` | 共有数值因子（MA、乖离率、MACD、RSI、量比、trend_strength）相对误差 ≤ ±0.1% | `test/service/tech/test_consistency_with_ref.py` |
 | ref 共有枚举（趋势/量能/MACD/RSI/买入信号） | 与 ref 完全一致 | 同上 |
 | ref 共有评分（LegacyRefScorer，RSI 动量 10 分） | `signal_score` 与 ref 完全一致 | 同上 |
 | KDJ 指标 | stock_copilot 扩展项，ref 无对应，单独单测 | `test/service/tech/test_calculator.py` |
