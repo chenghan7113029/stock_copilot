@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from service.tech.calculator import TechIndicators
+from service.tech.calculator import TechIndicators, WeeklyIndicators
 from service.tech.config import ScoringParams
 from service.tech.models.tech_result import (
     BuySignal,
@@ -14,6 +14,7 @@ from service.tech.models.tech_result import (
     RSIStatus,
     TrendStatus,
     VolumeStatus,
+    WeeklyTrendStatus,
 )
 
 
@@ -26,13 +27,23 @@ class TechSignal:
 
 
 class ScoringEngine(Protocol):
-    def score(self, indicators: TechIndicators, params: ScoringParams) -> TechSignal: ...
+    def score(
+        self,
+        indicators: TechIndicators,
+        params: ScoringParams,
+        weekly_indicators: WeeklyIndicators | None = None,
+    ) -> TechSignal: ...
 
 
 class BullTrendScorer:
     """严进多头趋势评分风格。"""
 
-    def score(self, indicators: TechIndicators, params: ScoringParams) -> TechSignal:
+    def score(
+        self,
+        indicators: TechIndicators,
+        params: ScoringParams,
+        weekly_indicators: WeeklyIndicators | None = None,
+    ) -> TechSignal:
         score = 0
         reasons: list[str] = []
         risks: list[str] = []
@@ -71,6 +82,9 @@ class BullTrendScorer:
             risks.append(f"KDJ J 值超界：{indicators.kdj_j:.1f}")
 
         buy_signal = self._resolve_buy_signal(score, indicators.trend_status, params)
+        buy_signal = self._apply_weekly_filter(
+            buy_signal, weekly_indicators, params, risks
+        )
 
         return TechSignal(
             signal_score=score,
@@ -251,12 +265,41 @@ class BullTrendScorer:
             return BuySignal.STRONG_SELL
         return BuySignal.SELL
 
+    @staticmethod
+    def _apply_weekly_filter(
+        buy_signal: BuySignal,
+        weekly_indicators: WeeklyIndicators | None,
+        params: ScoringParams,
+        risks: list[str],
+    ) -> BuySignal:
+        if not params.weekly_filter_enabled or weekly_indicators is None:
+            return buy_signal
+
+        if weekly_indicators.weekly_trend_status not in (
+            WeeklyTrendStatus.BEAR,
+            WeeklyTrendStatus.STRONG_BEAR,
+        ):
+            return buy_signal
+
+        downgrade_map = {
+            BuySignal.STRONG_BUY: BuySignal.BUY,
+            BuySignal.BUY: BuySignal.WAIT,
+            BuySignal.HOLD: BuySignal.WAIT,
+        }
+        if buy_signal in downgrade_map:
+            risks.append("⚠️ 周线空头，日线买点风险较高")
+            return downgrade_map[buy_signal]
+        return buy_signal
+
 
 class LegacyRefScorer(BullTrendScorer):
     """与 ref/daily_stock_analysis StockTrendAnalyzer 评分口径一致（RSI 动量 10 分，无 KDJ）。"""
 
     def score(
-        self, indicators: TechIndicators, params: ScoringParams | None = None
+        self,
+        indicators: TechIndicators,
+        params: ScoringParams | None = None,
+        weekly_indicators: WeeklyIndicators | None = None,
     ) -> TechSignal:
         del params
         legacy = ScoringParams(
@@ -274,4 +317,4 @@ class LegacyRefScorer(BullTrendScorer):
             hold_threshold=45,
             wait_threshold=30,
         )
-        return super().score(indicators, legacy)
+        return super().score(indicators, legacy, weekly_indicators)

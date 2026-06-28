@@ -6,11 +6,15 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 ## Requirements
 
 ### Requirement: TechAnalyzer.analyze(code) 完整分析流程
-`TechAnalyzer.analyze(code)` SHALL 完整执行：K 线获取 → 指标计算 → 评分 → 组装 `TechAnalysisResult`。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
+`TechAnalyzer.analyze(code)` SHALL 完整执行：K 线获取 → 日线指标计算 → 周线指标计算 → 评分 → 组装 `TechAnalysisResult`。日线分析完成后，SHALL 自动基于同一份 DataFrame 调用 `IndicatorCalculator.calculate_weekly()` 追加周线分析。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
 
-#### Scenario: 正常分析流程
-- **WHEN** `analyze("600519")` 被调用
-- **THEN** 返回包含完整字段的 `TechAnalysisResult`：trend_status、signal_score（0~100）、buy_signal、macd/rsi/kdj 数值与状态、volume_status、support_levels、signal_reasons、risk_factors 均不为 None
+#### Scenario: 正常分析流程（含周线）
+- **WHEN** `analyze("600519")` 被调用且数据充足（≥ 25 日线）
+- **THEN** 返回的 `TechAnalysisResult` 包含完整日线字段，且 `weekly_trend_status` 非 None，`weekly_ma_alignment` 非空字符串
+
+#### Scenario: 日线数据不足跳过周线
+- **WHEN** `analyze("600519")` 被调用但 K 线行数 < 25
+- **THEN** `TechAnalysisResult.weekly_trend_status = None`，`warnings` 含「周线数据不足」
 
 #### Scenario: 非 A 股代码被拒绝
 - **WHEN** `analyze("AAPL")` 或 `analyze("00700")` 被调用
@@ -68,6 +72,7 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 - **RSI**：`rsi_6/12/24`（float）、`rsi_status`（RSIStatus 枚举）、`rsi_signal`（str）
 - **KDJ**：`kdj_k/d/j`（float）、`kdj_status`（KDJStatus 枚举）、`kdj_signal`（str）
 - **信号**：`buy_signal`（BuySignal 枚举）、`signal_score`（int 0~100）、`signal_reasons`（list[str]）、`risk_factors`（list[str]）
+- **周线**（F-20）：`weekly_trend_status`（WeeklyTrendStatus | None）、`weekly_ma_alignment`（str）、`weekly_macd_signal`（str）、`weekly_rsi_6`（float | None）、`weekly_ma5/10/20`（float | None）
 - **元数据**：`warnings`（list[str]）、`data_timestamp`（datetime | None）
 
 #### Scenario: 完整输出包含所有分组
@@ -77,6 +82,14 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 #### Scenario: 数据不足时降级输出
 - **WHEN** K 线数据行数 < 26（不足以计算 MACD）
 - **THEN** MACD 相关字段为 None 或默认枚举值，`warnings` 包含数据不足说明，不抛出异常
+
+#### Scenario: 完整周线字段
+- **WHEN** 日线行数 ≥ 25 且周线指标计算成功
+- **THEN** `weekly_trend_status` 为有效枚举值（非 None），`weekly_ma5/10/20` 均非 0
+
+#### Scenario: 周线字段为 None 时不影响日线输出
+- **WHEN** 周线计算跳过（数据不足）
+- **THEN** 日线所有字段正常，`weekly_*` 字段为 None 或默认字符串
 
 ---
 

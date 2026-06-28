@@ -60,6 +60,14 @@ class KDJStatus(Enum):
     OVERSOLD = "超卖"
 
 
+class WeeklyTrendStatus(Enum):
+    STRONG_BULL = "强势多头"
+    BULL = "多头排列"
+    NEUTRAL = "中性"
+    BEAR = "空头排列"
+    STRONG_BEAR = "强势空头"
+
+
 @dataclass
 class TechAnalysisResult:
     code: str
@@ -112,3 +120,11 @@ class TechAnalysisResult:
 
     warnings: list[str] = field(default_factory=list)
     data_timestamp: datetime | None = None
+
+    weekly_trend_status: WeeklyTrendStatus | None = None
+    weekly_ma_alignment: str = ""
+    weekly_macd_signal: str = ""
+    weekly_rsi_6: float | None = None
+    weekly_ma5: float | None = None
+    weekly_ma10: float | None = None
+    weekly_ma20: float | None = None

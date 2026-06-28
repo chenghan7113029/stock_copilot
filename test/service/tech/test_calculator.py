@@ -6,12 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from service.tech.calculator import IndicatorCalculator
+from service.tech.calculator import IndicatorCalculator, WeeklyKlineAggregator
 from service.tech.config import IndicatorParams, ScoringParams
 from service.tech.models.tech_result import (
     KDJStatus,
     TrendStatus,
     VolumeStatus,
+    WeeklyTrendStatus,
 )
 from service.tech.scorer import BullTrendScorer
 
@@ -130,3 +131,43 @@ def test_bull_trend_detected():
     indicators = calc.calculate(df, "600519")
 
     assert indicators.trend_status in (TrendStatus.BULL, TrendStatus.STRONG_BULL, TrendStatus.WEAK_BULL)
+
+
+def test_weekly_aggregation_60_days():
+    df = _make_uptrend_df(60)
+    weekly = WeeklyKlineAggregator.aggregate(df)
+
+    assert 10 <= len(weekly) <= 14
+    assert weekly["open"].iloc[0] == pytest.approx(df["open"].iloc[0], rel=1e-6)
+    assert weekly["close"].iloc[-1] == pytest.approx(df["close"].iloc[-1], rel=1e-6)
+    assert weekly["high"].max() == pytest.approx(df["high"].max(), rel=1e-6)
+    assert weekly["low"].min() == pytest.approx(df["low"].min(), rel=1e-6)
+    assert weekly["volume"].sum() == pytest.approx(df["volume"].sum(), rel=1e-6)
+
+
+def test_weekly_aggregation_insufficient_data():
+    df = _make_uptrend_df(20)
+    weekly = WeeklyKlineAggregator.aggregate(df)
+
+    assert weekly.empty
+
+
+def test_weekly_indicators_bull_trend():
+    df = _make_uptrend_df(60)
+    calc = IndicatorCalculator()
+    weekly = calc.calculate_weekly(df, IndicatorParams())
+
+    assert weekly.weekly_trend_status in (
+        WeeklyTrendStatus.BULL,
+        WeeklyTrendStatus.STRONG_BULL,
+    )
+    assert weekly.weekly_ma5 > weekly.weekly_ma10 > weekly.weekly_ma20
+
+
+def test_weekly_rsi_computed():
+    df = _make_uptrend_df(60)
+    calc = IndicatorCalculator()
+    weekly = calc.calculate_weekly(df, IndicatorParams())
+
+    assert weekly.weekly_rsi_6 != 0.0
+    assert not np.isnan(weekly.weekly_rsi_6)

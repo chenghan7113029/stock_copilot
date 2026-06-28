@@ -1,7 +1,7 @@
 # 技术面分析模块 — 需求细则（MRD）
 
-> 最后更新：2026-06-21  
-> 状态：细则 v3（P0 核心 ✅ 已归档 `add-tech-analyzer-core`；V1.x 扩展待建）  
+> 最后更新：2026-06-28  
+> 状态：细则 v3（P0 核心 ✅ 已归档 `add-tech-analyzer-core`；F-20 周 K ✅ `add-weekly-kline`）  
 > 上级文档：[product-overview.md](../product-overview.md) §5.1.2  
 > 关联设计：[tech-analysis-reference.md](../../design/tech-analysis-reference.md)  
 > 参考实现：`ref/daily_stock_analysis/src/stock_analyzer.py`
@@ -15,6 +15,7 @@
 | 2026-06-21 | add-tech-analyzer-core | P0 核心交付：KlineProvider + KlineRepo + IndicatorCalculator + BullTrendScorer + TechAnalyzer；Baostock/AKShare fetch_kline；27 项单测（含 ref 一致性 ±0.1%）；OpenSpec 已归档 |
 | 2026-06-21 | sync-implementation | §4/§6/§7/§10 与当前代码对齐：补齐 `warnings`/`data_timestamp`、实际缓存策略、`LegacyRefScorer`、`TechIndicators`、公共导出与 `from_config` 行为 |
 | 2026-06-21 | add-dual-track-analyzer | 双轨 Facade：`DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`；确定性 combined_signal 融合矩阵；39 项单测 |
+| 2026-06-28 | add-weekly-kline | F-20 周 K 线：日线聚合 `W-MON` → `WeeklyIndicators`；MACD(5/10/4)/RSI(6W)；`WeeklyTrendStatus` 5 级；`BullTrendScorer` 周线空头过滤 |
 
 ---
 
@@ -61,15 +62,15 @@
 | F-14 | TechAnalyzer Facade | ✅ | `analyze(code) → TechAnalysisResult` |
 | F-15 | TechAnalysisConfig 可配置 | ✅ | `IndicatorParams` + `ScoringParams` + `kline_days` |
 
-### 2.2 V1.x 扩展（已识别，待规划）
+### 2.2 V1.x 扩展（已识别，部分交付）
 
-| # | 功能点 | 说明 |
-|---|--------|------|
-| F-16 | 实时行情融合 | 当日开盘后用实时价格补充 K 线末端，使 MA 计算不滞后一天 |
-| F-17 | 筹码分布 | 获利比例、套牢盘比例（AKShare `stock_cyq_em`） |
-| F-18 | K 线形态识别 | 锤头线、吞没、十字星等经典形态 |
-| F-19 | 布林带（Bollinger Bands） | 均值 ± N×σ，判断波动率收缩/扩张 |
-| F-20 | 周 K 线趋势分析 | 基于周 K 线（5 日聚合）计算 MA/MACD/RSI，输出更大级别趋势判断；与日线趋势联合解读 |
+| # | 功能点 | 状态 | 说明 |
+|---|--------|------|------|
+| F-16 | 实时行情融合 | 待建 | 当日开盘后用实时价格补充 K 线末端，使 MA 计算不滞后一天 |
+| F-17 | 筹码分布 | 待建 | 获利比例、套牢盘比例（AKShare `stock_cyq_em`） |
+| F-18 | K 线形态识别 | 待建 | 锤头线、吞没、十字星等经典形态 |
+| F-19 | 布林带（Bollinger Bands） | 待建 | 均值 ± N×σ，判断波动率收缩/扩张 |
+| F-20 | 周 K 线趋势分析 | ✅ | 日线按自然周（`W-MON`）聚合；MA5W/10W/20W、MACD(5/10/4)、RSI(6W)；`WeeklyTrendStatus` 5 级；周线空头过滤降级 buy_signal |
 
 ### 2.3 V2 及以后（明确不在当前范围）
 
@@ -196,6 +197,15 @@ class TechAnalysisResult:
     signal_reasons: list[str]        # 看多理由
     risk_factors: list[str]          # 风险提示
 
+    # 周线趋势（F-20，日线 < 25 行时为 None）
+    weekly_trend_status: WeeklyTrendStatus | None
+    weekly_ma_alignment: str
+    weekly_macd_signal: str
+    weekly_rsi_6: float | None
+    weekly_ma5: float | None
+    weekly_ma10: float | None
+    weekly_ma20: float | None
+
     # 元数据
     warnings: list[str]              # 数据/计算层警告（含 MA60 替代、K 线缺口等）
     data_timestamp: datetime | None   # 分析完成时间（UTC）
@@ -213,6 +223,9 @@ class TechAnalysisResult:
 | `RSIStatus` | OVERBOUGHT / STRONG_BUY / NEUTRAL / WEAK / OVERSOLD |
 | `KDJStatus` | OVERBOUGHT / GOLDEN_CROSS / NEUTRAL / DEATH_CROSS / OVERSOLD |
 | `BuySignal` | STRONG_BUY / BUY / HOLD / WAIT / SELL / STRONG_SELL |
+| `WeeklyTrendStatus` | STRONG_BULL / BULL / NEUTRAL / BEAR / STRONG_BEAR |
+
+**周线空头过滤（`ScoringParams.weekly_filter_enabled=True`，默认启用）：** 当 `weekly_trend_status` 为 BEAR/STRONG_BEAR 时，`buy_signal` 降一档（STRONG_BUY→BUY，BUY→WAIT，HOLD→WAIT），`risk_factors` 追加「周线空头，日线买点风险较高」。
 
 **`trend_strength` 与 `TrendStatus` 对应（实现常量）：**
 
@@ -262,6 +275,11 @@ class IndicatorParams:
     volume_heavy_ratio: float = 1.5    # 放量阈值
     ma_support_tolerance: float = 0.02 # MA 支撑容忍度（2%）
 
+    # 周线 MACD（F-20）
+    weekly_macd_fast: int = 5
+    weekly_macd_slow: int = 10
+    weekly_macd_signal: int = 4
+
 
 @dataclass
 class ScoringParams:
@@ -283,6 +301,9 @@ class ScoringParams:
     buy_threshold: int = 60
     hold_threshold: int = 45
     wait_threshold: int = 30
+
+    # 周线过滤（F-20）
+    weekly_filter_enabled: bool = True
 
 
 @dataclass
@@ -373,20 +394,20 @@ V1 采用「整段 API 拉取 + 增量 upsert 未缓存历史行」，而非先�
 | 数据 | `AKShareFetcher.fetch_kline` | `src/data_provider/akshare/fetcher.py` | fallback 日 K |
 | 数据 | `KlineProvider` | `src/data_provider/kline_provider.py` | 主备 + 缓存 + 当日合并 |
 | 配置 | `TechAnalysisConfig` 等 | `src/service/tech/config.py` | 指标/评分/kline_days |
-| 计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | 纯 pandas；中间态 `TechIndicators` |
-| 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | 生产默认；`ScoringEngine` Protocol |
+| 计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | 纯 pandas；`TechIndicators` + `WeeklyIndicators` + `WeeklyKlineAggregator` |
+| 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | 生产默认；含周线空头过滤；`ScoringEngine` Protocol |
 | 评分 | `LegacyRefScorer` | `src/service/tech/scorer.py` | ref 验收专用（RSI 10 分，无 KDJ） |
 | Facade | `TechAnalyzer` | `src/service/tech/analyzer.py` | `analyze(code)` 单一入口 |
-| 模型 | `TechAnalysisResult` + 枚举 | `src/service/tech/models/tech_result.py` | 输出契约 |
+| 模型 | `TechAnalysisResult` + 枚举 | `src/service/tech/models/tech_result.py` | 输出契约（含 `WeeklyTrendStatus`） |
 | 公共导出 | `__all__` | `src/service/tech/__init__.py` | `TechAnalyzer`, `TechAnalysisConfig`, `TechAnalysisResult`, `BuySignal`, `TrendStatus` |
 
-**单元测试（27 项，`test/service/tech/`）：**
+**单元测试（34 项，`test/service/tech/`）：**
 
 | 文件 | 用例数 | 覆盖 |
 |------|--------|------|
-| `test_calculator.py` | 10 | MA/MACD/RSI/KDJ/量能/趋势/支撑 |
+| `test_calculator.py` | 14 | MA/MACD/RSI/KDJ/量能/趋势/支撑/周线聚合与指标 |
 | `test_kline_provider.py` | 6 | 缓存 upsert、主备切换、失败降级、当日不写缓存 |
-| `test_analyzer.py` | 7 | 完整结果、非 A 股、K 线失败降级、人工复核、空头强制卖、from_config |
+| `test_analyzer.py` | 10 | 完整结果、非 A 股、K 线失败降级、人工复核、空头强制卖、from_config、周线字段与过滤 |
 | `test_consistency_with_ref.py` | 4 | vs ref ±0.1% + `LegacyRefScorer` 整数对齐 |
 
 **OpenSpec 主 spec（已 sync）：** `openspec/specs/tech-analyzer/`、`tech-kline-provider/`、`tech-indicator-calculator/`
@@ -406,7 +427,7 @@ src/
 └─ service/tech/
     ├─ __init__.py
     ├─ config.py
-    ├─ calculator.py             ← IndicatorCalculator + TechIndicators
+    ├─ calculator.py             ← IndicatorCalculator + TechIndicators + WeeklyIndicators
     ├─ scorer.py                 ← BullTrendScorer + LegacyRefScorer
     ├─ analyzer.py
     └─ models/tech_result.py
@@ -433,10 +454,14 @@ TechAnalyzer.analyze(code)
     ├─ 2. IndicatorCalculator.calculate(df, code, indicator_params)
     │       → TechIndicators（含 warnings，如 MA60 替代）
     │
-    ├─ 3. ScoringEngine.score(indicators, scoring_params)   # 默认 BullTrendScorer
+    ├─ 2b. IndicatorCalculator.calculate_weekly(df, indicator_params)
+    │       → WeeklyIndicators（日线 < 25 行时 warnings，result.weekly_* = None）
+    │
+    ├─ 3. ScoringEngine.score(indicators, scoring_params, weekly_indicators)
     │       → TechSignal(score, buy_signal, reasons, risks)
     │           └─ STRONG_BULL + strength≥90 + score<45 → risk_factors 人工复核
     │           └─ kdj_weight>0 且 J 超界 → risk_factors KDJ 提示
+    │           └─ weekly_filter_enabled 且周线 BEAR/STRONG_BEAR → buy_signal 降一档
     │
     └─ 4. 组装 TechAnalysisResult + data_timestamp(UTC)
 ```

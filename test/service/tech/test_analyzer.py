@@ -11,7 +11,7 @@ import pytest
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
 from service.tech.analyzer import TechAnalyzer
 from service.tech.config import ScoringParams, TechAnalysisConfig
-from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus
+from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus, WeeklyTrendStatus
 from service.tech.scorer import BullTrendScorer
 
 
@@ -117,3 +117,70 @@ def test_custom_scoring_params():
 
     result = analyzer.analyze("600519")
     assert result.code == "600519"
+
+
+def test_weekly_trend_included_in_result():
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(60), [])
+    analyzer = TechAnalyzer(kline_provider=provider)
+
+    result = analyzer.analyze("600519")
+
+    assert result.weekly_trend_status is not None
+    assert result.weekly_ma_alignment != ""
+    assert result.weekly_ma5 is not None and result.weekly_ma5 > 0
+
+
+def test_weekly_bear_downgrades_buy_signal():
+    from service.tech.calculator import TechIndicators, WeeklyIndicators
+    from service.tech.models.tech_result import KDJStatus, MACDStatus, RSIStatus, VolumeStatus
+
+    indicators = TechIndicators(
+        code="600519",
+        df=pd.DataFrame(),
+        trend_status=TrendStatus.STRONG_BULL,
+        trend_strength=90,
+        bias_ma5=0.5,
+        volume_status=VolumeStatus.SHRINK_VOLUME_DOWN,
+        support_ma5=True,
+        support_ma10=True,
+        macd_status=MACDStatus.GOLDEN_CROSS_ZERO,
+        rsi_status=RSIStatus.STRONG_BUY,
+        kdj_status=KDJStatus.GOLDEN_CROSS,
+    )
+    weekly = WeeklyIndicators(weekly_trend_status=WeeklyTrendStatus.BEAR)
+    scorer = BullTrendScorer()
+
+    without_filter = scorer.score(indicators, ScoringParams(weekly_filter_enabled=False), weekly)
+    with_filter = scorer.score(indicators, ScoringParams(), weekly)
+
+    assert without_filter.buy_signal == BuySignal.STRONG_BUY
+    assert with_filter.buy_signal == BuySignal.BUY
+    assert any("周线空头" in r for r in with_filter.risk_factors)
+
+
+def test_weekly_filter_disabled():
+    from service.tech.calculator import TechIndicators, WeeklyIndicators
+    from service.tech.models.tech_result import KDJStatus, MACDStatus, RSIStatus, VolumeStatus
+
+    indicators = TechIndicators(
+        code="600519",
+        df=pd.DataFrame(),
+        trend_status=TrendStatus.STRONG_BULL,
+        trend_strength=90,
+        bias_ma5=0.5,
+        volume_status=VolumeStatus.SHRINK_VOLUME_DOWN,
+        support_ma5=True,
+        support_ma10=True,
+        macd_status=MACDStatus.GOLDEN_CROSS_ZERO,
+        rsi_status=RSIStatus.STRONG_BUY,
+        kdj_status=KDJStatus.GOLDEN_CROSS,
+    )
+    weekly = WeeklyIndicators(weekly_trend_status=WeeklyTrendStatus.STRONG_BEAR)
+    scorer = BullTrendScorer()
+    params = ScoringParams(weekly_filter_enabled=False)
+
+    signal = scorer.score(indicators, params, weekly)
+
+    assert signal.buy_signal == BuySignal.STRONG_BUY
+    assert not any("周线空头" in r for r in signal.risk_factors)

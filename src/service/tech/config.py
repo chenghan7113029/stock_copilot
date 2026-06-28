@@ -29,6 +29,10 @@ class IndicatorParams:
     volume_heavy_ratio: float = 1.5
     ma_support_tolerance: float = 0.02
 
+    weekly_macd_fast: int = 5
+    weekly_macd_slow: int = 10
+    weekly_macd_signal: int = 4
+
 
 @dataclass
 class ScoringParams:
@@ -47,6 +51,8 @@ class ScoringParams:
     buy_threshold: int = 60
     hold_threshold: int = 45
     wait_threshold: int = 30
+
+    weekly_filter_enabled: bool = True
 
 
 @dataclass

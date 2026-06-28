@@ -73,7 +73,15 @@ class TechAnalyzer:
         indicators = self._calculator.calculate(
             df, code, self._config.indicator_params
         )
-        signal = self._scorer.score(indicators, self._config.scoring_params)
+        weekly = self._calculator.calculate_weekly(
+            df, self._config.indicator_params
+        )
+        weekly_insufficient = any("周线数据不足" in w for w in weekly.warnings)
+        signal = self._scorer.score(
+            indicators,
+            self._config.scoring_params,
+            None if weekly_insufficient else weekly,
+        )
 
         result.current_price = indicators.current_price
         result.trend_status = indicators.trend_status
@@ -113,6 +121,17 @@ class TechAnalyzer:
         result.signal_reasons = signal.signal_reasons
         result.risk_factors = signal.risk_factors
         result.warnings.extend(indicators.warnings)
+        if weekly_insufficient:
+            result.warnings.extend(weekly.warnings)
+        else:
+            result.weekly_trend_status = weekly.weekly_trend_status
+            result.weekly_ma_alignment = weekly.weekly_ma_alignment
+            result.weekly_macd_signal = weekly.weekly_macd_signal
+            result.weekly_rsi_6 = weekly.weekly_rsi_6
+            result.weekly_ma5 = weekly.weekly_ma5
+            result.weekly_ma10 = weekly.weekly_ma10
+            result.weekly_ma20 = weekly.weekly_ma20
+            result.warnings.extend(weekly.warnings)
         result.data_timestamp = datetime.now(timezone.utc)
 
         return result

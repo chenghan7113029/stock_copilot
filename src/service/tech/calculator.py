@@ -13,6 +13,7 @@ from service.tech.models.tech_result import (
     RSIStatus,
     TrendStatus,
     VolumeStatus,
+    WeeklyTrendStatus,
 )
 
 
@@ -63,6 +64,54 @@ class TechIndicators:
     kdj_signal: str = ""
 
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class WeeklyIndicators:
+    weekly_trend_status: WeeklyTrendStatus = WeeklyTrendStatus.NEUTRAL
+    weekly_ma5: float = 0.0
+    weekly_ma10: float = 0.0
+    weekly_ma20: float = 0.0
+    weekly_macd_dif: float = 0.0
+    weekly_macd_dea: float = 0.0
+    weekly_macd_bar: float = 0.0
+    weekly_rsi_6: float = 0.0
+    weekly_ma_alignment: str = ""
+    weekly_macd_signal: str = ""
+    warnings: list[str] = field(default_factory=list)
+
+
+class WeeklyKlineAggregator:
+    """日线 OHLCV 聚合为自然周 K 线。"""
+
+    _MIN_DAILY_ROWS = 25
+
+    @classmethod
+    def aggregate(cls, df_daily: pd.DataFrame) -> pd.DataFrame:
+        if df_daily is None or df_daily.empty or len(df_daily) < cls._MIN_DAILY_ROWS:
+            return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+
+        work = df_daily.sort_values("date").copy()
+        work["date"] = pd.to_datetime(work["date"])
+        work = work.set_index("date")
+
+        weekly = (
+            work.resample("W-MON", label="left", closed="left")
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna(subset=["close"])
+        )
+
+        weekly = weekly.reset_index()
+        weekly["date"] = weekly["date"].dt.strftime("%Y-%m-%d")
+        return weekly
 
 
 class IndicatorCalculator:
@@ -396,3 +445,119 @@ class IndicatorCalculator:
         elif result.kdj_j < 0:
             result.kdj_status = KDJStatus.OVERSOLD
             result.kdj_signal += f"；J值超界({result.kdj_j:.1f}<0)"
+
+    def calculate_weekly(
+        self,
+        df_daily: pd.DataFrame,
+        params: IndicatorParams | None = None,
+    ) -> WeeklyIndicators:
+        params = params or IndicatorParams()
+        result = WeeklyIndicators()
+
+        if df_daily is None or df_daily.empty or len(df_daily) < WeeklyKlineAggregator._MIN_DAILY_ROWS:
+            result.warnings.append("周线数据不足，周线趋势分析未启用")
+            return result
+
+        weekly_df = WeeklyKlineAggregator.aggregate(df_daily)
+        if weekly_df.empty:
+            result.warnings.append("周线数据不足，周线趋势分析未启用")
+            return result
+
+        work = weekly_df.copy()
+        work["MA5"] = work["close"].rolling(window=5).mean()
+        work["MA10"] = work["close"].rolling(window=10).mean()
+        if len(work) >= 20:
+            work["MA20"] = work["close"].rolling(window=20).mean()
+        else:
+            window = max(len(work), 1)
+            work["MA20"] = work["close"].rolling(window=window).mean()
+            result.warnings.append("周线 MA20 数据不足，以可用窗口替代")
+
+        ema_fast = work["close"].ewm(span=params.weekly_macd_fast, adjust=False).mean()
+        ema_slow = work["close"].ewm(span=params.weekly_macd_slow, adjust=False).mean()
+        work["MACD_DIF"] = ema_fast - ema_slow
+        work["MACD_DEA"] = work["MACD_DIF"].ewm(
+            span=params.weekly_macd_signal, adjust=False
+        ).mean()
+        work["MACD_BAR"] = (work["MACD_DIF"] - work["MACD_DEA"]) * 2
+
+        period = 6
+        delta = work["close"].diff()
+        gain = delta.where(delta > 0, 0.0)
+        loss = -delta.where(delta < 0, 0.0)
+        avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
+        rs = avg_gain / avg_loss
+        work["RSI_6"] = (100 - (100 / (1 + rs))).fillna(50)
+
+        latest = work.iloc[-1]
+        result.weekly_ma5 = float(latest["MA5"])
+        result.weekly_ma10 = float(latest["MA10"])
+        result.weekly_ma20 = float(latest["MA20"])
+        result.weekly_macd_dif = float(latest["MACD_DIF"])
+        result.weekly_macd_dea = float(latest["MACD_DEA"])
+        result.weekly_macd_bar = float(latest["MACD_BAR"])
+        result.weekly_rsi_6 = float(latest["RSI_6"])
+
+        self._analyze_weekly_trend(work, result)
+        self._analyze_weekly_macd(work, result, params)
+
+        return result
+
+    @staticmethod
+    def _analyze_weekly_trend(df: pd.DataFrame, result: WeeklyIndicators) -> None:
+        ma5, ma10, ma20 = result.weekly_ma5, result.weekly_ma10, result.weekly_ma20
+
+        if ma5 > ma10 > ma20:
+            prev = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
+            prev_spread = (
+                (prev["MA5"] - prev["MA20"]) / prev["MA20"] * 100 if prev["MA20"] > 0 else 0
+            )
+            curr_spread = (ma5 - ma20) / ma20 * 100 if ma20 > 0 else 0
+            if curr_spread > prev_spread and curr_spread > 5:
+                result.weekly_trend_status = WeeklyTrendStatus.STRONG_BULL
+                result.weekly_ma_alignment = "周线强势多头排列，均线发散上行"
+            else:
+                result.weekly_trend_status = WeeklyTrendStatus.BULL
+                result.weekly_ma_alignment = "周线多头排列 MA5W>MA10W>MA20W"
+        elif ma5 < ma10 < ma20:
+            prev = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
+            prev_spread = (
+                (prev["MA20"] - prev["MA5"]) / prev["MA5"] * 100 if prev["MA5"] > 0 else 0
+            )
+            curr_spread = (ma20 - ma5) / ma5 * 100 if ma5 > 0 else 0
+            if curr_spread > prev_spread and curr_spread > 5:
+                result.weekly_trend_status = WeeklyTrendStatus.STRONG_BEAR
+                result.weekly_ma_alignment = "周线强势空头排列，均线发散下行"
+            else:
+                result.weekly_trend_status = WeeklyTrendStatus.BEAR
+                result.weekly_ma_alignment = "周线空头排列 MA5W<MA10W<MA20W"
+        else:
+            result.weekly_trend_status = WeeklyTrendStatus.NEUTRAL
+            result.weekly_ma_alignment = "周线均线缠绕，趋势不明"
+
+    def _analyze_weekly_macd(
+        self, df: pd.DataFrame, result: WeeklyIndicators, params: IndicatorParams
+    ) -> None:
+        if len(df) < params.weekly_macd_slow:
+            result.weekly_macd_signal = "数据不足"
+            return
+
+        prev = df.iloc[-2]
+        prev_dif_dea = prev["MACD_DIF"] - prev["MACD_DEA"]
+        curr_dif_dea = result.weekly_macd_dif - result.weekly_macd_dea
+        is_golden_cross = prev_dif_dea <= 0 and curr_dif_dea > 0
+        is_death_cross = prev_dif_dea >= 0 and curr_dif_dea < 0
+
+        if is_golden_cross and result.weekly_macd_dif > 0:
+            result.weekly_macd_signal = "周线零轴上金叉"
+        elif is_golden_cross:
+            result.weekly_macd_signal = "周线金叉"
+        elif is_death_cross:
+            result.weekly_macd_signal = "周线死叉"
+        elif result.weekly_macd_dif > 0 and result.weekly_macd_dea > 0:
+            result.weekly_macd_signal = "周线多头"
+        elif result.weekly_macd_dif < 0 and result.weekly_macd_dea < 0:
+            result.weekly_macd_signal = "周线空头"
+        else:
+            result.weekly_macd_signal = "周线 MACD 中性"
