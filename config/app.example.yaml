@@ -16,6 +16,8 @@ logging:
   filename: stock_copilot.log
   rotation: "1 day"
   retention: "30 days"
+  cli_level: ERROR       # CLI stderr 日志级别（WARNING 在 PowerShell 下易被误判）
+  cli_progress: true     # sync/report 向 stdout 打印阶段性进度
 
 reports:
   dir: reports

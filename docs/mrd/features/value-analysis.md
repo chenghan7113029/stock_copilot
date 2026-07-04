@@ -16,6 +16,7 @@
 | 2026-06-21 | valuation-methods-phase8 | §13 Phase 8 完成；新增 §14 实现现状与 Feature 缺口；更新 §8/§11/§12/§15 |
 | 2026-06-21 | decision-historical-multiples | **D-E 已确定**：历史 PE/PB 序列由 Tushare Pro 提供（付费/积分由运营方承担） |
 | 2026-06-21 | add-value-analyzer-core | 编排层 P0 交付：ValueAnalyzer Facade + ValuationAggregator + PrototypeRouter + ValueAnalysisResult；`ValuationEngine.run_selected()` 新增；§11/§12/§14 状态同步 |
+| 2026-07-04 | add-tushare-financials | Tushare 四表财报接入（≥2000 积分）；net_debt 推导；多源财报覆盖；离线快照按 fetched_at 合并；600519 pe_relative/ev_ebitda 达标 |
 
 ---
 
@@ -275,7 +276,7 @@ pytest -m network test/e2e/test_tushare_pipeline.py -v
 
 无 Token 时该测试自动 skip，不影响离线 CI。
 
-**Tushare 积分要求**：新账号需在 [tushare.pro](https://tushare.pro) 完成实名认证并积累积分后，方可调用 `stock_basic`、`daily`、`fina_indicator` 等接口。积分不足时网络 E2E 会 skip 并提示「无接口权限」。
+**Tushare 积分要求**：财报接口（`income` / `cashflow` / `balancesheet` / `fina_indicator` / `dividend`）需 **≥2000 积分**（约 200 元/年）；120 积分档仅 `daily` 等基础接口。验证：`py scripts/verify_tushare_financials.py 600519`。
 
 **历史 PE/PB（D-E）**：相对估值所需的 `historical_pe` / `historical_pb` 序列**仅通过 Tushare Pro 获取**；若接口需更高积分或付费包，由运营方自行解决，开发侧在 fetcher 中按权限 graceful 降级（字段保持 `None`）。
 
@@ -295,7 +296,7 @@ pytest -m network test/e2e/test_tushare_pipeline.py -v
 | 字段覆盖率 | `reports/value-data-field-coverage-*.json` | 每只样本股 + 跨样本聚合的字段覆盖详情 |
 | 字段缺口 | `reports/value-data-field-gaps-*.json` | blocked 字段清单，供产品决策 |
 
-**当前已知缺口（AKShare 不稳定时）**：bvps, dividend_*, ebit, fcf, market_cap, operating_margin, revenue, roic, shareholder_equity, shares_outstanding, total_assets/liabilities。这些字段需等 AKShare API 稳定后重新验证，或引入备选数据源。
+**当前已知缺口（Tushare 2000 积分 + Baostock 启用后）**：`historical_pb` 仍为空；`growth_rate` 仍主要来自 Baostock eps CAGR；聚合中位受 DCF/EPV 假设影响未达 Gemini 全方法 ±5%（pe_relative / ev_ebitda 已对齐）。
 
 使用方法：
 

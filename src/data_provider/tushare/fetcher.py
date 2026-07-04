@@ -258,7 +258,7 @@ class TushareFetcher(BaseFetcher):
             return None
         sort_col = "end_date" if "end_date" in df.columns else "ann_date"
         df = df.sort_values(sort_col, ascending=False)
-        if api_name == "income" and "end_date" in df.columns:
+        if api_name in ("income", "cashflow", "balancesheet", "fina_indicator") and "end_date" in df.columns:
             annual = df[df["end_date"].astype(str).str.endswith("1231")]
             if not annual.empty:
                 return annual.iloc[0]

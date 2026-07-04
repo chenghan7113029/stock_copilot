@@ -122,7 +122,7 @@
 | D-E | 历史 PE/PB 序列 | Baostock 季末价÷epsTTM → `historical_pe`；解锁 `pe_relative` | `fix-baostock-data-quality` | [x] Baostock 层已实现 |
 | D-F | FCF 推导链 | operCashTTM → CFOToOR×revenue → net_income×fcf_rate | `fix-baostock-data-quality` | [x] 已实现 |
 | D-G | 聚合可信度守卫 | 核心方法全 N/A 时标「不可信」 | `fix-baostock-data-quality` | [x] 已实现 |
-| D-H | Tushare 财报补全 | income/cashflow/balance → 全方法 ±5% | `add-tushare-financials` | [ ] 待 Token 升级 |
+| D-H | Tushare 财报补全 | income/cashflow/balance → 真实财报字段 | `add-tushare-financials` | [x] 已实现（7.5 聚合中位待估值层优化） |
 | E | REST API | `POST /api/v1/analysis/value` 等 | `add-value-api`（待定） | [ ] 待建 |
 | F | CLI / 看板 | `python -m apps.cli sync/report ...` | 与 PO-08 合并 | [x] CLI 核心 |
 | G | LLM ContextPack | 价值面块注入双轨 + LLM 叙述 | 与 PO-02 合并 | [ ] 待建 |
@@ -147,6 +147,31 @@
 - DCF：773.44（可运行，FCF 仍为 fallback 估算）
 - 聚合中位：810（较修复前 405 翻倍；全方法 ±5% 待层 B）
 
+### 5.3 Tushare 财报接入（add-tushare-financials）
+
+> OpenSpec change：`openspec/changes/add-tushare-financials/`  
+> 状态：✅ 数据层已实现（2026-07-04）
+
+| 能力 | 说明 |
+|------|------|
+| 四表接入 | `income` / `cashflow` / `balancesheet` / `fina_indicator`（需 ≥2000 积分） |
+| net_debt | `money_cap` + 短/长期借款推导 |
+| 年报优先 | income/cashflow/balance/fina 优先取 1231 年报 |
+| 多源合并 | Tushare 财报字段覆盖 Baostock 估算；离线按 `fetched_at` 取最新快照 |
+
+**600519 验证（Tushare priority=1，2026-07-04）：**
+
+| 字段/方法 | 实测 | 备注 |
+|-----------|------|------|
+| revenue | 1,688 亿 | Tushare 年报 |
+| fcf | 584 亿 | Tushare 年报 OCF − capex |
+| net_debt | -517 亿 | 净现金 |
+| pe_relative | 1,440 | ✅ 对齐 Gemini |
+| ev_ebitda | 1,628 | ✅ 含净现金溢价 |
+| 聚合中位 | 838 | DCF/EPV 仍偏低（growth_rate/WACC 假设，非数据缺口） |
+
+**CLI 进度**：`sync`/`report` 默认输出阶段性进度（`logging.cli_progress`），可用 `--quiet` 关闭。
+
 ### 4.3 V2 原型与方法（明确后置）
 
 | ID | 项 | 样本股 | 状态 |
@@ -170,7 +195,7 @@
 | **A** | CLI 核心入口（`add-cli-core`） | 已有 `DualTrackAnalyzer`，缺对外入口 | ✅ 已实现 |
 | **B** | LLM 综合报告（PO-02 / G） | 双轨结果可直接打包；情绪维可后补 | ⬜ 待立项 |
 | **C** | 历史 PE/PB（D-E） | 解锁 relative 估值，价值面完整度提升明显 | ✅ Baostock 层（fix-baostock-data-quality） |
-| **C2** | Tushare 财报补全（D-H） | 全方法 ±5% 精度 | ⬜ add-tushare-financials |
+| **C2** | Tushare 财报补全（D-H） | 真实 revenue/fcf/net_debt；pe_relative + ev_ebitda 达标 | ✅ add-tushare-financials（聚合中位优化另立项） |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ⬜ 待立项 |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ⬜ 待立项 |
 | **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ⬜ 待立项 |

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.formatters import format_tech_report, format_value_report
+from common.cli_progress import CliProgress, cli_progress_enabled
 from common.config_loader import load_app_config
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
 from common.win_console import setup_utf8_console
@@ -39,6 +40,12 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
     """同步单票价值面快照与 K 线数据（唯一联网路径）。"""
     cfg = config or load_app_config()
     _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
+    progress = CliProgress("sync", enabled=cli_progress_enabled(cfg))
+    progress_cb = progress.callback
+
+    progress.emit(f"开始同步 {code}" + ("（含实时报价）" if realtime else ""))
+
+    progress.emit("初始化数据库…")
     engine = create_db_engine(cfg)
     Base.metadata.create_all(engine)
     ensure_sqlite_schema(engine)
@@ -48,7 +55,7 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
     try:
         snapshot_repo = StockSnapshotRepo(session)
         value_provider = StockDataProvider.from_config(cfg, repo=snapshot_repo)
-        stock = value_provider.get_stock_data(code)
+        stock = value_provider.get_stock_data(code, on_progress=progress_cb)
 
         kline_repo = KlineRepo(session)
         kline_provider = KlineProvider(kline_repo)
@@ -57,8 +64,10 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             days=cfg.get("tech", {}).get("kline_days", 90),
             use_realtime=realtime,
             persist_today=realtime,
+            on_progress=progress_cb,
         )
 
+        progress.emit("正在提交数据库事务…")
         session.commit()
 
         kline_status = f"K线 {len(df)}行 OK"
@@ -68,7 +77,7 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             if "realtime" in w.lower() or "overlay" in w.lower() or "降级" in w:
                 print(f"[warn] {w}", file=sys.stderr)
 
-        print(f"[sync] {stock.code} done: value snapshot OK | {kline_status}")
+        progress.emit(f"完成：value snapshot OK | {kline_status}")
     except Exception as exc:
         session.rollback()
         print(f"[error] 数据拉取失败：{exc}", file=sys.stderr)
@@ -85,6 +94,9 @@ def run_report_tech(
 ) -> None:
     """离线生成技术面报告。"""
     cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 技术面报告（离线）…")
+
     analyzer = TechAnalyzer.from_config(cfg)
     result = analyzer.analyze(code, offline=True)
 
@@ -95,7 +107,7 @@ def run_report_tech(
         raise SystemExit(1)
 
     text = format_tech_report(result, as_json=as_json)
-    _emit_report(text, output)
+    _emit_report(text, output, progress)
 
 
 def run_report_value(
@@ -106,6 +118,9 @@ def run_report_value(
 ) -> None:
     """离线生成价值面报告。"""
     cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 价值面报告（离线）…")
+
     engine = create_db_engine(cfg)
     Base.metadata.create_all(engine)
     ensure_sqlite_schema(engine)
@@ -115,6 +130,7 @@ def run_report_value(
     try:
         snapshot_repo = StockSnapshotRepo(session)
         value_provider = StockDataProvider.from_config(cfg, repo=snapshot_repo)
+        progress.emit("正在加载本地价值快照…")
         analyzer = ValueAnalyzer(value_provider)
         result = analyzer.analyze_offline(code)
 
@@ -122,18 +138,23 @@ def run_report_value(
             print(f"[error] 未找到 {code} 的价值快照，请先运行 sync", file=sys.stderr)
             raise SystemExit(1)
 
+        progress.emit("正在运行估值分析…")
         text = format_value_report(result, as_json=as_json)
-        _emit_report(text, output)
+        _emit_report(text, output, progress)
     finally:
         session.close()
 
 
-def _emit_report(text: str, output: str | None) -> None:
+def _emit_report(text: str, output: str | None, progress: CliProgress | None = None) -> None:
     if output:
         path = Path(output)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-        print(f"已保存至 {output}")
+        msg = f"已保存至 {output}"
+        if progress and progress.enabled:
+            progress.emit(msg)
+        else:
+            print(msg)
     else:
         print(text)
 
@@ -149,6 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="叠加当日实时报价并持久化当日 K 线",
     )
+    sync_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="不输出阶段性进度（仅保留最终结果与错误）",
+    )
 
     report_parser = sub.add_parser("report", help="生成离线分析报告")
     report_sub = report_parser.add_subparsers(dest="report_type", required=True)
@@ -157,11 +183,13 @@ def build_parser() -> argparse.ArgumentParser:
     tech_parser.add_argument("code", help="股票代码")
     tech_parser.add_argument("--json", action="store_true", help="JSON 输出")
     tech_parser.add_argument("--output", "-o", help="写入文件路径")
+    tech_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
     value_parser = report_sub.add_parser("value", help="价值面报告")
     value_parser.add_argument("code", help="股票代码")
     value_parser.add_argument("--json", action="store_true", help="JSON 输出")
     value_parser.add_argument("--output", "-o", help="写入文件路径")
+    value_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
     return parser
 
@@ -170,14 +198,23 @@ def main(argv: list[str] | None = None) -> None:
     setup_utf8_console()
     args = build_parser().parse_args(argv)
 
+    config_override: dict[str, Any] | None = None
+    if getattr(args, "quiet", False):
+        config_override = load_app_config()
+        config_override.setdefault("logging", {})["cli_progress"] = False
+
     try:
         if args.command == "sync":
-            run_sync(args.code, realtime=args.realtime)
+            run_sync(args.code, realtime=args.realtime, config=config_override)
         elif args.command == "report":
             if args.report_type == "tech":
-                run_report_tech(args.code, as_json=args.json, output=args.output)
+                run_report_tech(
+                    args.code, as_json=args.json, output=args.output, config=config_override
+                )
             elif args.report_type == "value":
-                run_report_value(args.code, as_json=args.json, output=args.output)
+                run_report_value(
+                    args.code, as_json=args.json, output=args.output, config=config_override
+                )
     except UnsupportedMarketError as exc:
         print(f"[error] {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

@@ -3,7 +3,7 @@
 - [x] 0.1 确认 Tushare token 升级至支持 `income` / `cashflow` / `balancesheet` / `fina_indicator` 接口（积分 ≥ 120）
 - [x] 0.2 运行验证脚本确认四个接口均可调用并返回 600519 数据
 
-> **阻塞**：当前 token 仅 `daily` 可用，四个财报接口均返回无权限。已提供 `scripts/verify_tushare_financials.py` 供升级后复验。
+> **权限**：需 Tushare 积分 ≥2000（`income`/`cashflow`/`balancesheet`/`fina_indicator`）。验证脚本：`scripts/verify_tushare_financials.py`
 
 ## 1. StockData 模型补充
 
@@ -38,13 +38,25 @@
 
 ## 7. 端到端验证
 
-- [ ] 7.1 重新同步茅台数据（`py -m apps.cli sync 600519`）
-- [ ] 7.2 生成价值报告，验证以下字段有真实数据：`revenue`（~1,688 亿）、`fcf`（~590 亿）、`net_debt`（< 0，净现金）、`total_assets`（~3,038 亿）
-- [ ] 7.3 验证 Piotroski F-Score 可运行（之前因 total_assets 为 None 而 N/A）
-- [ ] 7.4 验证 EV/EBITDA 公允价 ≥ 1,200 元（含净现金调整）
+- [x] 7.1 重新同步茅台数据（`py -m apps.cli sync 600519`）
+- [x] 7.2 生成价值报告，验证以下字段有真实数据：`revenue`（~1,688 亿）、`fcf`（~590 亿）、`net_debt`（< 0，净现金）、`total_assets`（~3,038 亿）
+- [x] 7.3 验证 Piotroski F-Score 可运行（之前因 total_assets 为 None 而 N/A）
+- [x] 7.4 验证 EV/EBITDA 公允价 ≥ 1,200 元（含净现金调整）
 - [ ] 7.5 验证全方法聚合中位数 ≥ 1,300 元，与 Gemini 参考值 1,340-1,474 误差 ≤ ±5%
+
+> **7.5 实测（2026-07-04，Tushare 2000 积分 + 离线快照修复后）**
+>
+> | 指标 | 实测 | 目标 | 结果 |
+> |------|------|------|------|
+> | revenue | 1,688 亿 | ~1,688 亿 | ✅ |
+> | fcf | 584 亿 | ~590 亿 | ✅ |
+> | net_debt | -517 亿 | < 0 | ✅ |
+> | total_assets | 3,038 亿 | ~3,038 亿 | ✅ |
+> | pe_relative | 1,440 | 1,340–1,474 | ✅ |
+> | ev_ebitda | 1,628 | ≥ 1,200 | ✅ |
+> | 聚合中位 | 838 | ≥ 1,300 | ❌（DCF/EPV/Graham 仍偏低，属估值假设层，非数据缺口） |
 
 ## 8. 归档文档
 
-- [ ] 8.1 更新 `docs/mrd/roadmap-todo.md`：将「Tushare 财报接入」标记为已完成
-- [ ] 8.2 合并本 change 的 proposal/design 到相关 mrd 和 design 文档
+- [x] 8.1 更新 `docs/mrd/roadmap-todo.md`：将「Tushare 财报接入」标记为已完成
+- [x] 8.2 合并本 change 的 proposal/design 到相关 mrd 和 design 文档

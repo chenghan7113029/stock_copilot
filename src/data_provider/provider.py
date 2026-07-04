@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Callable
 
 from common.exceptions import UnsupportedMarketError
 from common.models.stock_data import StockData
@@ -66,7 +66,12 @@ class StockDataProvider:
         manager = SourceManager.from_config(config)
         return cls(manager, repo, config)
 
-    def get_stock_data(self, raw_code: str) -> StockData:
+    def get_stock_data(
+        self,
+        raw_code: str,
+        *,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> StockData:
         """获取指定 A 股的完整估值数据。
 
         非 A 股代码（港股/美股等）抛 UnsupportedMarketError。
@@ -85,28 +90,49 @@ class StockDataProvider:
 
         # ── 阶段一：网络取数（不持有 Session）──────────────────────────────────
         fetch_results: list = []
-        for fetcher in self._manager.fetchers:
+        fetchers = self._manager.fetchers
+        for i, fetcher in enumerate(fetchers, start=1):
+            if on_progress:
+                on_progress(
+                    f"价值面 [{i}/{len(fetchers)}] 正在从 {fetcher.source_name} 拉取…"
+                )
             try:
                 result = fetcher.fetch_all(code, exchange)
             except Exception as exc:
                 logger.warning("fetcher %s 抛出异常: %s", fetcher.source_name, exc)
+                if on_progress:
+                    on_progress(f"价值面 {fetcher.source_name} 异常：{exc}")
                 continue
 
             if not result.ok:
                 logger.info("fetcher %s 未成功: %s", fetcher.source_name, result.error)
+                if on_progress:
+                    on_progress(f"价值面 {fetcher.source_name} 跳过：{result.error}")
                 continue
 
             fetch_results.append(result)
             self._merge_result(stock, result.data, fetcher.source_name)
+            if on_progress:
+                on_progress(
+                    f"价值面 {fetcher.source_name} 完成（{len(result.data)} 个字段）"
+                )
 
         # ── 阶段二：批量落库（短生命周期 Session）──────────────────────────────
         if self._repo is not None and fetch_results:
+            if on_progress:
+                on_progress(f"正在写入 {len(fetch_results)} 条价值面快照…")
             try:
                 self._repo.upsert_many(fetch_results)
             except Exception as exc:
                 logger.warning("DAO 批量落库失败 (%s): %s", code, exc)
+                if on_progress:
+                    on_progress(f"快照落库失败：{exc}")
+            else:
+                if on_progress:
+                    on_progress("价值面快照已落库")
 
-        # 计算派生字段（PE/PB/dividend_yield 若可得）
+        if on_progress:
+            on_progress("正在计算派生字段…")
         self._derive_ratios(stock)
         self._derive_ttm_fields(stock)
         self._derive_fcf_fields(stock)
@@ -132,7 +158,8 @@ class StockDataProvider:
 
         by_source: dict[str, Any] = {}
         for snap in snapshots:
-            if snap.source not in by_source:
+            existing = by_source.get(snap.source)
+            if existing is None or snap.fetched_at > existing.fetched_at:
                 by_source[snap.source] = snap
 
         priority_order = {f.source_name: f.priority for f in self._manager.fetchers}

@@ -67,7 +67,7 @@ def main() -> int:
     if ok_count == len(apis):
         print(f"\n全部 {ok_count} 个财报接口可用。")
         return 0
-    print(f"\n仅 {ok_count}/{len(apis)} 个接口可用。请升级 Tushare 积分至 ≥120。")
+    print(f"\n仅 {ok_count}/{len(apis)} 个接口可用。请升级 Tushare 积分至 ≥2000。")
     return 1
 
 

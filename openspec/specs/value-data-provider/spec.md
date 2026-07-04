@@ -205,3 +205,24 @@ Tushare Token SHALL 从以下来源读取（优先级从高到低）：`data_sou
 - **WHEN** 对同一代码执行联网 `get_stock_data()` 后再执行 `get_stock_data_offline()`
 - **THEN** 关键字段（eps、roe、current_price 等）的值 SHALL 一致（偏差在浮点精度内）
 
+### Requirement: 离线快照按来源取最新 fetched_at
+`get_stock_data_offline()` 在同 `source` 存在多条 `report_period` 快照时，SHALL 选取 `fetched_at` 最新的一条参与合并，避免因 `report_period` 字符串排序误选仅含行情的旧快照。
+
+#### Scenario: 同 source 多 report_period
+- **WHEN** `tushare` 同时存在 `report_period=20260628`（仅行情）与 `report_period=20231231`（含完整财报），且后者 `fetched_at` 更新
+- **THEN** 离线合并 SHALL 使用含完整财报的快照，`revenue`/`total_assets` 等非空
+
+### Requirement: Tushare 财报字段覆盖 Baostock 估算值
+`StockDataProvider._merge_fields()` 对 `FINANCIAL_STATEMENT_FIELDS`（`revenue`、`fcf`、`capex`、`net_debt`、`ebit`、`depreciation`、`total_assets`、`total_liabilities`、`bvps`、`roic`、`net_income`）SHALL 允许 Tushare 的非 None 值通过 `override_field()` 覆盖 Baostock 的估算值，即使 Baostock 优先级更高且已写入该字段。
+
+#### Scenario: Tushare revenue 覆盖 Baostock 估算
+- **WHEN** Baostock 先写入 `revenue=1000亿`（CFOToOR 估算），Tushare 后写入 `revenue=1688亿`（年报）
+- **THEN** 合并后 `StockData.revenue = 1688亿`，`field_sources["revenue"] = "tushare"`
+
+### Requirement: Tushare 财报接口优先取年报
+`TushareFetcher._fetch_latest()` 对 `income`、`cashflow`、`balancesheet`、`fina_indicator` SHALL 优先返回 `end_date` 以 `1231` 结尾的最新年报行；无年报时取最近一期季报。
+
+#### Scenario: 存在年报与季报
+- **WHEN** `income` 返回含 `20260331` 季报与 `20231231` 年报
+- **THEN** SHALL 选用 `20231231` 年报写入 `revenue` 等字段
+

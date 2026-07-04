@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import pandas as pd
 
@@ -52,6 +52,8 @@ class KlineProvider:
         use_realtime: bool = False,
         offline: bool = False,
         persist_today: bool = False,
+        *,
+        on_progress: Callable[[str], None] | None = None,
     ) -> tuple[pd.DataFrame, list[str], str]:
         """获取 K 线 DataFrame、warnings 与 quote_mode。"""
         norm_code, exchange = normalize_stock_code(code)
@@ -66,10 +68,15 @@ class KlineProvider:
         cached_dates = {row["trade_date"] for row in cached_rows}
         warnings: list[str] = []
 
+        if on_progress:
+            on_progress(f"K线 正在拉取 {start_date} ~ {end_date}…")
+
         df_api: pd.DataFrame | None = None
         fetch_error: str | None = None
         try:
-            df_api = self._fetch_from_sources(norm_code, exchange, start_date, end_date)
+            df_api = self._fetch_from_sources(
+                norm_code, exchange, start_date, end_date, on_progress=on_progress
+            )
         except KlineUnavailableError as exc:
             fetch_error = str(exc)
 
@@ -116,6 +123,8 @@ class KlineProvider:
                 df = pd.concat([df, pd.DataFrame([last_row])], ignore_index=True)
 
             df = df.sort_values("date").reset_index(drop=True)
+            if on_progress:
+                on_progress(f"K线 拉取完成，共 {len(df)} 行")
             return self._finalize(df, warnings, norm_code, use_realtime, persist_today)
 
         if cached_rows:
@@ -124,6 +133,8 @@ class KlineProvider:
                 warnings.append("K 线数据存在缺口，指标计算可能不准确")
             if fetch_error:
                 warnings.append(f"K 线实时拉取失败，已使用缓存数据: {fetch_error}")
+            if on_progress:
+                on_progress(f"K线 使用缓存（{len(cached_rows)} 行）")
             df = pd.DataFrame(cached_rows).drop(columns=["trade_date"], errors="ignore")
             df = df.sort_values("date").reset_index(drop=True)
             return self._finalize(df, warnings, norm_code, use_realtime, persist_today)
@@ -189,15 +200,23 @@ class KlineProvider:
         exchange: str,
         start_date: str,
         end_date: str,
+        *,
+        on_progress: Callable[[str], None] | None = None,
     ) -> pd.DataFrame:
         errors: list[str] = []
         for fetcher, name in ((self._baostock, "Baostock"), (self._akshare, "AKShare")):
+            if on_progress:
+                on_progress(f"K线 正在从 {name} 拉取…")
             try:
                 df = fetcher.fetch_kline(code, exchange, start_date, end_date)
                 logger.debug("%s K线获取成功 %s: %d 行", name, code, len(df))
+                if on_progress:
+                    on_progress(f"K线 {name} 完成（{len(df)} 行）")
                 return df
             except (DataProviderError, Exception) as exc:
                 logger.warning("%s K线获取失败 %s: %s", name, code, exc)
+                if on_progress:
+                    on_progress(f"K线 {name} 失败：{exc}")
                 errors.append(f"{name}: {exc}")
         raise KlineUnavailableError("; ".join(errors))
 
