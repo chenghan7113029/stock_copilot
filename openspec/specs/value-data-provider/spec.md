@@ -277,3 +277,21 @@ Tushare Token SHALL 从以下来源读取（优先级从高到低）：`data_sou
 - **WHEN** Tushare 未启用
 - **THEN** 所有 `prior_*` 字段为 None，Piotroski/Beneish 部分指标退化为 Not Applicable
 
+### Requirement: 银行专项字段从始终 None 变为可由 Tushare 提供
+`StockDataProvider` merge 层 SHALL 将 Tushare 返回的 `net_interest_margin`、`npl_ratio`、`provision_coverage` 合并到 `StockData` 对应属性（优先级：Tushare > Baostock；Baostock 无此字段，不冲突）。
+
+#### Scenario: sync 601398 后银行专项字段非空
+- **WHEN** Tushare 启用且 601398 `fina_indicator` 含 `netint_margin`
+- **THEN** `StockData.net_interest_margin` 不为 None，可被 bank 原型估值方法使用
+
+#### Scenario: 银行方法缺少 NIM 时优雅降级
+- **WHEN** `net_interest_margin = None`（接口无权限或无数据）
+- **THEN** 依赖 NIM 的指标评分降级为 Not Applicable，聚合不崩溃
+
+### Requirement: industry 字段从 Tushare stock_basic 提供
+`StockDataProvider` merge 层 SHALL 将 Tushare `stock_basic.industry` 合并到 `StockData.industry`，供 `PrototypeRouter` 行业分类使用；`StockSnapshot` ORM SHALL 持久化 `industry` 并在离线重建时回放。
+
+#### Scenario: sync 后 industry 非空
+- **WHEN** Tushare 启用且 `stock_basic` 返回 `industry="银行"`
+- **THEN** `StockData.industry = "银行"`，`field_sources["industry"] = "tushare"`
+

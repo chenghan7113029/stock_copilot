@@ -22,6 +22,7 @@ from data_provider.tushare.field_mapping import (
     DIVIDEND_FIELD_MAP,
     FINA_INDICATOR_FIELD_MAP,
     INCOME_FIELD_MAP,
+    STOCK_BASIC_FIELD_MAP,
     SCALE_SHARE_WAN_FIELDS,
     SCALE_WAN_FIELDS,
 )
@@ -110,6 +111,27 @@ def _prior_year_period(current_annual_period: str) -> str | None:
     if len(s) < 8 or not s.endswith("1231"):
         return None
     return f"{int(s[:4]) - 1}{s[4:]}"
+
+
+def _apply_string_row_map(
+    row: pd.Series,
+    field_map: dict[str, str],
+    data: dict[str, Any],
+    missing: list[str],
+) -> None:
+    for src_col, dst_field in field_map.items():
+        if dst_field in data and data[dst_field]:
+            continue
+        raw = row.get(src_col)
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            if dst_field not in missing:
+                missing.append(dst_field)
+            continue
+        text = str(raw).strip()
+        if text:
+            data[dst_field] = text
+        elif dst_field not in missing:
+            missing.append(dst_field)
 
 
 def _apply_row_map(
@@ -252,6 +274,10 @@ class TushareFetcher(BaseFetcher):
         except DataProviderError as exc:
             return FetchResult(code=code, source=self.source_name, error=str(exc))
 
+        basic_row = self._try_fetch("stock_basic", lambda: self._fetch_stock_basic(ts_code))
+        if basic_row is not None:
+            _apply_string_row_map(basic_row, STOCK_BASIC_FIELD_MAP, data, missing)
+
         for label, api_name in (
             ("fina_indicator", "fina_indicator"),
             ("income", "income"),
@@ -351,6 +377,12 @@ class TushareFetcher(BaseFetcher):
                 missing.remove("historical_pb")
         elif "historical_pb" not in missing:
             missing.append("historical_pb")
+
+    def _fetch_stock_basic(self, ts_code: str) -> Optional[pd.Series]:
+        df = self._pro.stock_basic(ts_code=ts_code, fields="ts_code,name,industry")
+        if df is None or df.empty:
+            return None
+        return df.iloc[0]
 
     def _fetch_by_period(self, api_name: str, ts_code: str, period: str) -> Optional[pd.Series]:
         fn = getattr(self._pro, api_name)

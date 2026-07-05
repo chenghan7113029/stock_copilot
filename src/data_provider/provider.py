@@ -36,7 +36,7 @@ FINANCIAL_STATEMENT_FIELDS = frozenset({
 # 需要从 FetchResult.data 映射到 StockData 字段的全部键名
 # （顺序不重要，set_field 会保留首次写入的高优先级值）
 _STOCK_DATA_FIELDS = {
-    "name", "exchange",
+    "name", "exchange", "industry",
     "current_price", "shares_outstanding", "market_cap",
     "eps", "bvps", "dividend_per_share",
     "revenue", "net_income", "ebit", "ebitda", "operating_margin",
@@ -266,6 +266,9 @@ class StockDataProvider:
 
         if stock.name == "" and data.get("name"):
             stock.name = str(data["name"])
+
+        if stock.industry == "" and data.get("industry"):
+            stock.industry = str(data["industry"])
 
         hist_pe = data.get("historical_pe")
         if (

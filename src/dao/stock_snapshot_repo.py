@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # 快照字段（与 StockSnapshot 列名一致）
 _SNAPSHOT_FIELDS = [
-    "name", "exchange", "data_timestamp",
+    "name", "exchange", "industry", "data_timestamp",
     "current_price", "shares_outstanding", "market_cap",
     "eps", "bvps", "dividend_per_share",
     "revenue", "net_income", "ebit", "operating_margin",
@@ -37,6 +37,7 @@ _SNAPSHOT_FIELDS = [
     "growth_rate",
     "prior_roa", "prior_debt_ratio", "prior_current_ratio",
     "prior_shares_outstanding", "prior_gross_margin", "prior_asset_turnover",
+    "net_interest_margin", "npl_ratio", "provision_coverage",
 ]
 
 

@@ -48,6 +48,15 @@ def test_unknown_when_insufficient_data():
     assert "value_trap" in keys
 
 
+def test_bank_classification_by_industry():
+    router = PrototypeRouter()
+    stock = StockData(code="601288", name="农业银行", industry="商业银行")
+    prototype, keys = router.route(stock)
+    assert prototype == "bank"
+    assert "pb" in keys
+    assert "residual_income" in keys
+
+
 def test_high_leverage_routes_to_bank():
     router = PrototypeRouter()
     stock = StockData(

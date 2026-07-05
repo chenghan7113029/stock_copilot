@@ -19,15 +19,31 @@ TBD - created by archiving change add-value-analyzer-core. Update Purpose after 
 - **THEN** prototype="value_growth"，method_keys 包含 "dcf"、"epv"、"owner_earnings"，且 stock.proto="value_growth"
 
 #### Scenario: 数据不足降级为 unknown
-- **WHEN** stock.code 不在覆盖表，且 total_assets=None、dividend_yield=None、growth_rate=None
+- **WHEN** stock.code 不在覆盖表，且 industry 不含「银行」，且 total_assets=None、dividend_yield=None、growth_rate=None
 - **THEN** prototype="unknown"，method_keys 为通用集合（含 "graham_number"、"altman_z"、"value_trap"），且 stock.proto="unknown"
+
+### Requirement: 银行原型分类对商业银行股票生效
+`PrototypeRouter._classify(stock)` SHALL 将 `StockData.industry` 包含「银行」（包括"商业银行"、"银行"等）的股票归类为 `bank` 原型。行业判断 SHALL 优先于「关键字段全 None → unknown」的降级规则。
+
+#### Scenario: 601398（工商银行）分类为 bank
+- **WHEN** `StockData(code="601398", industry="银行")` 传入 `route()`
+- **THEN** 返回的 prototype = `"bank"`，`stock.proto = "bank"`
+
+#### Scenario: 601288 仅含行业字段时分类为 bank
+- **WHEN** `StockData(code="601288", industry="商业银行")` 且无 total_assets/dividend_yield/growth_rate
+- **THEN** prototype = `"bank"`
+
+#### Scenario: 行业字段为空时不误分类为 bank
+- **WHEN** `StockData.industry` 为空且 code 不在银行覆盖表
+- **THEN** prototype 由其他规则（杠杆/股息率等）决定，不默认为 bank
 
 ### Requirement: 财务特征启发式路由
 在硬编码覆盖表未命中时，SHALL 按以下顺序判断：
-1. `total_liabilities / total_assets > 0.85` → `"bank"`
-2. `dividend_yield > 4.0` 且 `growth_rate is not None` 且 `growth_rate < 10` → `"high_dividend"`
-3. 有效财务数据 → `"value_growth"`（兜底）
-4. 关键字段全为 None → `"unknown"`
+1. `stock.industry` 含「银行」 → `"bank"`
+2. `total_liabilities / total_assets > 0.85` → `"bank"`
+3. `dividend_yield > 4.0` 且 `growth_rate is not None` 且 `growth_rate < 10` → `"high_dividend"`
+4. 有效财务数据 → `"value_growth"`（兜底）
+5. 关键字段全为 None 且 industry 不含「银行」 → `"unknown"`
 
 #### Scenario: 高杠杆特征路由为银行
 - **WHEN** stock.code 不在覆盖表，total_liabilities=9e12，total_assets=10e12（杠杆率 0.9）

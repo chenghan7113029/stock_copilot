@@ -21,6 +21,7 @@
 | 2026-07-04 | fix-offline-annual-fcf | 离线合并分层选快照：行情取 fetched_at 最新、财报取 1231 年报；修复 Q1 FCF 263 亿覆盖年报 584 亿；600519 聚合中位 ~1404、DCF ~1950 |
 | 2026-07-05 | add-historical-multiples-5yr | Tushare `daily_basic` 5 年季末采样 historical_pe/pb（20 点）；解锁 pb_relative（银行原型）；DCF/EPV 报告语义注释；600519 sync 后 pe/pb 各 20 点 |
 | 2026-07-05 | add-prior-period-financials | Tushare 拉取 prior 年度（1231-1 年）财报，写入 6 个 prior_* 字段；600519 Piotroski F=6/9、Beneish M=-2.63 |
+| 2026-07-05 | value-bank-e2e | `stock_basic` 写入 `industry`；Router 行业「银行」分类；Tushare 银行指标字段映射（NIM/NPL/拨备）；601398 offline report 银行原型 E2E |
 
 ---
 
@@ -223,7 +224,7 @@
 
 - **VA-DATA-1**：每个方法须声明所需字段；字段缺失时该方法标注"数据缺失不可靠"，不参与区间聚合；
 - **VA-DATA-2**：数据须带**来源与时效**标注（呼应产品总览数据时效要求）；
-- **VA-DATA-3**：历史 PE/PB 序列数据源已确定为 Tushare Pro（§13.1 D-E）；银行专用指标完整度仍待 E2E 验证。
+- **VA-DATA-3**：历史 PE/PB 序列数据源已确定为 Tushare Pro（§13.1 D-E）；银行专用指标：`industry` + 字段映射已接入，Tushare 标准 `fina_indicator` 对 601398 常无 NIM/NPL/拨备列（missing），估值不依赖该三字段。
 
 ---
 
@@ -300,7 +301,7 @@ pytest -m network test/e2e/test_tushare_pipeline.py -v
 | 字段覆盖率 | `reports/value-data-field-coverage-*.json` | 每只样本股 + 跨样本聚合的字段覆盖详情 |
 | 字段缺口 | `reports/value-data-field-gaps-*.json` | blocked 字段清单，供产品决策 |
 
-**当前已知缺口（add-prior-period-financials 后）**：`historical_pe`/`historical_pb` 已由 Tushare 5 年季末采样提供；`pb_relative` 仅银行原型路由启用；DCF 与 EPV 分歧已在报告中标注语义；owner_earnings 偏高可能触发 IQR 过滤；Beneish 仍可能因 prior 期资产负债表细项不足而 Limited。
+**当前已知缺口（value-bank-e2e 后）**：`historical_pe`/`historical_pb` 已由 Tushare 5 年季末采样提供；`pb_relative` 仅银行原型路由启用；DCF 与 EPV 分歧已在报告中标注语义；owner_earnings 偏高可能触发 IQR 过滤；Beneish 仍可能因 prior 期资产负债表细项不足而 Limited；银行 NIM/NPL/拨备覆盖率依赖 Tushare 接口字段，2000 积分 token 下 601398 常为 missing（不影响 PB/剩余收益/DDM 聚合）。
 
 使用方法：
 
@@ -375,7 +376,7 @@ pytest -m network test/e2e/ -v -s
 |------|----|------|------|
 | T-1 | 安全边际阈值按原型差异化（§6.2 VA-OUT-3） | V1.x | 待设计（V1 用统一阈值） |
 | T-2 | value_trap High → warnings 专项提示 + 降低 confidence | V1.x | 摘要已进 warnings；High 专项逻辑待实现 |
-| T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 待验证 |
+| T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 🔧 路由+聚合 ✅；Tushare 专项字段常 missing |
 | T-4 | 保险内含价值（EV/NBV）模型 | V2 | 未开始 |
 | T-5 | 军工·订单驱动估值模型 | V2 | 未开始 |
 | T-6 | 历史 PE/PB fetcher（Tushare `daily_basic`，§13.1 D-E） | P1 | ✅ `add-historical-multiples-5yr`（5 年季末采样 20 点） |

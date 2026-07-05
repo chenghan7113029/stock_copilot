@@ -69,6 +69,13 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             if col not in col_names:
                 conn.execute(text(f"ALTER TABLE stock_snapshots ADD COLUMN {col} REAL"))
                 logger.info("已添加列 stock_snapshots.%s", col)
+        if "industry" not in col_names:
+            conn.execute(text("ALTER TABLE stock_snapshots ADD COLUMN industry VARCHAR(50)"))
+            logger.info("已添加列 stock_snapshots.industry")
+        for col in ("net_interest_margin", "npl_ratio", "provision_coverage"):
+            if col not in col_names:
+                conn.execute(text(f"ALTER TABLE stock_snapshots ADD COLUMN {col} REAL"))
+                logger.info("已添加列 stock_snapshots.%s", col)
 
 
 class Base(DeclarativeBase):

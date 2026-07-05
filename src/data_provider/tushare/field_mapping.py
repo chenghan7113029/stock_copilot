@@ -20,6 +20,11 @@ DAILY_BASIC_FIELD_MAP: dict[str, str] = {
     "dv_ratio": "dividend_yield",
 }
 
+STOCK_BASIC_FIELD_MAP: dict[str, str] = {
+    "name": "name",
+    "industry": "industry",
+}
+
 # ── fina_indicator 财务指标 ────────────────────────────────────────────────────
 FINA_INDICATOR_FIELD_MAP: dict[str, str] = {
     "eps": "eps",
@@ -30,6 +35,9 @@ FINA_INDICATOR_FIELD_MAP: dict[str, str] = {
     "grossprofit_margin": "_gross_margin",
     "debt_to_assets": "_debt_to_assets",
     "ocfps": "_ocfps",
+    "netint_margin": "net_interest_margin",
+    "npl_ratio": "npl_ratio",
+    "prov_cov": "provision_coverage",
 }
 
 # ── income 利润表 ──────────────────────────────────────────────────────────────

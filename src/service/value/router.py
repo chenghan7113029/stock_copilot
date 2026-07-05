@@ -66,6 +66,9 @@ class PrototypeRouter:
         if stock.code in _CODE_OVERRIDE:
             return _CODE_OVERRIDE[stock.code]
 
+        if stock.industry and "银行" in stock.industry:
+            return "bank"
+
         if (
             stock.total_assets is None
             and stock.dividend_yield is None

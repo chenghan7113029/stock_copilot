@@ -43,6 +43,7 @@ class StockSnapshot(Base):
     code: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(50))
     exchange: Mapped[str | None] = mapped_column(String(5))
+    industry: Mapped[str | None] = mapped_column(String(50))
     source: Mapped[str] = mapped_column(String(30), nullable=False)
     # 报告期：财报用 '20231231'，行情快照用 fetch date 'YYYYMMDD'
     report_period: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -110,6 +111,11 @@ class StockSnapshot(Base):
     prior_shares_outstanding: Mapped[float | None] = mapped_column(Float)
     prior_gross_margin: Mapped[float | None] = mapped_column(Float)
     prior_asset_turnover: Mapped[float | None] = mapped_column(Float)
+
+    # ── 银行专项指标 ──────────────────────────────────────────────────────────
+    net_interest_margin: Mapped[float | None] = mapped_column(Float)
+    npl_ratio: Mapped[float | None] = mapped_column(Float)
+    provision_coverage: Mapped[float | None] = mapped_column(Float)
 
     # ── 历史估值序列（JSON 数组）──────────────────────────────────────────────
     historical_pe_json: Mapped[str | None] = mapped_column(Text)

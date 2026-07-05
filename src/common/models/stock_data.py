@@ -33,6 +33,7 @@ class StockData:
     code: str = ""                          # 标准化股票代码（如 "600519"）
     name: str = ""                          # 股票简称
     exchange: str = ""                      # 交易所：SH / SZ / BJ
+    industry: str = ""                      # 行业（如「银行」「商业银行」）
 
     # ── 基础行情 ──────────────────────────────────────────────────────────────
     current_price: Optional[float] = None  # 当前价（元）
