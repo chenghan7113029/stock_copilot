@@ -59,6 +59,7 @@ class PrototypeRouter:
 
     def route(self, stock: StockData) -> tuple[str, list[str]]:
         prototype = self._classify(stock)
+        stock.proto = prototype
         return prototype, list(_PROTOTYPE_METHODS[prototype])
 
     def _classify(self, stock: StockData) -> str:

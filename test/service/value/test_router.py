@@ -11,6 +11,7 @@ def test_icbc_hardcoded_bank():
     stock = StockData(code="601398", name="工商银行")
     prototype, keys = router.route(stock)
     assert prototype == "bank"
+    assert stock.proto == "bank"
     assert "pb" in keys
     assert "residual_income" in keys
     assert "dcf" not in keys
@@ -30,6 +31,7 @@ def test_moutai_hardcoded_value_growth():
     stock = StockData(code="600519", name="贵州茅台")
     prototype, keys = router.route(stock)
     assert prototype == "value_growth"
+    assert stock.proto == "value_growth"
     assert "dcf" in keys
     assert "epv" in keys
     assert "owner_earnings" in keys
@@ -40,6 +42,7 @@ def test_unknown_when_insufficient_data():
     stock = StockData(code="999999")
     prototype, keys = router.route(stock)
     assert prototype == "unknown"
+    assert stock.proto == "unknown"
     assert "graham_number" in keys
     assert "altman_z" in keys
     assert "value_trap" in keys

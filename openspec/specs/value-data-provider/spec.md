@@ -205,12 +205,26 @@ Tushare Token SHALL 从以下来源读取（优先级从高到低）：`data_sou
 - **WHEN** 对同一代码执行联网 `get_stock_data()` 后再执行 `get_stock_data_offline()`
 - **THEN** 关键字段（eps、roe、current_price 等）的值 SHALL 一致（偏差在浮点精度内）
 
-### Requirement: 离线快照按来源取最新 fetched_at
-`get_stock_data_offline()` 在同 `source` 存在多条 `report_period` 快照时，SHALL 选取 `fetched_at` 最新的一条参与合并，避免因 `report_period` 字符串排序误选仅含行情的旧快照。
+### Requirement: 离线快照按来源分层选快照（行情 vs 财报）
+`get_stock_data_offline()` 在同 `source` 存在多条 `report_period` 快照时，SHALL 对字段类型分层选源：
+- **行情字段**：选取该 source 下 `fetched_at` 最新的一条快照（通过 `_pick_quote_snapshot`），经 `_merge_result` 合并非财报字段。
+- **财报字段**（`FINANCIAL_STATEMENT_FIELDS`）：优先选取 `report_period` 以 `1231` 结尾的最新年报快照（通过 `_pick_financial_snapshot`）；若无年报快照，fallback 到行情快照。年报财报字段 SHALL 经 `_merge_offline_financials` 覆写，且 MUST NOT 覆盖更高优先级 source 已写入的同名字段。
 
-#### Scenario: 同 source 多 report_period
-- **WHEN** `tushare` 同时存在 `report_period=20260628`（仅行情）与 `report_period=20231231`（含完整财报），且后者 `fetched_at` 更新
-- **THEN** 离线合并 SHALL 使用含完整财报的快照，`revenue`/`total_assets` 等非空
+#### Scenario: 同 source 多 report_period — 行情取最新、FCF 取年报
+- **WHEN** `tushare` 同时存在 `report_period=20260331`（fetched_at 较新，fcf=263亿）与 `report_period=20251231`（fcf=584亿）
+- **THEN** 离线合并 SHALL 使用 20260331 的 `current_price`（若更新），但 `fcf=584亿` 来自 20251231 年报
+
+#### Scenario: 同 source 仅行情快照与年报快照
+- **WHEN** `tushare` 存在 `report_period=20260628`（仅行情，fetched_at 较新）与 `report_period=20251231`（含完整财报）
+- **THEN** 离线合并 SHALL 使用 20260628 的 `current_price` 与 20251231 的财报字段，`revenue`/`total_assets`/`fcf` 非空
+
+#### Scenario: 无年报快照时 fallback
+- **WHEN** 某 source 仅有季报快照（无 `1231` report_period）
+- **THEN** 财报字段 fallback 到 `fetched_at` 最新快照，系统不报错
+
+#### Scenario: 低优先级源不得覆盖高优先级源年报 FCF
+- **WHEN** `tushare`（priority=1）年报 fcf=584亿已合并，`baostock`（priority=2）仅有非年报估算 fcf=239亿
+- **THEN** 最终 `StockData.fcf` SHALL 保持 584亿，来源 `tushare`
 
 ### Requirement: Tushare 财报字段覆盖 Baostock 估算值
 `StockDataProvider._merge_fields()` 对 `FINANCIAL_STATEMENT_FIELDS`（`revenue`、`fcf`、`capex`、`net_debt`、`ebit`、`depreciation`、`total_assets`、`total_liabilities`、`bvps`、`roic`、`net_income`）SHALL 允许 Tushare 的非 None 值通过 `override_field()` 覆盖 Baostock 的估算值，即使 Baostock 优先级更高且已写入该字段。
@@ -225,4 +239,30 @@ Tushare Token SHALL 从以下来源读取（优先级从高到低）：`data_sou
 #### Scenario: 存在年报与季报
 - **WHEN** `income` 返回含 `20260331` 季报与 `20231231` 年报
 - **THEN** SHALL 选用 `20231231` 年报写入 `revenue` 等字段
+
+### Requirement: TTM EPS 推导覆写季报单季 EPS
+在所有数据源 merge 完成后，`StockDataProvider` SHALL 检查 `stock.net_income` 与 `stock.shares_outstanding` 是否均为有效正值；若是，SHALL 用 `net_income / shares_outstanding` 计算 TTM EPS 并覆写 `stock.eps`，来源标注为 `"derived:ttm"`。原始 `fina_indicator.eps`（季报单季值）不再直接作为估值输入。
+
+#### Scenario: 年报净利润与总股本均可用时推导 TTM EPS
+- **WHEN** merge 完成后 stock.net_income=82320000000（823.2亿），stock.shares_outstanding=1250000000（12.5亿股）
+- **THEN** stock.eps SHALL 被覆写为 65.86，stock.field_sources["eps"] = "derived:ttm"
+
+#### Scenario: net_income 缺失时保留原始 EPS
+- **WHEN** merge 完成后 stock.net_income=None，stock.eps=21.76（fina_indicator季报值）
+- **THEN** stock.eps 保持 21.76 不变，不进行 TTM 推导
+
+#### Scenario: TTM EPS 推导对离线模式同样生效
+- **WHEN** 调用 get_stock_data_offline() 且快照中有 net_income 与 shares_outstanding
+- **THEN** TTM EPS 推导逻辑 SHALL 同样执行，结果与在线模式一致
+
+### Requirement: historical_pb 字段来源从 None 变为 Tushare 提供
+`StockDataProvider` merge 层 SHALL 将 Tushare 返回的 `historical_pb` 合并到 `StockData.historical_pb`，优先级高于 Baostock（Baostock 无法提供 PB 序列）。
+
+#### Scenario: Tushare 提供 historical_pb 后字段不再为 None
+- **WHEN** Tushare 启用且 `daily_basic` 成功拉取 5 年 PB 序列
+- **THEN** `StockData.historical_pb` 不为 None，`field_sources["historical_pb"] = "tushare"`
+
+#### Scenario: Tushare 不可用时 historical_pb 为 None
+- **WHEN** 仅 Baostock 启用
+- **THEN** `StockData.historical_pb` 保持 None，不报错，pb_relative = Not Applicable
 

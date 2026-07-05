@@ -17,6 +17,9 @@
 | 2026-06-21 | decision-historical-multiples | **D-E 已确定**：历史 PE/PB 序列由 Tushare Pro 提供（付费/积分由运营方承担） |
 | 2026-06-21 | add-value-analyzer-core | 编排层 P0 交付：ValueAnalyzer Facade + ValuationAggregator + PrototypeRouter + ValueAnalysisResult；`ValuationEngine.run_selected()` 新增；§11/§12/§14 状态同步 |
 | 2026-07-04 | add-tushare-financials | Tushare 四表财报接入（≥2000 积分）；net_debt 推导；多源财报覆盖；离线快照按 fetched_at 合并；600519 pe_relative/ev_ebitda 达标 |
+| 2026-07-04 | fix-valuation-assumptions | TTM EPS 推导覆写季报 EPS；StockData.proto + β-CAPM 按原型折现率；growth_rate_1_5 按原型 floor；600519 聚合中位 ~1012、pe_relative ~1444、DCF ~899 |
+| 2026-07-04 | fix-offline-annual-fcf | 离线合并分层选快照：行情取 fetched_at 最新、财报取 1231 年报；修复 Q1 FCF 263 亿覆盖年报 584 亿；600519 聚合中位 ~1404、DCF ~1950 |
+| 2026-07-05 | add-historical-multiples-5yr | Tushare `daily_basic` 5 年季末采样 historical_pe/pb（20 点）；解锁 pb_relative（银行原型）；DCF/EPV 报告语义注释；600519 sync 后 pe/pb 各 20 点 |
 
 ---
 
@@ -296,7 +299,7 @@ pytest -m network test/e2e/test_tushare_pipeline.py -v
 | 字段覆盖率 | `reports/value-data-field-coverage-*.json` | 每只样本股 + 跨样本聚合的字段覆盖详情 |
 | 字段缺口 | `reports/value-data-field-gaps-*.json` | blocked 字段清单，供产品决策 |
 
-**当前已知缺口（Tushare 2000 积分 + Baostock 启用后）**：`historical_pb` 仍为空；`growth_rate` 仍主要来自 Baostock eps CAGR；聚合中位受 DCF/EPV 假设影响未达 Gemini 全方法 ±5%（pe_relative / ev_ebitda 已对齐）。
+**当前已知缺口（add-historical-multiples-5yr 后）**：`historical_pe`/`historical_pb` 已由 Tushare 5 年季末采样提供（Baostock 2 年 PE 为 fallback）；`pb_relative` 仅银行原型路由启用；DCF 与 EPV 分歧大（~1950 vs ~989）已在报告中标注语义（EPV=零增长地板价，DCF=含增长假设）；owner_earnings 偏高可能触发 IQR 过滤；Piotroski/Beneish 仍缺 prior_* 字段。
 
 使用方法：
 
@@ -374,7 +377,7 @@ pytest -m network test/e2e/ -v -s
 | T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 待验证 |
 | T-4 | 保险内含价值（EV/NBV）模型 | V2 | 未开始 |
 | T-5 | 军工·订单驱动估值模型 | V2 | 未开始 |
-| T-6 | 历史 PE/PB fetcher（Tushare `daily_basic`，§13.1 D-E） | P1 | 已决策，`add-historical-multiples-provider` 待开始 |
+| T-6 | 历史 PE/PB fetcher（Tushare `daily_basic`，§13.1 D-E） | P1 | ✅ `add-historical-multiples-5yr`（5 年季末采样 20 点） |
 | T-7 | 行业代码映射路由（PrototypeRouter V2；A 股 SW/CS 行业） | P1 | 财务特征启发 ✅；行业代码映射待实现 |
 | T-8 | 人工覆盖原型持久化（VA-CLS-2，落 dao） | P1 | 未开始 |
 | T-9 | ValueAnalyzer Facade | P0 | ✅ `src/service/value/analyzer.py` |
@@ -393,7 +396,7 @@ pytest -m network test/e2e/ -v -s
 |----------|---------------------|------|
 | 方法论计算库（23 method_key） | ✅ `src/service/value/valuation/`（Phase 0–8） | Cyclical 4 种（V2 待 port） |
 | 数据模型 | ✅ `src/common/models/stock_data.py` | 历史 PE/PB 填充（Tushare D-E）；CyclicalStock（V2） |
-| 数据获取 | ✅ `src/data_provider/`（AKShare/Baostock/Tushare） | Tushare 历史倍数 fetcher（T-6）；部分字段覆盖率待 E2E 确认 |
+| 数据获取 | ✅ `src/data_provider/`（AKShare/Baostock/Tushare） | 部分字段覆盖率待 E2E 确认（prior_*、银行专项指标） |
 | 价值面编排 Facade | ✅ `src/service/value/analyzer.py` | value_trap High 专项（T-2）；V2 原型降级（T-15） |
 | 区间聚合 | ✅ `src/service/value/aggregator.py` | MOS 按原型差异化（T-1） |
 | 原型路由 | ✅ `src/service/value/router.py`（硬编码 + 财务启发） | 行业代码映射（T-7）；人工覆盖持久化（T-8） |

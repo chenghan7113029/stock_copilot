@@ -136,6 +136,14 @@ class StockDataAdapter:
         return self._assumptions.get_ev_ebitda_multiple(self._data)
 
     @property
+    def ebitda(self) -> float | None:
+        if self._data.ebitda is not None:
+            return self._data.ebitda
+        if self._data.ebit is not None and self._data.depreciation is not None:
+            return self._data.ebit + self._data.depreciation
+        return None
+
+    @property
     def retained_earnings(self) -> float | None:
         return getattr(self._data, "retained_earnings", None)
 

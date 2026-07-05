@@ -8,6 +8,7 @@ from data_provider.provider import StockDataProvider
 from service.value.aggregator import ValuationAggregator
 from service.value.models.analysis_result import ValueAnalysisResult
 from service.value.router import PrototypeRouter
+from service.value.valuation.assumptions import AssumptionProvider
 from service.value.valuation.engine import ValuationEngine, default_engine
 
 
@@ -29,7 +30,9 @@ class ValueAnalyzer:
     @classmethod
     def from_config(cls, config: dict[str, Any], repo: Any = None) -> "ValueAnalyzer":
         provider = StockDataProvider.from_config(config, repo=repo)
-        return cls(provider)
+        assumptions = AssumptionProvider(config)
+        engine = default_engine(assumptions=assumptions)
+        return cls(provider, engine=engine)
 
     def analyze(self, code: str) -> ValueAnalysisResult:
         stock = self._provider.get_stock_data(code)

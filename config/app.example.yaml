@@ -48,6 +48,14 @@ data_sources:
 # 价值面分析假设（Baostock FCF 推导 fallback 等）
 value_analysis:
   fcf_rate: 0.85  # FCF/净利润比率 fallback（白酒等轻资产行业参考值）
+  beta_by_proto:
+    value_growth: 0.6
+    high_dividend: 0.5
+    bank: 0.9
+  growth_rate_floor_by_proto:
+    value_growth: 8.0
+    high_dividend: 3.0
+    bank: 5.0
 
 # 外部参考仓库本地路径（只读查阅，不参与 import；整个 ref/ 目录不进 git）
 ref:

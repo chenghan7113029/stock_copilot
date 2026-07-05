@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from common.models.stock_data import StockData
+
+_DEFAULT_BETA_BY_PROTO: dict[str, float] = {
+    "value_growth": 0.6,
+    "high_dividend": 0.5,
+    "bank": 0.9,
+}
+_DEFAULT_GROWTH_RATE_FLOOR_BY_PROTO: dict[str, float] = {
+    "value_growth": 8.0,
+    "high_dividend": 3.0,
+    "bank": 5.0,
+}
 
 
 @dataclass
@@ -20,6 +31,10 @@ class AssumptionDefaults:
     growth_rate_6_10: float = 3.0
     terminal_growth: float = 2.0
     ev_ebitda_multiple: float = 12.0
+    beta_by_proto: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_BETA_BY_PROTO))
+    growth_rate_floor_by_proto: dict[str, float] = field(
+        default_factory=lambda: dict(_DEFAULT_GROWTH_RATE_FLOOR_BY_PROTO)
+    )
 
 
 class AssumptionProvider:
@@ -60,14 +75,28 @@ class AssumptionProvider:
         self.ev_ebitda_multiple = float(
             value_cfg.get("ev_ebitda_multiple", self._defaults.ev_ebitda_multiple)
         )
+        self.beta_by_proto = {
+            **self._defaults.beta_by_proto,
+            **(value_cfg.get("beta_by_proto") or {}),
+        }
+        self.growth_rate_floor_by_proto = {
+            **self._defaults.growth_rate_floor_by_proto,
+            **(value_cfg.get("growth_rate_floor_by_proto") or {}),
+        }
 
     def get_discount_rate(self, stock: StockData) -> float:
+        proto = getattr(stock, "proto", "") or ""
+        beta = self.beta_by_proto.get(proto)
+        if beta is not None:
+            return self.china_10y_yield + beta * self.equity_risk_premium
         return self.discount_rate
 
     def get_growth_rate_1_5(self, stock: StockData) -> float:
+        proto = getattr(stock, "proto", "") or ""
+        floor = self.growth_rate_floor_by_proto.get(proto, 0.0)
         if stock.growth_rate is not None:
-            return stock.growth_rate
-        return self.growth_rate_1_5
+            return max(stock.growth_rate, floor)
+        return max(self.growth_rate_1_5, floor)
 
     def get_growth_rate_6_10(self, stock: StockData) -> float:
         return self.growth_rate_6_10

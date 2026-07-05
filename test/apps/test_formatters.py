@@ -12,7 +12,7 @@ from service.tech.models.tech_result import (
     TrendStatus,
 )
 from service.value.models.analysis_result import ValueAnalysisResult
-from service.value.valuation.base import ValuationRange
+from service.value.valuation.base import ValuationRange, ValuationResult
 
 
 def test_format_tech_report_text():
@@ -80,3 +80,42 @@ def test_format_value_report_json():
     payload = json.loads(format_value_report(result, as_json=True))
     assert payload["code"] == "600519"
     assert payload["assessment"] == "合理"
+
+
+def test_format_value_report_dcf_epv_semantic_hints():
+    result = ValueAnalysisResult(
+        code="600519",
+        name="贵州茅台",
+        current_price=1400.0,
+        prototype="value_growth",
+        method_keys_used=["dcf", "epv"],
+        fair_value_range=ValuationRange(low=900, base=1400, high=1950),
+        margin_of_safety=10.0,
+        price_percentile=50.0,
+        assessment="合理",
+        confidence="Medium",
+        method_results={
+            "dcf": ValuationResult(
+                method="DCF (10-Year)",
+                fair_value=1950.0,
+                current_price=1400.0,
+                premium_discount=-28.2,
+                assessment="低估",
+                details={"growth_1_5": 8.0, "discount_rate": 5.4},
+                applicability="Applicable",
+            ),
+            "epv": ValuationResult(
+                method="EPV (Zero Growth)",
+                fair_value=989.0,
+                current_price=1400.0,
+                premium_discount=41.6,
+                assessment="高估",
+                details={"implied_pe": 15.0},
+                applicability="Applicable",
+            ),
+        },
+    )
+    text = format_value_report(result, as_json=False)
+    assert "含增长假设" in text
+    assert "g₁=8.0% 5年" in text
+    assert "零增长地板价" in text

@@ -129,9 +129,8 @@ def run_report_value(
 
     try:
         snapshot_repo = StockSnapshotRepo(session)
-        value_provider = StockDataProvider.from_config(cfg, repo=snapshot_repo)
         progress.emit("正在加载本地价值快照…")
-        analyzer = ValueAnalyzer(value_provider)
+        analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
         result = analyzer.analyze_offline(code)
 
         if result is None:

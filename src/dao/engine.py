@@ -55,6 +55,9 @@ def ensure_sqlite_schema(engine: Engine) -> None:
         if "historical_pe_json" not in col_names:
             conn.execute(text("ALTER TABLE stock_snapshots ADD COLUMN historical_pe_json TEXT"))
             logger.info("已添加列 stock_snapshots.historical_pe_json")
+        if "historical_pb_json" not in col_names:
+            conn.execute(text("ALTER TABLE stock_snapshots ADD COLUMN historical_pb_json TEXT"))
+            logger.info("已添加列 stock_snapshots.historical_pb_json")
 
 
 class Base(DeclarativeBase):

@@ -101,6 +101,19 @@ def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str
     return "\n".join(lines)
 
 
+def _method_semantic_hint(key: str, mr: Any) -> str:
+    """DCF/EPV 方法行的语义提示（EPV=地板价，DCF=含增长假设）。"""
+    details = getattr(mr, "details", None) or {}
+    if key == "dcf":
+        g1 = details.get("growth_1_5")
+        if g1 is not None:
+            return f"(含增长假设：g₁={g1:.1f}% 5年)"
+        return "(含增长假设)"
+    if key == "epv":
+        return "(零增长地板价)"
+    return ""
+
+
 def format_value_report(result: ValueAnalysisResult, as_json: bool = False) -> str:
     if as_json:
         return _dump_json(result)
@@ -140,7 +153,11 @@ def format_value_report(result: ValueAnalysisResult, as_json: bool = False) -> s
         lines.extend(["", "--- 估值方法 ---"])
         for key, mr in result.method_results.items():
             fv = _fmt_num(mr.fair_value) if mr.fair_value else "N/A"
-            lines.append(f"  {key}: 公允价={fv} | {mr.assessment} ({mr.applicability})")
+            hint = _method_semantic_hint(key, mr)
+            line = f"  {key}: 公允价={fv} | {mr.assessment} ({mr.applicability})"
+            if hint:
+                line = f"{line} {hint}"
+            lines.append(line)
 
     if result.warnings:
         lines.extend(["", "--- 警告 ---", *result.warnings])

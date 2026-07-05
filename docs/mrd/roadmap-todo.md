@@ -122,7 +122,7 @@
 | D-E | 历史 PE/PB 序列 | Baostock 季末价÷epsTTM → `historical_pe`；解锁 `pe_relative` | `fix-baostock-data-quality` | [x] Baostock 层已实现 |
 | D-F | FCF 推导链 | operCashTTM → CFOToOR×revenue → net_income×fcf_rate | `fix-baostock-data-quality` | [x] 已实现 |
 | D-G | 聚合可信度守卫 | 核心方法全 N/A 时标「不可信」 | `fix-baostock-data-quality` | [x] 已实现 |
-| D-H | Tushare 财报补全 | income/cashflow/balance → 真实财报字段 | `add-tushare-financials` | [x] 已实现（7.5 聚合中位待估值层优化） |
+| D-H | Tushare 财报补全 | income/cashflow/balance → 真实财报字段 | `add-tushare-financials` | [x] 已实现 |
 | E | REST API | `POST /api/v1/analysis/value` 等 | `add-value-api`（待定） | [ ] 待建 |
 | F | CLI / 看板 | `python -m apps.cli sync/report ...` | 与 PO-08 合并 | [x] CLI 核心 |
 | G | LLM ContextPack | 价值面块注入双轨 + LLM 叙述 | 与 PO-02 合并 | [ ] 待建 |
@@ -170,6 +170,24 @@
 | ev_ebitda | 1,628 | ✅ 含净现金溢价 |
 | 聚合中位 | 838 | DCF/EPV 仍偏低（growth_rate/WACC 假设，非数据缺口） |
 
+**600519 验证（fix-valuation-assumptions，2026-07-04）：**
+
+| 字段/方法 | 修复前 | 修复后 | 备注 |
+|-----------|--------|--------|------|
+| eps | 21.76（季报） | 65.85（TTM） | derived:ttm |
+| pe_relative | 477 | 1,444 | ✅ 对齐 Gemini |
+| DCF | 329 | 899 | β-CAPM 5.4% + g floor 8% |
+| 聚合中位 | 521 | 1,012 | ✅ task 7.5 已解决 |
+
+**600519 验证（fix-offline-annual-fcf，2026-07-04）：**
+
+| 字段/方法 | 修复前 | 修复后 | 备注 |
+|-----------|--------|--------|------|
+| FCF（离线） | 263（Q1 误用） | 584 | 年报 20251231 优先 |
+| DCF | 899 | 1,950 | FCF 基数修正 |
+| 聚合中位 | 1,012 | 1,404 | ✅ 对齐 LLM 1340–1474 |
+| 根因 | fetched_at 最新 Q1 覆盖年报 | 分层合并 + 优先级守卫 | — |
+
 **CLI 进度**：`sync`/`report` 默认输出阶段性进度（`logging.cli_progress`），可用 `--quiet` 关闭。
 
 ### 4.3 V2 原型与方法（明确后置）
@@ -194,8 +212,10 @@
 |------|--------|------|------|
 | **A** | CLI 核心入口（`add-cli-core`） | 已有 `DualTrackAnalyzer`，缺对外入口 | ✅ 已实现 |
 | **B** | LLM 综合报告（PO-02 / G） | 双轨结果可直接打包；情绪维可后补 | ⬜ 待立项 |
-| **C** | 历史 PE/PB（D-E） | 解锁 relative 估值，价值面完整度提升明显 | ✅ Baostock 层（fix-baostock-data-quality） |
-| **C2** | Tushare 财报补全（D-H） | 真实 revenue/fcf/net_debt；pe_relative + ev_ebitda 达标 | ✅ add-tushare-financials（聚合中位优化另立项） |
+| **C** | 历史 PE/PB（D-E） | 解锁 relative 估值，价值面完整度提升明显 | ✅ Tushare 5 年季末采样 + DCF/EPV 语义注释（add-historical-multiples-5yr） |
+| **C2** | Tushare 财报补全（D-H） | 真实 revenue/fcf/net_debt；pe_relative + ev_ebitda 达标 | ✅ add-tushare-financials |
+| **C3** | 估值假设层修复 | TTM EPS、β-CAPM、growth floor；聚合中位对齐 LLM | ✅ fix-valuation-assumptions |
+| **C4** | 离线年报 FCF 合并 | Q1 快照不再覆盖 1231 年报 FCF | ✅ fix-offline-annual-fcf |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ⬜ 待立项 |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ⬜ 待立项 |
 | **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ⬜ 待立项 |

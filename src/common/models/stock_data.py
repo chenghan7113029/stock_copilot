@@ -117,6 +117,8 @@ class StockData:
     historical_pb: Optional[List[float]] = None  # 历史滚动 PB 序列（降序）
 
     # ── 元数据 ────────────────────────────────────────────────────────────────
+    # 估值原型（由 PrototypeRouter.route() 写入，供 AssumptionProvider 查 β/floor）
+    proto: str = ""
     # 每个字段实际命中的数据源名称
     field_sources: Dict[str, str] = field(default_factory=dict)
     # 行情数据时间戳

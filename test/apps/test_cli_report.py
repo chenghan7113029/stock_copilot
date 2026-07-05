@@ -58,18 +58,17 @@ def test_report_tech_json(mock_cfg, mock_analyzer_cls, capsys):
 
 
 @patch("apps.cli.ValueAnalyzer")
-@patch("apps.cli.StockDataProvider")
 @patch("apps.cli.StockSnapshotRepo")
 @patch("apps.cli.create_db_engine")
 @patch("apps.cli.make_session_factory")
 @patch("apps.cli.load_app_config")
 def test_report_value_success(
-    mock_cfg, mock_sf, mock_engine, mock_repo_cls, mock_provider_cls, mock_analyzer_cls
+    mock_cfg, mock_sf, mock_engine, mock_repo_cls, mock_analyzer_cls
 ):
     mock_cfg.return_value = {}
     session = MagicMock()
     mock_sf.return_value = MagicMock(return_value=session)
-    mock_analyzer_cls.return_value.analyze_offline.return_value = ValueAnalysisResult(
+    mock_analyzer_cls.from_config.return_value.analyze_offline.return_value = ValueAnalysisResult(
         code="600519",
         name="贵州茅台",
         current_price=1800.0,
@@ -84,19 +83,18 @@ def test_report_value_success(
     )
 
     run_report_value("600519")
-    mock_analyzer_cls.return_value.analyze_offline.assert_called_once_with("600519")
+    mock_analyzer_cls.from_config.return_value.analyze_offline.assert_called_once_with("600519")
 
 
 @patch("apps.cli.ValueAnalyzer")
-@patch("apps.cli.StockDataProvider")
 @patch("apps.cli.StockSnapshotRepo")
 @patch("apps.cli.create_db_engine")
 @patch("apps.cli.make_session_factory")
 @patch("apps.cli.load_app_config")
-def test_report_value_no_cache(mock_cfg, mock_sf, mock_engine, mock_repo_cls, mock_provider_cls, mock_analyzer_cls):
+def test_report_value_no_cache(mock_cfg, mock_sf, mock_engine, mock_repo_cls, mock_analyzer_cls):
     mock_cfg.return_value = {}
     mock_sf.return_value = MagicMock(return_value=MagicMock())
-    mock_analyzer_cls.return_value.analyze_offline.return_value = None
+    mock_analyzer_cls.from_config.return_value.analyze_offline.return_value = None
 
     with pytest.raises(SystemExit) as exc:
         run_report_value("600519")
@@ -106,4 +104,4 @@ def test_report_value_no_cache(mock_cfg, mock_sf, mock_engine, mock_repo_cls, mo
 @patch("apps.cli.run_report_tech")
 def test_cli_report_tech_invocation(mock_run):
     main(["report", "tech", "600519", "--json"])
-    mock_run.assert_called_once_with("600519", as_json=True, output=None)
+    mock_run.assert_called_once_with("600519", as_json=True, output=None, config=None)

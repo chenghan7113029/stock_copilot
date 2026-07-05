@@ -105,6 +105,7 @@ class StockSnapshot(Base):
 
     # ── 历史估值序列（JSON 数组）──────────────────────────────────────────────
     historical_pe_json: Mapped[str | None] = mapped_column(Text)
+    historical_pb_json: Mapped[str | None] = mapped_column(Text)
 
     # ── 约束 ──────────────────────────────────────────────────────────────────
     __table_args__ = (

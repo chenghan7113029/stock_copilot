@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Callable
 
@@ -133,6 +134,7 @@ class StockDataProvider:
 
         if on_progress:
             on_progress("正在计算派生字段…")
+        self._derive_ttm_eps(stock)
         self._derive_ratios(stock)
         self._derive_ttm_fields(stock)
         self._derive_fcf_fields(stock)
@@ -156,20 +158,25 @@ class StockDataProvider:
         if not snapshots:
             return None
 
-        by_source: dict[str, Any] = {}
+        by_source_snaps: dict[str, list[Any]] = defaultdict(list)
         for snap in snapshots:
-            existing = by_source.get(snap.source)
-            if existing is None or snap.fetched_at > existing.fetched_at:
-                by_source[snap.source] = snap
+            by_source_snaps[snap.source].append(snap)
 
         priority_order = {f.source_name: f.priority for f in self._manager.fetchers}
-        sorted_sources = sorted(by_source.keys(), key=lambda s: priority_order.get(s, 999))
+        sorted_sources = sorted(by_source_snaps.keys(), key=lambda s: priority_order.get(s, 999))
 
         stock = StockData(code=code, exchange=exchange)
         for source in sorted_sources:
-            data = self._snapshot_to_dict(by_source[source])
-            self._merge_result(stock, data, source)
+            snaps = by_source_snaps[source]
+            quote_snap = self._pick_quote_snapshot(snaps)
+            fin_snap = self._pick_financial_snapshot(snaps)
+            self._merge_result(stock, self._snapshot_to_dict(quote_snap), source)
+            if self._is_annual_report_period(getattr(fin_snap, "report_period", "")):
+                self._merge_offline_financials(
+                    stock, self._snapshot_to_dict(fin_snap), source
+                )
 
+        self._derive_ttm_eps(stock)
         self._derive_ratios(stock)
         self._derive_ttm_fields(stock)
         self._derive_fcf_fields(stock)
@@ -177,6 +184,48 @@ class StockDataProvider:
         return stock
 
     # ── 私有辅助 ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _pick_quote_snapshot(snaps: list[Any]) -> Any:
+        """行情字段：取 fetched_at 最新快照。"""
+        return max(snaps, key=lambda s: s.fetched_at or datetime.min)
+
+    @staticmethod
+    def _pick_financial_snapshot(snaps: list[Any]) -> Any:
+        """财报字段：优先 report_period 以 1231 结尾的最新年报；无年报则 fallback 行情快照。"""
+        annual = [
+            s for s in snaps
+            if StockDataProvider._is_annual_report_period(
+                getattr(s, "report_period", "")
+            )
+        ]
+        if annual:
+            return max(annual, key=lambda s: str(s.report_period))
+        return StockDataProvider._pick_quote_snapshot(snaps)
+
+    @staticmethod
+    def _is_annual_report_period(report_period: str) -> bool:
+        return str(report_period or "").endswith("1231")
+
+    def _source_priority(self, source_name: str) -> int:
+        for fetcher in self._manager.fetchers:
+            if fetcher.source_name == source_name:
+                return fetcher.priority
+        return 999
+
+    def _merge_offline_financials(
+        self, stock: StockData, data: dict[str, Any], source: str
+    ) -> None:
+        """离线合并：年报财报字段覆写同 source 季报；不覆盖更高优先级源已写入字段。"""
+        my_priority = self._source_priority(source)
+        for field_name in FINANCIAL_STATEMENT_FIELDS:
+            v = data.get(field_name)
+            if v is None or not isinstance(v, (int, float)):
+                continue
+            existing = stock.field_sources.get(field_name)
+            if existing and self._source_priority(existing) < my_priority:
+                continue
+            stock.override_field(field_name, float(v), source)
 
     @staticmethod
     def _snapshot_to_dict(snapshot: Any) -> dict[str, Any]:
@@ -189,6 +238,9 @@ class StockDataProvider:
         hist_pe = StockSnapshotRepo.historical_pe_from_snapshot(snapshot)
         if hist_pe is not None:
             data["historical_pe"] = hist_pe
+        hist_pb = StockSnapshotRepo.historical_pb_from_snapshot(snapshot)
+        if hist_pb is not None:
+            data["historical_pb"] = hist_pb
         if snapshot.data_timestamp is not None:
             data["data_timestamp"] = snapshot.data_timestamp
         if snapshot.name:
@@ -226,6 +278,17 @@ class StockDataProvider:
             if "historical_pe" in stock.missing_fields:
                 stock.missing_fields.remove("historical_pe")
 
+        hist_pb = data.get("historical_pb")
+        if (
+            isinstance(hist_pb, list)
+            and len(hist_pb) >= 3
+            and stock.historical_pb is None
+        ):
+            stock.historical_pb = hist_pb
+            stock.field_sources["historical_pb"] = source
+            if "historical_pb" in stock.missing_fields:
+                stock.missing_fields.remove("historical_pb")
+
         for field_name in _STOCK_DATA_FIELDS - {"name", "exchange"}:
             v = data.get(field_name)
             if v is not None and isinstance(v, (int, float)):
@@ -233,6 +296,19 @@ class StockDataProvider:
                     stock.override_field(field_name, float(v), source)
                 else:
                     stock.set_field(field_name, float(v), source)
+
+    def _derive_ttm_eps(self, stock: StockData) -> None:
+        """用年报净利润 / 总股本推导 TTM EPS，覆写 fina_indicator 单季 EPS。"""
+        if (
+            stock.net_income is not None
+            and stock.net_income > 0
+            and stock.shares_outstanding is not None
+            and stock.shares_outstanding > 0
+        ):
+            stock.eps = stock.net_income / stock.shares_outstanding
+            stock.field_sources["eps"] = "derived:ttm"
+            if "eps" in stock.missing_fields:
+                stock.missing_fields.remove("eps")
 
     def _derive_ratios(self, stock: StockData) -> None:
         """在字段合并后计算依赖行情的派生比率。"""
@@ -286,7 +362,7 @@ class StockDataProvider:
         """遍历所有数值字段，将 None 字段加入 missing_fields。"""
         import dataclasses
         for f in dataclasses.fields(stock):
-            if f.name in ("code", "name", "exchange", "field_sources",
+            if f.name in ("code", "name", "exchange", "proto", "field_sources",
                           "data_timestamp", "fundamental_report_date", "missing_fields"):
                 continue
             if getattr(stock, f.name) is None:

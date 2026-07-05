@@ -55,6 +55,46 @@ def _scale_value(field: str, value: float) -> float:
     return value
 
 
+def _quarter_key(trade_date: str) -> tuple[int, int]:
+    year = int(trade_date[:4])
+    month = int(trade_date[4:6])
+    return year, (month - 1) // 3 + 1
+
+
+def sample_quarter_end_multiples(
+    df: pd.DataFrame,
+    *,
+    max_points: int = 20,
+    pe_max: float = 200.0,
+    pb_max: float = 50.0,
+) -> tuple[list[float], list[float]]:
+    """按季末最后交易日采样 pe_ttm / pb，返回降序序列（最近在前）。"""
+    if df is None or df.empty:
+        return [], []
+
+    work = df.copy()
+    work["trade_date"] = work["trade_date"].astype(str)
+    work = work.sort_values("trade_date", ascending=False)
+
+    quarter_rows: dict[tuple[int, int], pd.Series] = {}
+    for _, row in work.iterrows():
+        key = _quarter_key(str(row["trade_date"]))
+        if key not in quarter_rows:
+            quarter_rows[key] = row
+
+    pes: list[float] = []
+    pbs: list[float] = []
+    for key in sorted(quarter_rows.keys(), reverse=True)[:max_points]:
+        row = quarter_rows[key]
+        pe = _safe_float(row.get("pe_ttm"))
+        pb = _safe_float(row.get("pb"))
+        if pe is not None and 0 < pe <= pe_max:
+            pes.append(pe)
+        if pb is not None and 0 < pb <= pb_max:
+            pbs.append(pb)
+    return pes, pbs
+
+
 def _apply_row_map(
     row: pd.Series,
     field_map: dict[str, str],
@@ -147,6 +187,8 @@ class TushareFetcher(BaseFetcher):
                     if trade_date:
                         data["data_timestamp"] = datetime.strptime(trade_date, "%Y%m%d").isoformat()
                 self._derive_price_from_basic(basic_row, data, missing)
+
+            self._fetch_historical_multiples(ts_code, data, missing)
         except Exception as exc:
             logger.warning("Tushare 行情获取失败 [%s]: %s", code, exc)
             if data:
@@ -250,6 +292,44 @@ class TushareFetcher(BaseFetcher):
         if df is None or df.empty:
             return None
         return df.sort_values("trade_date", ascending=False).iloc[0]
+
+    def _fetch_historical_multiples(
+        self,
+        ts_code: str,
+        data: dict[str, Any],
+        missing: list[str],
+    ) -> None:
+        """拉取 5 年历史 PE/PB 季末序列，写入 data。"""
+        try:
+            end = date.today().strftime("%Y%m%d")
+            start = (date.today() - timedelta(days=365 * 5 + 30)).strftime("%Y%m%d")
+            df = self._pro.daily_basic(
+                ts_code=ts_code,
+                start_date=start,
+                end_date=end,
+                fields="trade_date,pe_ttm,pb",
+            )
+        except Exception as exc:
+            logger.info("Tushare historical multiples 不可用: %s", exc)
+            for field in ("historical_pe", "historical_pb"):
+                if field not in missing:
+                    missing.append(field)
+            return
+
+        pes, pbs = sample_quarter_end_multiples(df)
+        if len(pes) >= 3:
+            data["historical_pe"] = pes
+            if "historical_pe" in missing:
+                missing.remove("historical_pe")
+        elif "historical_pe" not in missing:
+            missing.append("historical_pe")
+
+        if len(pbs) >= 3:
+            data["historical_pb"] = pbs
+            if "historical_pb" in missing:
+                missing.remove("historical_pb")
+        elif "historical_pb" not in missing:
+            missing.append("historical_pb")
 
     def _fetch_latest(self, api_name: str, ts_code: str) -> Optional[pd.Series]:
         fn = getattr(self._pro, api_name)
