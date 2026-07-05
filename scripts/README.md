@@ -30,8 +30,12 @@ cp config/app.example.yaml config/app.yaml
 | 脚本 | 语言 | 用途 |
 |------|------|------|
 | `setup-dev-env.sh` | Shell | 创建 venv、安装依赖（Linux/macOS） |
+| `cloud_bootstrap.py` | Python | Cloud Agent / CI 环境 bootstrap（config、seed DB、ref clone） |
+| `export_seed_db.py` | Python | 从本地 DB 导出 Cloud seed fixture |
 | `fetch_value_data.py` | Python | 端到端数据采集：fetch → upsert → 读回摘要 |
 | `trial_cli_workflow.py` | Python | CLI 全流程试运行：sync → 技术面报告 → 价值面报告 |
+
+**Cloud Agent** 详见 [docs/dev/cloud-agent.md](../docs/dev/cloud-agent.md)；Agent 读 [.cursor/CLOUD_AGENT.md](../.cursor/CLOUD_AGENT.md)。
 
 **CLI 全流程试运行**详见 [trial_cli_workflow.md](trial_cli_workflow.md)（Windows 请用 `scripts\run_trial.cmd`，勿用裸 `python`）。
 

@@ -28,6 +28,15 @@ from data_provider.tushare.field_mapping import (
 
 logger = logging.getLogger(__name__)
 
+_PRIOR_PERIOD_FIELDS = (
+    "prior_roa",
+    "prior_debt_ratio",
+    "prior_current_ratio",
+    "prior_shares_outstanding",
+    "prior_gross_margin",
+    "prior_asset_turnover",
+)
+
 
 def _to_ts_code(code: str, exchange: str) -> str:
     suffix = {"SH": ".SH", "SZ": ".SZ", "BJ": ".BJ"}.get(exchange.upper())
@@ -93,6 +102,14 @@ def sample_quarter_end_multiples(
         if pb is not None and 0 < pb <= pb_max:
             pbs.append(pb)
     return pes, pbs
+
+
+def _prior_year_period(current_annual_period: str) -> str | None:
+    """当期年报 report_period 减一年，如 20251231 → 20241231。"""
+    s = str(current_annual_period).strip()
+    if len(s) < 8 or not s.endswith("1231"):
+        return None
+    return f"{int(s[:4]) - 1}{s[4:]}"
 
 
 def _apply_row_map(
@@ -261,6 +278,10 @@ class TushareFetcher(BaseFetcher):
 
         self._derive_net_debt(data, missing)
 
+        rd = data.get("fundamental_report_date")
+        if isinstance(rd, date) and rd.month == 12 and rd.day == 31:
+            self._fetch_prior_year_financials(ts_code, rd.strftime("%Y%m%d"), data, missing)
+
         return FetchResult(
             code=code,
             source=self.source_name,
@@ -330,6 +351,116 @@ class TushareFetcher(BaseFetcher):
                 missing.remove("historical_pb")
         elif "historical_pb" not in missing:
             missing.append("historical_pb")
+
+    def _fetch_by_period(self, api_name: str, ts_code: str, period: str) -> Optional[pd.Series]:
+        fn = getattr(self._pro, api_name)
+        df = fn(ts_code=ts_code, period=period)
+        if df is None or df.empty:
+            return None
+        return df.iloc[0]
+
+    def _fetch_prior_year_financials(
+        self,
+        ts_code: str,
+        current_annual_period: str,
+        data: dict[str, Any],
+        missing: list[str],
+    ) -> None:
+        """拉取 prior 年度财报并推导 6 个 prior_* 字段。"""
+        prior_period = _prior_year_period(current_annual_period)
+        if not prior_period:
+            return
+
+        fin_row = self._try_fetch(
+            f"prior_fina_indicator_{prior_period}",
+            lambda: self._fetch_by_period("fina_indicator", ts_code, prior_period),
+        )
+        bs_row = self._try_fetch(
+            f"prior_balancesheet_{prior_period}",
+            lambda: self._fetch_by_period("balancesheet", ts_code, prior_period),
+        )
+        inc_row = self._try_fetch(
+            f"prior_income_{prior_period}",
+            lambda: self._fetch_by_period("income", ts_code, prior_period),
+        )
+
+        if fin_row is None and bs_row is None and inc_row is None:
+            for field in _PRIOR_PERIOD_FIELDS:
+                if field not in missing:
+                    missing.append(field)
+            return
+
+        if fin_row is not None:
+            roa = _safe_float(fin_row.get("roa"))
+            if roa is not None:
+                data["prior_roa"] = roa
+            elif "prior_roa" not in missing:
+                missing.append("prior_roa")
+            if "prior_gross_margin" not in data:
+                gross_margin = _safe_float(fin_row.get("grossprofit_margin"))
+                if gross_margin is not None:
+                    data["prior_gross_margin"] = gross_margin / 100.0
+
+        total_assets: float | None = None
+        if bs_row is not None:
+            total_assets = _safe_float(bs_row.get("total_assets"))
+            total_liab = _safe_float(bs_row.get("total_liab"))
+            total_cur_assets = _safe_float(bs_row.get("total_cur_assets"))
+            total_cur_liab = _safe_float(bs_row.get("total_cur_liab"))
+
+            if total_assets and total_assets > 0 and total_liab is not None:
+                data["prior_debt_ratio"] = total_liab / total_assets
+            elif "prior_debt_ratio" not in missing:
+                missing.append("prior_debt_ratio")
+
+            if (
+                total_cur_assets is not None
+                and total_cur_liab is not None
+                and total_cur_liab > 0
+            ):
+                data["prior_current_ratio"] = total_cur_assets / total_cur_liab
+            elif "prior_current_ratio" not in missing:
+                missing.append("prior_current_ratio")
+
+            bs_share = _safe_float(bs_row.get("total_share"))
+            if bs_share and bs_share > 0:
+                data["prior_shares_outstanding"] = bs_share
+
+        if inc_row is not None:
+            revenue = _safe_float(inc_row.get("revenue"))
+            operate_cost = _safe_float(inc_row.get("oper_cost"))
+            if operate_cost is None:
+                operate_cost = _safe_float(inc_row.get("operate_cost"))
+            if revenue and revenue > 0 and operate_cost is not None:
+                data["prior_gross_margin"] = (revenue - operate_cost) / revenue
+            elif "prior_gross_margin" not in missing:
+                missing.append("prior_gross_margin")
+
+            inc_share = _safe_float(inc_row.get("total_share"))
+            if inc_share and inc_share > 0:
+                data["prior_shares_outstanding"] = inc_share
+
+            if (
+                revenue
+                and revenue > 0
+                and total_assets
+                and total_assets > 0
+            ):
+                data["prior_asset_turnover"] = revenue / total_assets
+            elif "prior_asset_turnover" not in missing:
+                missing.append("prior_asset_turnover")
+        elif "prior_gross_margin" not in data and "prior_gross_margin" not in missing:
+            missing.append("prior_gross_margin")
+        if "prior_asset_turnover" not in data and "prior_asset_turnover" not in missing:
+            if inc_row is None or bs_row is None:
+                missing.append("prior_asset_turnover")
+
+        if "prior_shares_outstanding" not in data and "prior_shares_outstanding" not in missing:
+            missing.append("prior_shares_outstanding")
+
+        for field in _PRIOR_PERIOD_FIELDS:
+            if field in data and field in missing:
+                missing.remove(field)
 
     def _fetch_latest(self, api_name: str, ts_code: str) -> Optional[pd.Series]:
         fn = getattr(self._pro, api_name)

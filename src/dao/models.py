@@ -103,6 +103,14 @@ class StockSnapshot(Base):
     # ── 成长 ──────────────────────────────────────────────────────────────────
     growth_rate: Mapped[float | None] = mapped_column(Float)
 
+    # ── 同比 prior 字段（Piotroski / Beneish）──────────────────────────────────
+    prior_roa: Mapped[float | None] = mapped_column(Float)
+    prior_debt_ratio: Mapped[float | None] = mapped_column(Float)
+    prior_current_ratio: Mapped[float | None] = mapped_column(Float)
+    prior_shares_outstanding: Mapped[float | None] = mapped_column(Float)
+    prior_gross_margin: Mapped[float | None] = mapped_column(Float)
+    prior_asset_turnover: Mapped[float | None] = mapped_column(Float)
+
     # ── 历史估值序列（JSON 数组）──────────────────────────────────────────────
     historical_pe_json: Mapped[str | None] = mapped_column(Text)
     historical_pb_json: Mapped[str | None] = mapped_column(Text)

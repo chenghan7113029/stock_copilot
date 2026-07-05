@@ -74,6 +74,14 @@ git clone https://github.com/ZhuLinsen/daily_stock_analysis ref/daily_stock_anal
 
 OpenSpec 变更归档后，须将需求/设计**合并回 docs/mrd 与 docs/design**，详见 [docs/README.md](docs/README.md)。
 
+## Cloud Agent / 移动开发
+
+在手机上通过 Cursor Cloud Agent 继续开发：
+
+- **Agent 构建真源**：[.cursor/CLOUD_AGENT.md](.cursor/CLOUD_AGENT.md)
+- **人类操作指南**：[docs/dev/cloud-agent.md](docs/dev/cloud-agent.md)
+- 环境配置：[.cursor/environment.json](.cursor/environment.json)（install 自动 bootstrap）
+
 ## 开发流程
 
 ```text

@@ -8,7 +8,7 @@
 |------|------|
 | [mrd/](mrd/) | 市场需求文档（MRD）：做什么、为谁做、成功标准 |
 | [design/](design/) | 设计文档：架构、模块边界、接口、技术方案 |
-| [dev/](dev/) | 开发流程、工程约定与架构（[engineering-conventions.md](dev/engineering-conventions.md)） |
+| [dev/](dev/) | 开发流程、工程约定与架构（[engineering-conventions.md](dev/engineering-conventions.md)）、[Cloud Agent 移动开发](dev/cloud-agent.md) |
 | [superpowers/](superpowers/) | Superpowers 替代工作流（参考） |
 
 ## OpenSpec 归档后的文档合并

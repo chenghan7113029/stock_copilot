@@ -58,6 +58,17 @@ def ensure_sqlite_schema(engine: Engine) -> None:
         if "historical_pb_json" not in col_names:
             conn.execute(text("ALTER TABLE stock_snapshots ADD COLUMN historical_pb_json TEXT"))
             logger.info("已添加列 stock_snapshots.historical_pb_json")
+        for col in (
+            "prior_roa",
+            "prior_debt_ratio",
+            "prior_current_ratio",
+            "prior_shares_outstanding",
+            "prior_gross_margin",
+            "prior_asset_turnover",
+        ):
+            if col not in col_names:
+                conn.execute(text(f"ALTER TABLE stock_snapshots ADD COLUMN {col} REAL"))
+                logger.info("已添加列 stock_snapshots.%s", col)
 
 
 class Base(DeclarativeBase):

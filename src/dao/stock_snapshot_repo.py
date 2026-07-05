@@ -35,6 +35,8 @@ _SNAPSHOT_FIELDS = [
     "accounts_receivable", "inventory", "accounts_payable",
     "dividend_yield", "dividend_payout_ratio", "dividend_growth_rate",
     "growth_rate",
+    "prior_roa", "prior_debt_ratio", "prior_current_ratio",
+    "prior_shares_outstanding", "prior_gross_margin", "prior_asset_turnover",
 ]
 
 

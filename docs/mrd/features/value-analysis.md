@@ -20,6 +20,7 @@
 | 2026-07-04 | fix-valuation-assumptions | TTM EPS 推导覆写季报 EPS；StockData.proto + β-CAPM 按原型折现率；growth_rate_1_5 按原型 floor；600519 聚合中位 ~1012、pe_relative ~1444、DCF ~899 |
 | 2026-07-04 | fix-offline-annual-fcf | 离线合并分层选快照：行情取 fetched_at 最新、财报取 1231 年报；修复 Q1 FCF 263 亿覆盖年报 584 亿；600519 聚合中位 ~1404、DCF ~1950 |
 | 2026-07-05 | add-historical-multiples-5yr | Tushare `daily_basic` 5 年季末采样 historical_pe/pb（20 点）；解锁 pb_relative（银行原型）；DCF/EPV 报告语义注释；600519 sync 后 pe/pb 各 20 点 |
+| 2026-07-05 | add-prior-period-financials | Tushare 拉取 prior 年度（1231-1 年）财报，写入 6 个 prior_* 字段；600519 Piotroski F=6/9、Beneish M=-2.63 |
 
 ---
 
@@ -299,7 +300,7 @@ pytest -m network test/e2e/test_tushare_pipeline.py -v
 | 字段覆盖率 | `reports/value-data-field-coverage-*.json` | 每只样本股 + 跨样本聚合的字段覆盖详情 |
 | 字段缺口 | `reports/value-data-field-gaps-*.json` | blocked 字段清单，供产品决策 |
 
-**当前已知缺口（add-historical-multiples-5yr 后）**：`historical_pe`/`historical_pb` 已由 Tushare 5 年季末采样提供（Baostock 2 年 PE 为 fallback）；`pb_relative` 仅银行原型路由启用；DCF 与 EPV 分歧大（~1950 vs ~989）已在报告中标注语义（EPV=零增长地板价，DCF=含增长假设）；owner_earnings 偏高可能触发 IQR 过滤；Piotroski/Beneish 仍缺 prior_* 字段。
+**当前已知缺口（add-prior-period-financials 后）**：`historical_pe`/`historical_pb` 已由 Tushare 5 年季末采样提供；`pb_relative` 仅银行原型路由启用；DCF 与 EPV 分歧已在报告中标注语义；owner_earnings 偏高可能触发 IQR 过滤；Beneish 仍可能因 prior 期资产负债表细项不足而 Limited。
 
 使用方法：
 
