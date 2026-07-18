@@ -1,9 +1,9 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-06-28  
+> 最后更新：2026-07-18  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
-> OpenSpec 活跃 change：`add-cli-core`（✅ 已实现，待归档）
+> OpenSpec 活跃 change：`add-red-blue-confrontation`（实现中）；`add-llm-narrative-core`（已冻结）
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-07-18 | PO-03 红蓝对抗 V1（Skill 版）：`report dual` 证据分桶 + `.cursor/skills/red-blue-confrontation`；LLM API 版冻结 |
 | 2026-06-28 | 初稿：汇总 P0–V2 待办；标记 F-16/F-20/双轨 Facade 已交付 |
 | 2026-06-28 | 新增 §5.1 CLI 核心设计（add-cli-core 提案）；更新 §5 阶段 A 状态 |
 | 2026-06-28 | add-cli-core 实现完成：sync / report tech / report value |
@@ -37,6 +38,7 @@
 ### 1.3 双轨与融合
 
 - [x] `DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`（`add-dual-track-analyzer`）
+- [x] `analyze_offline` + `EvidenceBucketer` + `report dual` + 红蓝对抗 Cursor Skill（`add-red-blue-confrontation` V1）
 
 ### 1.4 尚未交付（产品级入口）
 
@@ -58,7 +60,7 @@
 |----|------|------|------|
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [ ] 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [ ] 待建 |
-| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [ ] 待建 |
+| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [x] V1 Skill 版已实现（证据分桶 + Cursor Skill）；Web+API / 用户声明待建 |
 | PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [ ] 待建 |
 | PO-05 | 假设今日首开仓 | 隐藏成本价/盈亏%，对抗沉没成本 | [ ] 待建 |
 
@@ -218,7 +220,7 @@
 | **C4** | 离线年报 FCF 合并 | Q1 快照不再覆盖 1231 年报 FCF | ✅ fix-offline-annual-fcf |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ⬜ 待立项 |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ⬜ 待立项 |
-| **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ⬜ 待立项 |
+| **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | 🟨 PO-03 V1 Skill 版已交付；Checklist/首开仓待立项 |
 | **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | ⬜ 待立项 |
 | **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | ⬜ 待立项 |
 
@@ -300,7 +302,7 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 
 | 类别 | 已交付（核心） | 待办（粗计） |
 |------|----------------|--------------|
-| 产品级 P0 | 双轨 Facade | 5 项（看板、LLM、红蓝、Checklist、首开仓） |
+| 产品级 P0 | 双轨 Facade、红蓝对抗 V1（Skill） | 4 项（看板、LLM、Checklist、首开仓） |
 | 产品级 P1 | — | 3 项（情绪、锚定、Web/CLI） |
 | 技术面 V1.x | F-16、F-20 | 3 项（F-17~19，含 V2） |
 | 价值面 V1.x 增强 | 编排 P0 | ~6 项（T-1/2/3/7/8/15 + D-E） |

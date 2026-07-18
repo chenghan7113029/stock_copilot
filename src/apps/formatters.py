@@ -165,6 +165,47 @@ def format_value_report(result: ValueAnalysisResult, as_json: bool = False) -> s
     return "\n".join(lines)
 
 
+def format_dual_report(
+    code: str,
+    bull_evidence: list[str],
+    bear_evidence: list[str],
+    *,
+    analysis_summary: str = "",
+    as_json: bool = False,
+) -> str:
+    """红蓝对抗 Level 0：证据分桶输出（供 Skill 消费）。"""
+    payload = {
+        "code": code,
+        "analysis_summary": analysis_summary,
+        "bull_evidence": list(bull_evidence),
+        "bear_evidence": list(bear_evidence),
+    }
+    if as_json:
+        return _dump_json(payload)
+
+    lines: list[str] = [
+        f"=== 红蓝对抗证据分桶 {code} ===",
+        "[离线模式] Level 0 — 确定性证据分桶（互驳叙事请用 red-blue-confrontation Skill）",
+        "",
+    ]
+    if analysis_summary:
+        lines.extend([f"摘要: {analysis_summary}", ""])
+
+    lines.append(f"--- 多方证据 ({len(bull_evidence)}) ---")
+    if bull_evidence:
+        lines.extend(f"  [{i}] {item}" for i, item in enumerate(bull_evidence, 1))
+    else:
+        lines.append("  （空）")
+
+    lines.extend(["", f"--- 空方证据 ({len(bear_evidence)}) ---"])
+    if bear_evidence:
+        lines.extend(f"  [{i}] {item}" for i, item in enumerate(bear_evidence, 1))
+    else:
+        lines.append("  （空）")
+
+    return "\n".join(lines)
+
+
 def _kline_last_date(result: TechAnalysisResult) -> str:
     if result.kline_last_date:
         return result.kline_last_date

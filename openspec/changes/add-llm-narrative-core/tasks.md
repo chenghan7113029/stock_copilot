@@ -64,4 +64,4 @@
 
 - [x] 10.1 确认 `tasks.md` 全部任务完成
 - [x] 10.2 合并本 change 的设计要点到 `docs/design/`（如有必要新建 `docs/design/llm-narrative-core.md`，或判断内容量级后决定是否需要独立文档）
-- [ ] 10.3 运行 `/opsx-archive add-llm-narrative-core` 归档，同步 specs 到 `openspec/specs/llm-narrative-core/`
+- [ ] 10.3 运行 `/opsx-archive add-llm-narrative-core` 归档，同步 specs 到 `openspec/specs/llm-narrative-core/`（**已冻结，暂缓执行**：见 `proposal.md` 顶部状态说明；待未来 Web + 独立 LLM API 阶段有真实消费方时再归档）

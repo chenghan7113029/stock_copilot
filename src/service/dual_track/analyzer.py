@@ -124,3 +124,63 @@ class DualTrackAnalyzer:
             warnings=warnings,
             data_timestamp=data_timestamp,
         )
+
+    def analyze_offline(self, raw_code: str) -> DualTrackReport:
+        """离线双轨分析：不发起任何网络请求。"""
+        if not is_a_share(raw_code.strip()):
+            raise UnsupportedMarketError(
+                f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
+            )
+
+        code = raw_code.strip()
+        warnings: list[str] = []
+        value_result: ValueAnalysisResult | None = None
+        tech_result: TechAnalysisResult | None = None
+
+        try:
+            value_result = self._value_analyzer.analyze_offline(code)
+            if value_result is None:
+                warnings.append("价值面无本地快照，请先运行 sync")
+            else:
+                warnings.extend(value_result.warnings)
+        except UnsupportedMarketError:
+            raise
+        except Exception as exc:
+            warnings.append(f"价值面分析失败: {exc}")
+
+        try:
+            tech_result = self._tech_analyzer.analyze(code, offline=True)
+            warnings.extend(tech_result.warnings)
+        except UnsupportedMarketError:
+            raise
+        except Exception as exc:
+            warnings.append(f"技术面分析失败: {exc}")
+
+        combined_signal, value_rating = self._signal_fusion.fuse(
+            value_result, tech_result
+        )
+
+        analysis_summary = build_analysis_summary(
+            code,
+            value_result,
+            tech_result,
+            combined_signal.value,
+            value_rating,
+        )
+
+        data_timestamp = datetime.now(timezone.utc)
+        if value_result and value_result.data_timestamp:
+            data_timestamp = value_result.data_timestamp
+        elif tech_result and tech_result.data_timestamp:
+            data_timestamp = tech_result.data_timestamp
+
+        return DualTrackReport(
+            code=code,
+            value_result=value_result,
+            tech_result=tech_result,
+            combined_signal=combined_signal,
+            value_rating=value_rating,
+            analysis_summary=analysis_summary,
+            warnings=warnings,
+            data_timestamp=data_timestamp,
+        )

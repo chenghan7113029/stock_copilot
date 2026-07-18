@@ -46,19 +46,30 @@ def _make_analyzer(
     tech_result=None,
     value_exc=None,
     tech_exc=None,
+    *,
+    offline: bool = False,
 ) -> DualTrackAnalyzer:
     value_analyzer = MagicMock()
     tech_analyzer = MagicMock()
 
-    if value_exc:
-        value_analyzer.analyze.side_effect = value_exc
+    if offline:
+        if value_exc:
+            value_analyzer.analyze_offline.side_effect = value_exc
+        else:
+            value_analyzer.analyze_offline.return_value = value_result
+        if tech_exc:
+            tech_analyzer.analyze.side_effect = tech_exc
+        else:
+            tech_analyzer.analyze.return_value = tech_result
     else:
-        value_analyzer.analyze.return_value = value_result
-
-    if tech_exc:
-        tech_analyzer.analyze.side_effect = tech_exc
-    else:
-        tech_analyzer.analyze.return_value = tech_result
+        if value_exc:
+            value_analyzer.analyze.side_effect = value_exc
+        else:
+            value_analyzer.analyze.return_value = value_result
+        if tech_exc:
+            tech_analyzer.analyze.side_effect = tech_exc
+        else:
+            tech_analyzer.analyze.return_value = tech_result
 
     return DualTrackAnalyzer(value_analyzer, tech_analyzer)
 
@@ -143,3 +154,55 @@ def test_from_config_factory(mock_tech_cls, mock_value_cls):
     mock_value_cls.from_config.assert_called_once()
     mock_tech_cls.from_config.assert_called_once()
     assert isinstance(analyzer, DualTrackAnalyzer)
+
+
+def test_analyze_offline_success():
+    analyzer = _make_analyzer(
+        _make_value_result(), _make_tech_result(), offline=True
+    )
+    report = analyzer.analyze_offline("600519")
+
+    assert report.code == "600519"
+    assert report.value_result is not None
+    assert report.tech_result is not None
+    assert report.combined_signal == CombinedSignal.STRONG_BUY
+    assert report.value_rating == ValueRating.UNDERVALUED
+    analyzer._value_analyzer.analyze_offline.assert_called_once_with("600519")
+    analyzer._tech_analyzer.analyze.assert_called_once_with("600519", offline=True)
+    analyzer._value_analyzer.analyze.assert_not_called()
+
+
+def test_analyze_offline_no_value_snapshot():
+    analyzer = _make_analyzer(
+        value_result=None, tech_result=_make_tech_result(BuySignal.BUY), offline=True
+    )
+    report = analyzer.analyze_offline("600519")
+
+    assert report.value_result is None
+    assert report.tech_result is not None
+    assert report.combined_signal == CombinedSignal.BUY
+    assert any("价值面无本地快照" in w for w in report.warnings)
+
+
+def test_analyze_offline_does_not_call_online_analyze():
+    value_analyzer = MagicMock()
+    tech_analyzer = MagicMock()
+    value_analyzer.analyze_offline.return_value = _make_value_result()
+    tech_analyzer.analyze.return_value = _make_tech_result()
+    analyzer = DualTrackAnalyzer(value_analyzer, tech_analyzer)
+
+    analyzer.analyze_offline("600519")
+
+    value_analyzer.analyze.assert_not_called()
+    tech_analyzer.analyze.assert_called_once_with("600519", offline=True)
+
+
+def test_analyze_online_unchanged_still_calls_analyze():
+    """回归：联网版 analyze() 仍走 ValueAnalyzer.analyze，不走 analyze_offline。"""
+    analyzer = _make_analyzer(_make_value_result(), _make_tech_result())
+    report = analyzer.analyze("600519")
+
+    assert report.value_result is not None
+    analyzer._value_analyzer.analyze.assert_called_once_with("600519")
+    analyzer._value_analyzer.analyze_offline.assert_not_called()
+    analyzer._tech_analyzer.analyze.assert_called_once_with("600519")

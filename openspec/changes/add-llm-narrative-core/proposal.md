@@ -1,3 +1,5 @@
+> **状态：已冻结（2026-07-18）**。代码已实现并合入主干（`src/common/llm/`），单测通过，但暂无消费方：`add-red-blue-confrontation` 改为 Cursor Skill 方案实现 Level 1 互驳叙事，不再依赖本 change。本 change 保留不归档，留给未来 Web + 独立 LLM API 阶段（需要跨会话/跨用户复用时）启用，届时先确认代码与依赖仍可用再继续 §10 归档步骤。
+
 ## Why
 
 产品路线图（PO-02 LLM 综合报告、PO-03 红蓝军对抗）都需要「确定性计算结果 → 可读叙事」的能力，但仓库目前**零 LLM 接入基建**：无 client 封装、无 provider 配置、无结构化输出校验、无防幻觉护栏。直接在某个具体功能里现写一套，会导致 PO-02 与 PO-03 各自实现一份不一致、未经校验的 LLM 调用逻辑，违反 `docs/agent-engineering-quality.md` 的三层防御原则（确定性数值不可由 LLM 改写/编造）。

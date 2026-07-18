@@ -1,4 +1,4 @@
-"""stock_copilot CLI：sync / report tech / report value。"""
+"""stock_copilot CLI：sync / report tech / report value / report dual。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from apps.formatters import format_tech_report, format_value_report
+from apps.formatters import format_dual_report, format_tech_report, format_value_report
 from common.cli_progress import CliProgress, cli_progress_enabled
 from common.config_loader import load_app_config
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
@@ -18,6 +18,8 @@ from dao.models import Kline  # noqa: F401 — register ORM model
 from dao.stock_snapshot_repo import StockSnapshotRepo
 from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
+from service.dual_track.analyzer import DualTrackAnalyzer
+from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.tech.analyzer import TechAnalyzer
 from service.value.analyzer import ValueAnalyzer
 
@@ -144,6 +146,52 @@ def run_report_value(
         session.close()
 
 
+def run_report_dual(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """离线生成红蓝对抗证据分桶（Level 0）。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 红蓝对抗证据分桶（离线）…")
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        progress.emit("正在加载本地快照并跑双轨离线分析…")
+        value_analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        tech_analyzer = TechAnalyzer.from_config(cfg)
+        dual = DualTrackAnalyzer(value_analyzer, tech_analyzer)
+        report = dual.analyze_offline(code)
+
+        no_value = report.value_result is None
+        no_tech = report.tech_result is None or any(
+            "无缓存" in w for w in report.tech_result.warnings
+        ) or any("无缓存" in r for r in report.tech_result.risk_factors)
+        if no_value and no_tech:
+            print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+
+        buckets = EvidenceBucketer().bucket(report)
+        text = format_dual_report(
+            code,
+            buckets.bull_evidence,
+            buckets.bear_evidence,
+            analysis_summary=report.analysis_summary,
+            as_json=as_json,
+        )
+        _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
 def _emit_report(text: str, output: str | None, progress: CliProgress | None = None) -> None:
     if output:
         path = Path(output)
@@ -190,6 +238,14 @@ def build_parser() -> argparse.ArgumentParser:
     value_parser.add_argument("--output", "-o", help="写入文件路径")
     value_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
+    dual_parser = report_sub.add_parser(
+        "dual", help="红蓝对抗证据分桶（离线 Level 0）"
+    )
+    dual_parser.add_argument("code", help="股票代码")
+    dual_parser.add_argument("--json", action="store_true", help="JSON 输出（供 Skill 消费）")
+    dual_parser.add_argument("--output", "-o", help="写入文件路径")
+    dual_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+
     return parser
 
 
@@ -212,6 +268,10 @@ def main(argv: list[str] | None = None) -> None:
                 )
             elif args.report_type == "value":
                 run_report_value(
+                    args.code, as_json=args.json, output=args.output, config=config_override
+                )
+            elif args.report_type == "dual":
+                run_report_dual(
                     args.code, as_json=args.json, output=args.output, config=config_override
                 )
     except UnsupportedMarketError as exc:

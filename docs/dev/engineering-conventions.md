@@ -70,11 +70,13 @@ stock_copilot/                    # 本 git 仓库根
 │   ├── apps/                     # CLI / 交互入口
 │   ├── controller/               # HTTP API
 │   ├── service/                  # 领域编排
+│   │   ├── dual_track/           # 双轨 Facade、证据分桶（红蓝对抗 Level 0）
 │   │   └── value/valuation/      # 估值方法论（BaseValuation、Graham/DDM/EPV 等）
 │   ├── data_provider/            # 外部数据适配
 │   ├── dao/                      # 持久化
 │   └── common/                   # 共享类型/工具/异常
-│       └── llm/                  # LLM 叙事基建（client / narrate / grounded）
+│       └── llm/                  # LLM 叙事基建（client / narrate / grounded；已冻结，待 Web 消费）
+├── .cursor/skills/               # 项目级 Cursor Skill（如 red-blue-confrontation）
 └── test/                         # 测试（镜像 src/ 结构）
 ```
 
@@ -82,22 +84,24 @@ stock_copilot/                    # 本 git 仓库根
 
 | 模块 | 职责 | 依赖方向 |
 |------|------|----------|
-| `apps` | CLI、用户交互 | → controller（可选）、service |
+| `apps` | CLI、用户交互（`sync` / `report tech|value|dual`） | → controller（可选）、service |
 | `controller` | REST/API 路由、请求校验、响应封装 | → service |
 | `service` | 业务编排、领域逻辑 | → data_provider, dao, common |
 | `data_provider` | 行情/财报/新闻等外部 API 适配 | → common |
 | `dao` | ORM/Repository、持久化 | → common |
 | `common` | 日志、配置加载、异常、工具、常量、`llm/` 叙事基建 | 无业务依赖（不依赖 service/dao） |
-| `common/llm` | OpenAI 兼容 Client、`narrate()` 三层防御；缓存经 Protocol 注入，不反向依赖 dao | ← service 消费 |
+| `common/llm` | OpenAI 兼容 Client、`narrate()` 三层防御；缓存经 Protocol 注入，不反向依赖 dao | ← service 消费（当前冻结，无活跃消费方） |
+| `.cursor/skills/` | 项目级 Agent Skill；红蓝对抗 Level 1 互驳叙事由 `red-blue-confrontation` Skill 承接（消费 `report dual --json`） | 不参与 Python import |
 
 **service 建议子域（按业务扩展）：**
 
 | 子域 | 职责 |
 |------|------|
 | `service/value/` | 价值面：估值方法论计算（`valuation/`）、原型路由、区间聚合 |
-| `service/technical/` | 技术面：指标、趋势信号 |
+| `service/tech/` | 技术面：指标、趋势信号 |
+| `service/dual_track/` | 双轨 Facade、`EvidenceBucketer`（红蓝 Level 0 证据分桶） |
 | `service/report/` | 报告 Context 打包、LLM 编排、写入 reports/ |
-| `service/guard/` | 决策护航：Checklist、红蓝对抗（MRD 定义范围） |
+| `service/guard/` | 决策护航：Checklist 等（红蓝 Level 1 叙事当前由 Cursor Skill 承接） |
 
 ### 3.3 硬规则
 
