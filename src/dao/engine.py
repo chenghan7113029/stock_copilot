@@ -77,6 +77,25 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 conn.execute(text(f"ALTER TABLE stock_snapshots ADD COLUMN {col} REAL"))
                 logger.info("已添加列 stock_snapshots.%s", col)
 
+        # llm_narrate_cache 新表：create_all 会建；此处兜底确保已存在库也能补建
+        tables = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            ).fetchall()
+        }
+        if "llm_narrate_cache" not in tables:
+            conn.execute(
+                text(
+                    "CREATE TABLE llm_narrate_cache ("
+                    "cache_key VARCHAR(64) NOT NULL PRIMARY KEY, "
+                    "result_json TEXT NOT NULL, "
+                    "created_at DATETIME NOT NULL"
+                    ")"
+                )
+            )
+            logger.info("已创建表 llm_narrate_cache")
+
 
 class Base(DeclarativeBase):
     """所有 ORM 模型的基类。"""

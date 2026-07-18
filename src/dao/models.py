@@ -150,3 +150,16 @@ class Kline(Base):
 
     def __repr__(self) -> str:
         return f"<Kline code={self.code} date={self.trade_date}>"
+
+
+class LLMNarrateCache(Base):
+    """LLM narrate() 幂等缓存。"""
+
+    __tablename__ = "llm_narrate_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<LLMNarrateCache key={self.cache_key[:12]}...>"

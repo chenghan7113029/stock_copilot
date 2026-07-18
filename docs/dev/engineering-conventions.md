@@ -11,6 +11,7 @@
 | 2026-06-13 | merge-arch | 合并原 architecture.md 与工程约定；确立 ref/、flat src/、reports/、三层防御 LLM 规范 |
 | 2026-06-13 | add-value-data-provider-v1 | 新增 dao 持久化层（SQLAlchemy + SQLite）；data_sources/db 配置节；importlib pytest 模式 |
 | 2026-06-14 | fix-value-data-pipeline-e2e | fetch_all 签名统一；Baostock 季频参数修复；Provider 持久化解耦（防 SQLite 锁）；config_loader bootstrap；E2E 验收脚本与字段覆盖报告 |
+| 2026-07-18 | add-llm-narrative-core | 新增 `src/common/llm/`（LLMClient + narrate 三层防御）；`llm:` 配置段；`llm_narrate_cache` 表 |
 
 ---
 
@@ -38,7 +39,7 @@
 | 测试 | pytest + `test/` 目录 |
 | Lint | ruff（line-length 120） |
 | 持久化 | SQLAlchemy + SQLite（`dao/`），`db.url` 配置可切换 MySQL |
-| 数据依赖 | akshare >= 1.18.54、baostock >= 0.9.2、tushare >= 1.4.0（见 `requirements.txt`） |
+| 数据依赖 | akshare >= 1.18.54、baostock >= 0.9.2、tushare >= 1.4.0、openai >= 1.0、jsonschema >= 4.0（见 `requirements.txt`） |
 | 脚本 | `scripts/*.sh` 仅 devops；`scripts/*.py` 可承载 E2E / 运维批处理；业务核心逻辑不放 scripts |
 | 配置加载 | `src/common/config_loader.py`：加载 `config/app.yaml`（缺失时 bootstrap from example）；提供 `load_validation_stocks()` |
 | 前端 | 是否建设 Web UI 由 MRD / OpenSpec 决定，不在本文档限定 |
@@ -73,6 +74,7 @@ stock_copilot/                    # 本 git 仓库根
 │   ├── data_provider/            # 外部数据适配
 │   ├── dao/                      # 持久化
 │   └── common/                   # 共享类型/工具/异常
+│       └── llm/                  # LLM 叙事基建（client / narrate / grounded）
 └── test/                         # 测试（镜像 src/ 结构）
 ```
 
@@ -85,7 +87,8 @@ stock_copilot/                    # 本 git 仓库根
 | `service` | 业务编排、领域逻辑 | → data_provider, dao, common |
 | `data_provider` | 行情/财报/新闻等外部 API 适配 | → common |
 | `dao` | ORM/Repository、持久化 | → common |
-| `common` | 日志、配置加载、异常、工具、常量 | 无业务依赖 |
+| `common` | 日志、配置加载、异常、工具、常量、`llm/` 叙事基建 | 无业务依赖（不依赖 service/dao） |
+| `common/llm` | OpenAI 兼容 Client、`narrate()` 三层防御；缓存经 Protocol 注入，不反向依赖 dao | ← service 消费 |
 
 **service 建议子域（按业务扩展）：**
 

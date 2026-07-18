@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,41 @@ def load_validation_stocks() -> list[dict[str, str]]:
     stocks: list[dict[str, str]] = data.get("stocks", [])
     logger.debug("加载了 %d 只样本股票", len(stocks))
     return stocks
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    """LLM Client 配置（OpenAI 兼容协议）。"""
+
+    base_url: str
+    model: str
+    api_key: str
+    max_evidence_chars: int = 24_000
+
+
+def resolve_llm_config(config: dict[str, Any] | None = None) -> LLMConfig | None:
+    """解析 LLM 配置。
+
+    优先级：config/app.yaml 的 llm.api_key > 环境变量 LLM_API_KEY。
+    无 api_key 且无环境变量时返回 None（调用方应降级，不实例化 client）。
+    """
+    if config is None:
+        config = load_app_config()
+    llm_cfg = config.get("llm") or {}
+    api_key = (llm_cfg.get("api_key") or "").strip()
+    if not api_key:
+        api_key = os.environ.get("LLM_API_KEY", "").strip()
+    if not api_key:
+        return None
+    base_url = (llm_cfg.get("base_url") or "https://api.openai.com/v1").strip()
+    model = (llm_cfg.get("model") or "gpt-4o-mini").strip()
+    max_chars = int(llm_cfg.get("max_evidence_chars") or 24_000)
+    return LLMConfig(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        max_evidence_chars=max_chars,
+    )
 
 
 def resolve_tushare_token(config: dict[str, Any] | None = None) -> str | None:

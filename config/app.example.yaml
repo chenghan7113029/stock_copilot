@@ -57,6 +57,14 @@ value_analysis:
     high_dividend: 3.0
     bank: 5.0
 
+# LLM 叙事（OpenAI 兼容协议；api_key 勿提交到 Git）
+# 优先级：llm.api_key > 环境变量 LLM_API_KEY；均未配置时 narrate() 返回 ok=False
+# llm:
+#   base_url: "https://api.deepseek.com/v1"   # 任意 OpenAI 兼容端点
+#   model: "deepseek-chat"
+#   api_key: ""                               # 或使用环境变量 LLM_API_KEY
+#   max_evidence_chars: 24000                 # evidence 序列化超长截断阈值（约 8000 token）
+
 # 外部参考仓库本地路径（只读查阅，不参与 import；整个 ref/ 目录不进 git）
 ref:
   daily_stock_analysis: ref/daily_stock_analysis
