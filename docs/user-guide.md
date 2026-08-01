@@ -25,6 +25,7 @@
 | 技术面报告 | `python -m apps.cli report tech <代码>` |
 | 价值面报告 | `python -m apps.cli report value <代码>` |
 | 多维看板（一页汇总） | `python -m apps.cli report dashboard <代码>` |
+| 综合摘要（可选 LLM 叙事） | `python -m apps.cli report summary <代码> [--narrate]` |
 | 红蓝证据分桶（多空清单） | `python -m apps.cli report dual <代码>` |
 | 红蓝对抗叙事（多方/空方互驳） | Cursor 里让 Agent 做「红蓝对抗」（见 §6） |
 | 一键试跑多只样本股 | `scripts/run_trial.cmd`（Windows） |
@@ -85,6 +86,7 @@ pip install -e ".[dev]"
 |--------|------|------|
 | `data_sources.enabled` | 用哪些数据源 | 默认 akshare + baostock 即可 |
 | Tushare（可选） | 财报更全、历史 PE/PB、银行指标更准 | 注册 [tushare.pro](https://tushare.pro)，见 §2.4 |
+| `llm:`（可选） | `report summary --narrate` 综合叙事 | OpenAI 兼容 API；见 §2.5 |
 | `db.url` | 本地数据库路径 | 默认 `data/stock_copilot.db`，一般不用改 |
 | `logging.cli_progress` | CLI 是否打印进度 | `true` 方便观察 sync |
 
@@ -124,12 +126,34 @@ export TUSHARE_TOKEN=你的token
 
 同时需在 `enabled` 列表里启用 `tushare` 这一项（可只写 `name` + `priority`，token 走环境变量）。
 
+### 2.5 启用 LLM 综合叙事（可选）
+
+仅在使用 `report summary --narrate` 时需要。未配置时该命令仍会输出确定性摘要，并提示「LLM 未配置」。
+
+在 `config/app.yaml` 取消注释并填写（示例见 `config/app.example.yaml`）：
+
+```yaml
+llm:
+  base_url: "https://api.deepseek.com/v1"   # 任意 OpenAI 兼容端点
+  model: "deepseek-chat"
+  api_key: ""                               # 或使用环境变量 LLM_API_KEY
+  max_evidence_chars: 24000
+```
+
+或只设环境变量：
+
+```powershell
+$env:LLM_API_KEY = "你的key"
+```
+
+优先级：`llm.api_key` > 环境变量 `LLM_API_KEY`。
+
 ---
 
 ## 3. 核心工作流（每天怎么用）
 
 ```text
-sync（联网拉数） → report dashboard / tech / value / dual（离线读库出报告）
+sync（联网拉数） → report dashboard / summary / tech / value / dual（离线读库出报告）
 ```
 
 **原则：**
@@ -138,6 +162,7 @@ sync（联网拉数） → report dashboard / tech / value / dual（离线读库
 2. **sync 之后的报告可反复离线重跑** — 不费数据源额度
 3. **盘中要贴近现价** — sync 时加 `--realtime`
 4. **想先看全局再深入** — 用 `report dashboard` 一页汇总，再按需跑 tech/value/dual
+5. **想要自然语言总结** — `report summary`（离线）或 `report summary --narrate`（需 LLM）
 
 ### 3.1 最短路径（分析一只股票）
 
@@ -152,7 +177,10 @@ py -m apps.cli sync 600519
 REM 2. 一页看板（价值 + 技术 + 红蓝证据条数摘要）
 py -m apps.cli report dashboard 600519
 
-REM 3. 需要时再深入单维度
+REM 3. 综合摘要（可选：加 --narrate 生成 LLM 叙事）
+py -m apps.cli report summary 600519
+
+REM 4. 需要时再深入单维度
 py -m apps.cli report tech 600519
 py -m apps.cli report value 600519
 py -m apps.cli report dual 600519
@@ -346,6 +374,18 @@ python -m apps.cli report dashboard <代码> [--json] [-o 文件] [--quiet]
 
 仅当价值面与技术面**都**没有本地数据时，命令会报错并提示先 `sync`；只有一侧缺失时，该分区会提示「无本地快照」，其余分区仍可输出。
 
+### 4.6 `report summary` — 综合摘要（默认离线，可选 LLM）
+
+```text
+python -m apps.cli report summary <代码> [--json] [-o 文件] [--quiet] [--narrate]
+```
+
+- **默认（不加 `--narrate`）**：严格离线，输出综合信号、价值评级、红蓝证据条数与确定性摘要行
+- **`--narrate`**：额外联网调用 LLM，生成 `summary` / `key_points` / `risks` 叙事段落（需在 `config/app.yaml` 配置 `llm:` 或设置环境变量 `LLM_API_KEY`）
+- LLM 失败时**不会**整命令失败：仍输出确定性摘要，并提示失败原因
+
+数值仍以确定性模块为准；叙事不得编造 evidence 外数字（由 `narrate()` grounded 校验拦截）。
+
 ---
 
 ## 5. 典型使用场景
@@ -355,10 +395,11 @@ python -m apps.cli report dashboard <代码> [--json] [-o 文件] [--quiet]
 ```cmd
 py -m apps.cli sync 600519
 py -m apps.cli report dashboard 600519
+py -m apps.cli report summary 600519
 py -m apps.cli report dual 600519
 ```
 
-建议顺序：**先看板看全局 → dual 看多空是否一边倒 → 需要时再深入 value/tech。**  
+建议顺序：**先看板看全局 → summary 看确定性摘要 → dual 看多空是否一边倒 → 需要时再深入 value/tech。**  
 价值便宜但技术破位，仍应视为高风险，而不是「必须抄底」。
 
 ### 场景 B：盘中追涨前再确认一眼
@@ -463,6 +504,10 @@ py -m apps.cli sync 600519
 
 当前 CLI 与数据管线以 **A 股** 为主；其他市场会报不支持或取数失败。
 
+### Q7：`report summary --narrate` 提示 LLM 未配置？
+
+未配置 `llm:` 或环境变量 `LLM_API_KEY` 时属预期：命令仍输出确定性摘要，并提示失败原因，退出码为 0。按 §2.5 配置后重试即可。叙事数字须能锚定 evidence；若 grounded 校验失败也会同样降级。
+
 ---
 
 ## 9. 与开发文档的关系
@@ -492,6 +537,8 @@ py -m apps.cli sync --watchlist
 
 # 报告
 py -m apps.cli report dashboard 600519
+py -m apps.cli report summary 600519
+py -m apps.cli report summary 600519 --narrate
 py -m apps.cli report tech 600519
 py -m apps.cli report value 600519
 py -m apps.cli report dual 600519
@@ -499,6 +546,7 @@ py -m apps.cli report value --watchlist -o reports/watchlist
 
 # 存盘
 py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.txt
+py -m apps.cli report summary 600519 -o reports/600519_summary.txt
 py -m apps.cli report value 600519 -o reports/600519_value.txt
 py -m apps.cli report dual 600519 --json -o reports/600519_dual.json
 

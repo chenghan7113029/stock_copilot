@@ -236,6 +236,64 @@ def format_dashboard_report(view: DashboardView, as_json: bool = False) -> str:
     return "\n".join(lines)
 
 
+def format_summary_report(
+    deterministic: dict[str, Any],
+    *,
+    narrative: dict[str, Any] | None = None,
+    narrative_error: str | None = None,
+    as_json: bool = False,
+) -> str:
+    """综合摘要输出：确定性部分 + 可选 LLM 叙事（失败时降级提示）。"""
+    payload: dict[str, Any] = {
+        **deterministic,
+        "narrative": narrative,
+        "narrative_error": narrative_error,
+    }
+    if as_json:
+        return _dump_json(payload)
+
+    code = deterministic.get("code", "")
+    lines: list[str] = [
+        f"=== 综合摘要 {code} ===",
+        "[离线模式] 确定性摘要"
+        + (" + LLM 叙事" if narrative else "")
+        + ("（叙事失败已降级）" if narrative_error else ""),
+        "",
+        "--- 确定性摘要 ---",
+        f"综合信号: {deterministic.get('combined_signal') or 'N/A'}",
+        f"价值评级: {deterministic.get('value_rating') or 'N/A'}",
+        f"红蓝证据: 多方 {deterministic.get('bull_evidence_count', 0)} 条 / "
+        f"空方 {deterministic.get('bear_evidence_count', 0)} 条",
+    ]
+    summary = deterministic.get("analysis_summary") or ""
+    if summary:
+        lines.extend(["", summary])
+
+    if narrative_error:
+        lines.extend(
+            [
+                "",
+                f"[warn] LLM 叙事生成失败：{narrative_error}",
+                "以下为确定性摘要（未附加 LLM 叙事）。",
+            ]
+        )
+    elif narrative:
+        lines.extend(["", "--- LLM 综合叙事 ---", narrative.get("summary") or "（空）"])
+        key_points = narrative.get("key_points") or []
+        if key_points:
+            lines.extend(["", "关键要点:"])
+            lines.extend(f"  - {p}" for p in key_points)
+        risks = narrative.get("risks") or []
+        if risks:
+            lines.extend(["", "风险提示:"])
+            lines.extend(f"  - {r}" for r in risks)
+        conf = narrative.get("confidence")
+        if conf is not None:
+            lines.append(f"置信度: {conf}")
+
+    return "\n".join(lines)
+
+
 def _kline_last_date(result: TechAnalysisResult) -> str:
     if result.kline_last_date:
         return result.kline_last_date

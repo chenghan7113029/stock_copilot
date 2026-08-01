@@ -11,6 +11,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-01 | PO-02 LLM 综合报告：`report summary [--narrate]`；解冻 `add-llm-narrative-core` |
 | 2026-08-01 | PO-01 CLI 多维看板：`report dashboard` + `DashboardBuilder`；PO-08 CLI 部分同步更新 |
 | 2026-07-18 | PO-03 红蓝对抗 V1（Skill 版）：`report dual` 证据分桶 + `.cursor/skills/red-blue-confrontation`；LLM API 版冻结 |
 | 2026-06-28 | 初稿：汇总 P0–V2 待办；标记 F-16/F-20/双轨 Facade 已交付 |
@@ -46,7 +47,7 @@
 - [ ] REST API / Web 看板
 - [x] CLI 核心（`sync` / `report tech` / `report value`，`add-cli-core`）
 - [x] CLI 多维看板（`report dashboard`，`add-stock-dashboard`）
-- [ ] LLM 综合报告
+- [x] LLM 综合报告（`report summary [--narrate]`，`add-llm-comprehensive-report`）
 - [ ] 情绪面整模块
 - [ ] 决策护航（Checklist、首开仓评估；红蓝对抗 V1 Skill 已交付）
 
@@ -61,7 +62,7 @@
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
-| PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [ ] 待建 |
+| PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [x] 已实现（`report summary [--narrate]`） |
 | PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [x] V1 Skill 版已实现（证据分桶 + Cursor Skill）；Web+API / 用户声明待建 |
 | PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [ ] 待建 |
 | PO-05 | 假设今日首开仓 | 隐藏成本价/盈亏%，对抗沉没成本 | [ ] 待建 |
@@ -129,7 +130,7 @@
 | D-H | Tushare 财报补全 | income/cashflow/balance → 真实财报字段 | `add-tushare-financials` | [x] 已实现 |
 | E | REST API | `POST /api/v1/analysis/value` 等 | `add-value-api`（待定） | [ ] 待建 |
 | F | CLI / 看板 | `python -m apps.cli sync/report ...` | 与 PO-08 合并 | [x] CLI 核心 |
-| G | LLM ContextPack | 价值面块注入双轨 + LLM 叙述 | 与 PO-02 合并 | [ ] 待建 |
+| G | LLM ContextPack | 价值面块注入双轨 + LLM 叙述 | 与 PO-02 合并 | [x] 已实现（`build_dual_track_evidence` + `narrate_comprehensive_report`） |
 
 ### 5.2 数据质量修复（fix-baostock-data-quality）
 
@@ -215,7 +216,7 @@
 | 阶段 | 建议项 | 理由 | 状态 |
 |------|--------|------|------|
 | **A** | CLI 核心入口（`add-cli-core`） | 已有 `DualTrackAnalyzer`，缺对外入口 | ✅ 已实现 |
-| **B** | LLM 综合报告（PO-02 / G） | 双轨结果可直接打包；情绪维可后补 | ⬜ 待立项 |
+| **B** | LLM 综合报告（PO-02 / G） | 双轨结果可直接打包；情绪维可后补 | ✅ 已实现（`report summary --narrate`） |
 | **C** | 历史 PE/PB（D-E） | 解锁 relative 估值，价值面完整度提升明显 | ✅ Tushare 5 年季末采样 + DCF/EPV 语义注释（add-historical-multiples-5yr） |
 | **C2** | Tushare 财报补全（D-H） | 真实 revenue/fcf/net_debt；pe_relative + ev_ebitda 达标 | ✅ add-tushare-financials |
 | **C3** | 估值假设层修复 | TTM EPS、β-CAPM、growth floor；聚合中位对齐 LLM | ✅ fix-valuation-assumptions |

@@ -10,6 +10,7 @@ from typing import Any, Callable
 from apps.formatters import (
     format_dashboard_report,
     format_dual_report,
+    format_summary_report,
     format_tech_report,
     format_value_report,
 )
@@ -26,12 +27,14 @@ from common.watchlist import (
 from common.win_console import setup_utf8_console
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
 from dao.kline_repo import KlineRepo
+from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
 from dao.models import Kline  # noqa: F401 — register ORM model
 from dao.stock_snapshot_repo import StockSnapshotRepo
 from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
+from service.report.comprehensive_narrator import narrate_comprehensive_report
 from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingError
 from service.tech.analyzer import TechAnalyzer
 from service.value.analyzer import ValueAnalyzer
@@ -272,6 +275,75 @@ def run_report_dashboard(
         session.close()
 
 
+def run_report_summary(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    narrate: bool = False,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """综合摘要：默认离线；`--narrate` 时额外调用 LLM 叙事。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 综合摘要（离线）…" + (" + LLM 叙事" if narrate else ""))
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        progress.emit("正在加载本地快照并跑双轨离线分析…")
+        value_analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        tech_analyzer = TechAnalyzer.from_config(cfg)
+        dual = DualTrackAnalyzer(value_analyzer, tech_analyzer)
+        report = dual.analyze_offline(code)
+
+        no_value = report.value_result is None
+        no_tech = report.tech_result is None or any(
+            "无缓存" in w for w in report.tech_result.warnings
+        ) or any("无缓存" in r for r in report.tech_result.risk_factors)
+        if no_value and no_tech:
+            print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+
+        buckets = EvidenceBucketer().bucket(report)
+        deterministic = {
+            "code": code,
+            "analysis_summary": report.analysis_summary,
+            "combined_signal": report.combined_signal.value
+            if report.combined_signal
+            else None,
+            "value_rating": report.value_rating.value if report.value_rating else None,
+            "bull_evidence_count": len(buckets.bull_evidence),
+            "bear_evidence_count": len(buckets.bear_evidence),
+        }
+
+        narrative = None
+        narrative_error = None
+        if narrate:
+            progress.emit("正在调用 LLM 生成综合叙事（联网）…")
+            cache = LLMNarrateCacheRepo(session)
+            result = narrate_comprehensive_report(report, config=cfg, cache=cache)
+            session.commit()
+            if result.ok and result.data is not None:
+                narrative = result.data
+            else:
+                narrative_error = result.error or "未知错误"
+
+        text = format_summary_report(
+            deterministic,
+            narrative=narrative,
+            narrative_error=narrative_error,
+            as_json=as_json,
+        )
+        _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
 def run_watchlist_list() -> None:
     stocks = load_watchlist()
     path = watchlist_path()
@@ -393,6 +465,15 @@ def build_parser() -> argparse.ArgumentParser:
         report_sub.add_parser("dual", help="红蓝对抗证据分桶（离线 Level 0）")
     )
     _add_report_common(report_sub.add_parser("dashboard", help="多维看板汇总（离线）"))
+    summary_parser = report_sub.add_parser(
+        "summary", help="综合摘要（默认离线；--narrate 联网 LLM 叙事）"
+    )
+    _add_report_common(summary_parser)
+    summary_parser.add_argument(
+        "--narrate",
+        action="store_true",
+        help="显式联网调用 LLM 生成综合叙事（需配置 llm: 或 LLM_API_KEY）",
+    )
 
     wl_parser = sub.add_parser("watchlist", help="维护常看股票列表（config/watchlist.yaml）")
     wl_sub = wl_parser.add_subparsers(dest="watchlist_action", required=True)
@@ -448,15 +529,17 @@ def main(argv: list[str] | None = None) -> None:
                 "value": (run_report_value, "value"),
                 "dual": (run_report_dual, "dual"),
                 "dashboard": (run_report_dashboard, "dashboard"),
+                "summary": (run_report_summary, "summary"),
             }
             fn, kind = report_fns[args.report_type]
+            extra: dict[str, Any] = {
+                "as_json": args.json,
+                "config": config_override,
+            }
+            if args.report_type == "summary":
+                extra["narrate"] = bool(getattr(args, "narrate", False))
             if len(codes) == 1 and not use_wl:
-                fn(
-                    codes[0],
-                    as_json=args.json,
-                    output=args.output,
-                    config=config_override,
-                )
+                fn(codes[0], output=args.output, **extra)
             else:
                 _run_for_codes(
                     codes,
@@ -465,8 +548,7 @@ def main(argv: list[str] | None = None) -> None:
                     batch=True,
                     output=args.output,
                     kind=kind,
-                    as_json=args.json,
-                    config=config_override,
+                    **extra,
                 )
     except UnsupportedMarketError as exc:
         print(f"[error] {exc}", file=sys.stderr)

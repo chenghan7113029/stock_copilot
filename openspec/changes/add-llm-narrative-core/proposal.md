@@ -1,4 +1,4 @@
-> **状态：已冻结（2026-07-18）**。代码已实现并合入主干（`src/common/llm/`），单测通过，但暂无消费方：`add-red-blue-confrontation` 改为 Cursor Skill 方案实现 Level 1 互驳叙事，不再依赖本 change。本 change 保留不归档，留给未来 Web + 独立 LLM API 阶段（需要跨会话/跨用户复用时）启用，届时先确认代码与依赖仍可用再继续 §10 归档步骤。
+> **状态：已解冻（2026-08-01）**。代码已实现并合入主干（`src/common/llm/`），现有消费方：`add-llm-comprehensive-report`（`report summary --narrate`）。可继续执行 §10.3 归档。
 
 ## Why
 
