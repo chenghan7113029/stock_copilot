@@ -7,7 +7,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from apps.formatters import format_dual_report, format_tech_report, format_value_report
+from apps.formatters import (
+    format_dashboard_report,
+    format_dual_report,
+    format_tech_report,
+    format_value_report,
+)
 from common.cli_progress import CliProgress, cli_progress_enabled
 from common.config_loader import load_app_config
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
@@ -20,6 +25,7 @@ from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
+from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingError
 from service.tech.analyzer import TechAnalyzer
 from service.value.analyzer import ValueAnalyzer
 
@@ -192,6 +198,41 @@ def run_report_dual(
         session.close()
 
 
+def run_report_dashboard(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """离线生成多维看板汇总。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 多维看板（离线）…")
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        progress.emit("正在加载本地快照并聚合看板…")
+        value_analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        tech_analyzer = TechAnalyzer.from_config(cfg)
+        builder = DashboardBuilder(value_analyzer, tech_analyzer, config=cfg)
+        try:
+            view = builder.build(code)
+        except LocalDataMissingError as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+
+        text = format_dashboard_report(view, as_json=as_json)
+        _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
 def _emit_report(text: str, output: str | None, progress: CliProgress | None = None) -> None:
     if output:
         path = Path(output)
@@ -246,6 +287,14 @@ def build_parser() -> argparse.ArgumentParser:
     dual_parser.add_argument("--output", "-o", help="写入文件路径")
     dual_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
+    dash_parser = report_sub.add_parser(
+        "dashboard", help="多维看板汇总（离线）"
+    )
+    dash_parser.add_argument("code", help="股票代码")
+    dash_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    dash_parser.add_argument("--output", "-o", help="写入文件路径")
+    dash_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+
     return parser
 
 
@@ -272,6 +321,10 @@ def main(argv: list[str] | None = None) -> None:
                 )
             elif args.report_type == "dual":
                 run_report_dual(
+                    args.code, as_json=args.json, output=args.output, config=config_override
+                )
+            elif args.report_type == "dashboard":
+                run_report_dashboard(
                     args.code, as_json=args.json, output=args.output, config=config_override
                 )
     except UnsupportedMarketError as exc:

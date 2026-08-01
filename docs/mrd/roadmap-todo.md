@@ -1,9 +1,9 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-07-18  
+> 最后更新：2026-08-01  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
-> OpenSpec 活跃 change：`add-red-blue-confrontation`（实现中）；`add-llm-narrative-core`（已冻结）
+> OpenSpec 活跃 change：见 `openspec list`；`add-llm-narrative-core`（已冻结）
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-01 | PO-01 CLI 多维看板：`report dashboard` + `DashboardBuilder`；PO-08 CLI 部分同步更新 |
 | 2026-07-18 | PO-03 红蓝对抗 V1（Skill 版）：`report dual` 证据分桶 + `.cursor/skills/red-blue-confrontation`；LLM API 版冻结 |
 | 2026-06-28 | 初稿：汇总 P0–V2 待办；标记 F-16/F-20/双轨 Facade 已交付 |
 | 2026-06-28 | 新增 §5.1 CLI 核心设计（add-cli-core 提案）；更新 §5 阶段 A 状态 |
@@ -44,9 +45,10 @@
 
 - [ ] REST API / Web 看板
 - [x] CLI 核心（`sync` / `report tech` / `report value`，`add-cli-core`）
+- [x] CLI 多维看板（`report dashboard`，`add-stock-dashboard`）
 - [ ] LLM 综合报告
 - [ ] 情绪面整模块
-- [ ] 决策护航（红蓝对抗、Checklist、首开仓评估）
+- [ ] 决策护航（Checklist、首开仓评估；红蓝对抗 V1 Skill 已交付）
 
 ---
 
@@ -58,7 +60,7 @@
 
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
-| PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [ ] 待建 |
+| PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [ ] 待建 |
 | PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [x] V1 Skill 版已实现（证据分桶 + Cursor Skill）；Web+API / 用户声明待建 |
 | PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [ ] 待建 |
@@ -70,7 +72,7 @@
 |----|------|------|------|
 | PO-06 | **情绪面量化（整模块）** | 融资融券、涨跌停、恐慌贪婪等；须与技术+价值联合解读 | [ ] 待建 |
 | PO-07 | 锚定防御 | 模糊区间概率估值，减少盯成本/历史高点 | [ ] 待建 |
-| PO-08 | Web / CLI | 发起分析、看板、Checklist、红蓝对抗 | [ ] 待建 |
+| PO-08 | Web / CLI | 发起分析、看板、Checklist、红蓝对抗 | [x] CLI 部分（`report dashboard` 等）已实现；Web 部分待建 |
 
 ### 2.3 P2 — 复盘与扩展信息面
 
@@ -221,7 +223,7 @@
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ⬜ 待立项 |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ⬜ 待立项 |
 | **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | 🟨 PO-03 V1 Skill 版已交付；Checklist/首开仓待立项 |
-| **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | ⬜ 待立项 |
+| **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web 待立项 |
 | **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | ⬜ 待立项 |
 
 ---

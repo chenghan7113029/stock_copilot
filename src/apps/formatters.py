@@ -8,6 +8,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
+from service.report.models.dashboard_view import DashboardView
 from service.tech.models.tech_result import TechAnalysisResult
 from service.value.models.analysis_result import ValueAnalysisResult
 
@@ -203,6 +204,35 @@ def format_dual_report(
     else:
         lines.append("  （空）")
 
+    return "\n".join(lines)
+
+
+def format_dashboard_report(view: DashboardView, as_json: bool = False) -> str:
+    """多维看板汇总输出（text / JSON）。"""
+    if as_json:
+        return _dump_json(view)
+
+    lines: list[str] = [
+        f"=== 多维看板 {view.code} ===",
+        "[离线模式] 本命令为汇总视图，单维度深入分析请使用 report tech/value/dual",
+        "",
+        "--- 价值面 ---",
+        view.value_section or "（空）",
+        "",
+        "--- 技术面 ---",
+        view.tech_section or "（空）",
+        "",
+        "--- 情绪面 ---",
+        view.sentiment_section or "（空）",
+        "",
+        "--- Checklist ---",
+        view.checklist_section or "（空）",
+        "",
+        "--- 综合摘要 ---",
+        view.combined_summary or "（空）",
+    ]
+    if view.warnings:
+        lines.extend(["", "--- 警告 ---", *view.warnings])
     return "\n".join(lines)
 
 

@@ -29,6 +29,9 @@ stock_copilot/
 
 ## 快速开始
 
+**新设备从 Git 装机（推荐先看完整方案）：**  
+→ **[docs/install.md](docs/install.md)**（clone → venv → 配置 → sync 验收）
+
 ```bash
 # 开发环境（Linux / macOS / Git Bash）
 bash scripts/setup-dev-env.sh
@@ -44,6 +47,23 @@ pytest
 ```
 
 配置：复制 `config/app.example.yaml` → `config/app.yaml` 后修改。
+
+## 使用说明书（用户）
+
+日常分析 A 股请先看：**[docs/user-guide.md](docs/user-guide.md)**
+
+装机部署请看：**[docs/install.md](docs/install.md)**
+
+最短路径（Windows，已装好依赖后）：
+
+```cmd
+py -m pip install -e ".[dev]"
+py -m apps.cli sync 600519
+py -m apps.cli report dashboard 600519
+py -m apps.cli report value 600519
+py -m apps.cli report tech 600519
+py -m apps.cli report dual 600519
+```
 
 ## 外部参考（ref/，不纳入 git）
 
@@ -66,6 +86,7 @@ git clone https://github.com/ZhuLinsen/daily_stock_analysis ref/daily_stock_anal
 
 | 类型 | 路径 |
 |------|------|
+| **使用说明书（用户）** | [docs/user-guide.md](docs/user-guide.md) |
 | 工程约定与架构 | [docs/dev/engineering-conventions.md](docs/dev/engineering-conventions.md) |
 | MRD | [docs/mrd/](docs/mrd/) |
 | 专项设计 | [docs/design/](docs/design/) |

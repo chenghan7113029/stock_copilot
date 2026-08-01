@@ -166,9 +166,9 @@
 | 能力 | 说明 | 优先级 | 状态 |
 |------|------|--------|------|
 | 双轨分析 Facade | `DualTrackAnalyzer.analyze(code) → DualTrackReport`；价值面 + 技术面 + 确定性 combined_signal | P0 | ✅ |
-| 多维立体看板 | 单票一页呈现价值 + 技术 + 情绪分项与综合摘要 | P0 | 待建 |
+| 多维立体看板 | 单票一页呈现价值 + 技术 + 情绪分项与综合摘要 | P0 | CLI 版已实现（`report dashboard`），Web 待建（依赖 REST API） |
 | LLM 综合报告 | 将确定性计算结果打包为 Context，策略 prompt 生成可读报告；**数值以确定性模块为准** | P0 | 待建 |
-| Web / CLI | 发起分析、查看看板、完成 Checklist、查看红蓝对抗 | P1 | CLI：`report tech/value/dual` 已实现；Web / Checklist 待建 |
+| Web / CLI | 发起分析、查看看板、完成 Checklist、查看红蓝对抗 | P1 | CLI 部分（`report tech/value/dual/dashboard`）已实现；Web / Checklist 待建 |
 
 ---
 
@@ -216,7 +216,7 @@
 
 ### 8.1 产品级
 
-- [ ] 单票一次请求可获得**价值 + 技术**分项报告及 LLM 综合解读（Phase 1）
+- [x] 单票一次请求可获得**价值 + 技术**分项报告及汇总看板（Phase 1 — CLI：`report tech/value/dashboard`；LLM 综合解读待建）
 - [ ] 价值面输出含**估值区间、安全边际、价值陷阱风险提示**
 - [ ] 技术面输出含**趋势判断、关键位、止损建议**
 - [ ] 买入/卖出意图触发 Checklist，缺字段或仅可得性原因时**系统拒绝提交**（Phase 2）
