@@ -1,11 +1,11 @@
-"""stock_copilot CLI：sync / report tech / report value / report dual。"""
+"""stock_copilot CLI：sync / report / watchlist。"""
 
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from apps.formatters import (
     format_dashboard_report,
@@ -16,6 +16,13 @@ from apps.formatters import (
 from common.cli_progress import CliProgress, cli_progress_enabled
 from common.config_loader import load_app_config
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
+from common.watchlist import (
+    add_to_watchlist,
+    load_watchlist,
+    remove_from_watchlist,
+    watchlist_codes,
+    watchlist_path,
+)
 from common.win_console import setup_utf8_console
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
 from dao.kline_repo import KlineRepo
@@ -44,6 +51,38 @@ def _configure_cli_logging(level_name: str = "ERROR") -> None:
     root.setLevel(level)
 
 
+def _resolve_target_codes(code: str | None, use_watchlist: bool) -> list[str]:
+    """解析单票 code 或 --watchlist。"""
+    if use_watchlist and code:
+        print("[error] 请只指定股票代码或 --watchlist，不要同时使用", file=sys.stderr)
+        raise SystemExit(2)
+    if use_watchlist:
+        codes = watchlist_codes()
+        if not codes:
+            print(
+                f"[error] 常看列表为空，请先 watchlist add，或编辑 {watchlist_path()}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        return codes
+    if not code:
+        print("[error] 请指定股票代码，或使用 --watchlist", file=sys.stderr)
+        raise SystemExit(2)
+    return [code]
+
+
+def _batch_output_path(output: str | None, code: str, kind: str) -> str | None:
+    """批量模式下将 -o 视为目录，写入 {code}_{kind}.txt|.json。"""
+    if not output:
+        return None
+    out = Path(output)
+    # 单文件后缀误传时仍落到父目录
+    if out.suffix.lower() in {".txt", ".json", ".md"}:
+        out = out.parent if out.parent != Path("") else Path(".")
+    out.mkdir(parents=True, exist_ok=True)
+    return str(out / f"{code}_{kind}.txt")
+
+
 def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = None) -> None:
     """同步单票价值面快照与 K 线数据（唯一联网路径）。"""
     cfg = config or load_app_config()
@@ -63,7 +102,7 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
     try:
         snapshot_repo = StockSnapshotRepo(session)
         value_provider = StockDataProvider.from_config(cfg, repo=snapshot_repo)
-        stock = value_provider.get_stock_data(code, on_progress=progress_cb)
+        value_provider.get_stock_data(code, on_progress=progress_cb)
 
         kline_repo = KlineRepo(session)
         kline_provider = KlineProvider(kline_repo)
@@ -233,6 +272,36 @@ def run_report_dashboard(
         session.close()
 
 
+def run_watchlist_list() -> None:
+    stocks = load_watchlist()
+    path = watchlist_path()
+    if not stocks:
+        print(f"常看列表为空（{path}）")
+        print("添加：python -m apps.cli watchlist add <代码> [--name 名称]")
+        return
+    print(f"常看列表（{len(stocks)}）→ {path}")
+    for i, s in enumerate(stocks, 1):
+        name = s.get("name") or ""
+        print(f"  {i}. {s['code']}" + (f"  {name}" if name else ""))
+
+
+def run_watchlist_add(code: str, name: str | None = None) -> None:
+    stocks, created = add_to_watchlist(code, name=name)
+    action = "已添加" if created else "已在列表中（已更新名称）" if name else "已在列表中"
+    print(f"{action}: {code}" + (f" ({name})" if name else ""))
+    print(f"当前共 {len(stocks)} 只 → {watchlist_path()}")
+    print("多设备同步：git add config/watchlist.yaml && git commit && git push")
+
+
+def run_watchlist_remove(code: str) -> None:
+    stocks, removed = remove_from_watchlist(code)
+    if not removed:
+        print(f"[warn] 列表中无此代码: {code}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"已移除: {code}")
+    print(f"当前共 {len(stocks)} 只 → {watchlist_path()}")
+
+
 def _emit_report(text: str, output: str | None, progress: CliProgress | None = None) -> None:
     if output:
         path = Path(output)
@@ -247,12 +316,53 @@ def _emit_report(text: str, output: str | None, progress: CliProgress | None = N
         print(text)
 
 
+def _run_for_codes(
+    codes: list[str],
+    *,
+    label: str,
+    fn: Callable[..., None],
+    batch: bool,
+    output: str | None,
+    kind: str,
+    **kwargs: Any,
+) -> None:
+    failed: list[str] = []
+    for i, code in enumerate(codes, 1):
+        if batch and len(codes) > 1:
+            print(f"\n======== [{i}/{len(codes)}] {label} {code} ========", flush=True)
+        out = _batch_output_path(output, code, kind) if batch else output
+        try:
+            fn(code, output=out, **kwargs)
+        except SystemExit as exc:
+            if exc.code not in (0, None):
+                failed.append(code)
+                continue
+            raise
+    if failed:
+        print(f"[error] 失败 {len(failed)}/{len(codes)}: {', '.join(failed)}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _add_code_or_watchlist(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "code",
+        nargs="?",
+        default=None,
+        help="股票代码，如 600519；与 --watchlist 二选一",
+    )
+    parser.add_argument(
+        "--watchlist",
+        action="store_true",
+        help="对 config/watchlist.yaml 常看列表批量执行",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="apps.cli", description="stock_copilot CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sync_parser = sub.add_parser("sync", help="同步单票数据（联网）")
-    sync_parser.add_argument("code", help="股票代码，如 600519")
+    sync_parser = sub.add_parser("sync", help="同步数据（联网）；可单票或 --watchlist")
+    _add_code_or_watchlist(sync_parser)
     sync_parser.add_argument(
         "--realtime",
         action="store_true",
@@ -267,33 +377,31 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser = sub.add_parser("report", help="生成离线分析报告")
     report_sub = report_parser.add_subparsers(dest="report_type", required=True)
 
-    tech_parser = report_sub.add_parser("tech", help="技术面报告")
-    tech_parser.add_argument("code", help="股票代码")
-    tech_parser.add_argument("--json", action="store_true", help="JSON 输出")
-    tech_parser.add_argument("--output", "-o", help="写入文件路径")
-    tech_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    def _add_report_common(p: argparse.ArgumentParser) -> None:
+        _add_code_or_watchlist(p)
+        p.add_argument("--json", action="store_true", help="JSON 输出")
+        p.add_argument(
+            "--output",
+            "-o",
+            help="单票：文件路径；--watchlist：输出目录（写入 {code}_*.txt）",
+        )
+        p.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
-    value_parser = report_sub.add_parser("value", help="价值面报告")
-    value_parser.add_argument("code", help="股票代码")
-    value_parser.add_argument("--json", action="store_true", help="JSON 输出")
-    value_parser.add_argument("--output", "-o", help="写入文件路径")
-    value_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
-
-    dual_parser = report_sub.add_parser(
-        "dual", help="红蓝对抗证据分桶（离线 Level 0）"
+    _add_report_common(report_sub.add_parser("tech", help="技术面报告"))
+    _add_report_common(report_sub.add_parser("value", help="价值面报告"))
+    _add_report_common(
+        report_sub.add_parser("dual", help="红蓝对抗证据分桶（离线 Level 0）")
     )
-    dual_parser.add_argument("code", help="股票代码")
-    dual_parser.add_argument("--json", action="store_true", help="JSON 输出（供 Skill 消费）")
-    dual_parser.add_argument("--output", "-o", help="写入文件路径")
-    dual_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    _add_report_common(report_sub.add_parser("dashboard", help="多维看板汇总（离线）"))
 
-    dash_parser = report_sub.add_parser(
-        "dashboard", help="多维看板汇总（离线）"
-    )
-    dash_parser.add_argument("code", help="股票代码")
-    dash_parser.add_argument("--json", action="store_true", help="JSON 输出")
-    dash_parser.add_argument("--output", "-o", help="写入文件路径")
-    dash_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    wl_parser = sub.add_parser("watchlist", help="维护常看股票列表（config/watchlist.yaml）")
+    wl_sub = wl_parser.add_subparsers(dest="watchlist_action", required=True)
+    wl_sub.add_parser("list", help="列出常看股票")
+    add_p = wl_sub.add_parser("add", help="加入常看列表")
+    add_p.add_argument("code", help="股票代码")
+    add_p.add_argument("--name", help="可选名称")
+    rm_p = wl_sub.add_parser("remove", help="从常看列表移除")
+    rm_p.add_argument("code", help="股票代码")
 
     return parser
 
@@ -308,24 +416,57 @@ def main(argv: list[str] | None = None) -> None:
         config_override.setdefault("logging", {})["cli_progress"] = False
 
     try:
+        if args.command == "watchlist":
+            if args.watchlist_action == "list":
+                run_watchlist_list()
+            elif args.watchlist_action == "add":
+                run_watchlist_add(args.code, name=args.name)
+            elif args.watchlist_action == "remove":
+                run_watchlist_remove(args.code)
+            return
+
+        use_wl = bool(getattr(args, "watchlist", False))
+        codes = _resolve_target_codes(getattr(args, "code", None), use_wl)
+
         if args.command == "sync":
-            run_sync(args.code, realtime=args.realtime, config=config_override)
+            if len(codes) == 1 and not use_wl:
+                run_sync(codes[0], realtime=args.realtime, config=config_override)
+            else:
+                _run_for_codes(
+                    codes,
+                    label="sync",
+                    fn=lambda code, output=None, **kw: run_sync(
+                        code, realtime=args.realtime, config=config_override
+                    ),
+                    batch=True,
+                    output=None,
+                    kind="sync",
+                )
         elif args.command == "report":
-            if args.report_type == "tech":
-                run_report_tech(
-                    args.code, as_json=args.json, output=args.output, config=config_override
+            report_fns = {
+                "tech": (run_report_tech, "tech"),
+                "value": (run_report_value, "value"),
+                "dual": (run_report_dual, "dual"),
+                "dashboard": (run_report_dashboard, "dashboard"),
+            }
+            fn, kind = report_fns[args.report_type]
+            if len(codes) == 1 and not use_wl:
+                fn(
+                    codes[0],
+                    as_json=args.json,
+                    output=args.output,
+                    config=config_override,
                 )
-            elif args.report_type == "value":
-                run_report_value(
-                    args.code, as_json=args.json, output=args.output, config=config_override
-                )
-            elif args.report_type == "dual":
-                run_report_dual(
-                    args.code, as_json=args.json, output=args.output, config=config_override
-                )
-            elif args.report_type == "dashboard":
-                run_report_dashboard(
-                    args.code, as_json=args.json, output=args.output, config=config_override
+            else:
+                _run_for_codes(
+                    codes,
+                    label=f"report {args.report_type}",
+                    fn=fn,
+                    batch=True,
+                    output=args.output,
+                    kind=kind,
+                    as_json=args.json,
+                    config=config_override,
                 )
     except UnsupportedMarketError as exc:
         print(f"[error] {exc}", file=sys.stderr)

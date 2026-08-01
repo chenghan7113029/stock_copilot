@@ -139,6 +139,8 @@ cp config/app.example.yaml config/app.yaml
 
 `config/app.yaml` 已在 `.gitignore` 中，**不会**被提交。
 
+常看股票列表 `config/watchlist.yaml` **会入库**（便于多设备同步）。克隆后可直接 `watchlist list`，或按需 `watchlist add` 后 commit。
+
 ### 3.2 启用 Tushare（强烈推荐）
 
 1. 打开 [tushare.pro](https://tushare.pro) 注册，复制个人 Token（积分建议 ≥2000，财报表权限才够用）
@@ -261,6 +263,7 @@ Git **不会**带上你的本地库和密钥。若希望新设备「接着用」
 | 旧设备路径 | 是否拷贝 | 说明 |
 |------------|----------|------|
 | `config/app.yaml` | 建议 | 含数据源开关；**Token 更建议改用环境变量** |
+| `config/watchlist.yaml` | 走 Git | 常看列表已入库，`git pull` 即可；勿与验证样本 yaml 混淆 |
 | `data/stock_copilot.db` | 可选 | 已 sync 的快照与 K 线；拷过去可少拉几天网 |
 | `data/stock_copilot.db-wal` / `-shm` | 若存在一并拷 | SQLite WAL 附属文件，否则可能不完整 |
 | `reports/` | 可选 | 历史报告文本 |

@@ -58,6 +58,14 @@ pytest
 
 ```cmd
 py -m pip install -e ".[dev]"
+py -m apps.cli watchlist list
+py -m apps.cli sync --watchlist
+py -m apps.cli report dashboard --watchlist -o reports/watchlist
+```
+
+或单票：
+
+```cmd
 py -m apps.cli sync 600519
 py -m apps.cli report dashboard 600519
 py -m apps.cli report value 600519

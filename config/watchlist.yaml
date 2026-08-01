@@ -1,0 +1,18 @@
+# 个人常看股票列表（入库，便于多设备 git 同步）
+#
+# 与 value_data_validation_stocks.yaml（E2E 验证样本）职责分离。
+# 维护方式：
+#   python -m apps.cli watchlist list
+#   python -m apps.cli watchlist add 600519 --name 贵州茅台
+#   python -m apps.cli watchlist remove 600519
+# 批量：
+#   python -m apps.cli sync --watchlist
+#   python -m apps.cli report value --watchlist
+
+stocks:
+  - code: "600519"
+    name: 贵州茅台
+  - code: "601398"
+    name: 工商银行
+  - code: "601939"
+    name: 建设银行

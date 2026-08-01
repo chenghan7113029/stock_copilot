@@ -20,7 +20,8 @@
 
 | 能力 | 怎么用 |
 |------|--------|
-| 同步单票行情与财报快照 | `python -m apps.cli sync <代码>` |
+| 常看股票列表 | `watchlist list/add/remove`；`sync`/`report` 支持 `--watchlist` |
+| 同步行情与财报快照 | `python -m apps.cli sync <代码>` 或 `sync --watchlist` |
 | 技术面报告 | `python -m apps.cli report tech <代码>` |
 | 价值面报告 | `python -m apps.cli report value <代码>` |
 | 多维看板（一页汇总） | `python -m apps.cli report dashboard <代码>` |
@@ -159,7 +160,37 @@ py -m apps.cli report dual 600519
 
 macOS / Linux 把 `py -m` 换成 `python -m` 即可。
 
-### 3.2 把报告存成文件
+### 3.2 常看股票列表（推荐日常用法）
+
+列表文件：[`config/watchlist.yaml`](../config/watchlist.yaml)（**入库**，改完后 `git commit` 即可多设备同步）。
+
+与 `value_data_validation_stocks.yaml`（E2E 验证样本）无关，请勿混用。
+
+```cmd
+REM 查看
+py -m apps.cli watchlist list
+
+REM 添加 / 删除
+py -m apps.cli watchlist add 600519 --name 贵州茅台
+py -m apps.cli watchlist remove 600519
+
+REM 对整表同步与出报告（-o 视为目录）
+py -m apps.cli sync --watchlist
+py -m apps.cli report dashboard --watchlist -o reports/watchlist
+py -m apps.cli report value --watchlist -o reports/watchlist
+py -m apps.cli report tech --watchlist -o reports/watchlist
+py -m apps.cli report dual --watchlist -o reports/watchlist
+```
+
+改列表后记得提交：
+
+```cmd
+git add config/watchlist.yaml
+git commit -m "chore: update watchlist"
+git push
+```
+
+### 3.3 把报告存成文件
 
 ```cmd
 py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.txt
@@ -170,7 +201,7 @@ py -m apps.cli report dual 600519 -o reports/600519_dual.txt
 
 `reports/` 目录默认不进 Git，适合本地留存。
 
-### 3.3 一键试跑（推荐新手）
+### 3.4 一键试跑（推荐新手）
 
 Windows：
 
@@ -192,15 +223,25 @@ scripts\run_trial.cmd --code 600519
 python -m apps.cli <子命令> ...
 ```
 
+### 4.0 `watchlist` — 常看列表
+
+```text
+python -m apps.cli watchlist list
+python -m apps.cli watchlist add <代码> [--name 名称]
+python -m apps.cli watchlist remove <代码>
+```
+
 ### 4.1 `sync` — 联网同步
 
 ```text
 python -m apps.cli sync <代码> [--realtime] [--quiet]
+python -m apps.cli sync --watchlist [--realtime] [--quiet]
 ```
 
 | 参数 | 含义 |
 |------|------|
-| `<代码>` | 6 位 A 股代码，如 `600519`、`000001` |
+| `<代码>` | 6 位 A 股代码，如 `600519`、`000001`；与 `--watchlist` 二选一 |
+| `--watchlist` | 对 `config/watchlist.yaml` 全部代码依次同步 |
 | `--realtime` | 叠加当日实时报价，并尝试写入当日 K 线 |
 | `--quiet` | 少打进度，只保留结果与错误 |
 
@@ -213,7 +254,10 @@ python -m apps.cli sync <代码> [--realtime] [--quiet]
 
 ```text
 python -m apps.cli report tech <代码> [--json] [-o 文件] [--quiet]
+python -m apps.cli report tech --watchlist [-o 目录] [--json] [--quiet]
 ```
+
+`--watchlist` 时 `-o` 视为**目录**，写入 `{代码}_tech.txt`。
 
 报告大致包含：
 
@@ -234,6 +278,7 @@ python -m apps.cli report tech <代码> [--json] [-o 文件] [--quiet]
 
 ```text
 python -m apps.cli report value <代码> [--json] [-o 文件] [--quiet]
+python -m apps.cli report value --watchlist [-o 目录] [--json] [--quiet]
 ```
 
 报告大致包含：
@@ -257,6 +302,7 @@ V1 对保险、军工、高成长科技等原型方法论仍不完整，可能�
 
 ```text
 python -m apps.cli report dual <代码> [--json] [-o 文件] [--quiet]
+python -m apps.cli report dual --watchlist [-o 目录] [--json] [--quiet]
 ```
 
 把双轨分析的确定性结论拆成：
@@ -434,15 +480,22 @@ py -m apps.cli sync 600519
 ## 10. 命令速查卡
 
 ```text
+# 常看列表
+py -m apps.cli watchlist list
+py -m apps.cli watchlist add 600519 --name 贵州茅台
+py -m apps.cli watchlist remove 600519
+
 # 同步
 py -m apps.cli sync 600519
 py -m apps.cli sync 600519 --realtime
+py -m apps.cli sync --watchlist
 
 # 报告
 py -m apps.cli report dashboard 600519
 py -m apps.cli report tech 600519
 py -m apps.cli report value 600519
 py -m apps.cli report dual 600519
+py -m apps.cli report value --watchlist -o reports/watchlist
 
 # 存盘
 py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.txt
