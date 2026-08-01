@@ -68,6 +68,13 @@ class WeeklyTrendStatus(Enum):
     STRONG_BEAR = "强势空头"
 
 
+class ChipStatus(Enum):
+    HIGHLY_CONCENTRATED = "高度控盘"
+    CONCENTRATED = "较为集中"
+    NORMAL = "正常分布"
+    DISPERSED = "筹码分散"
+
+
 @dataclass
 class TechAnalysisResult:
     code: str
@@ -130,3 +137,10 @@ class TechAnalysisResult:
     weekly_ma5: float | None = None
     weekly_ma10: float | None = None
     weekly_ma20: float | None = None
+
+    winner_ratio: float | None = None
+    trap_ratio: float | None = None
+    avg_cost: float | None = None
+    concentration_90: float | None = None
+    concentration_70: float | None = None
+    chip_status: ChipStatus | None = None

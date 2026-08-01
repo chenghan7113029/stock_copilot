@@ -33,6 +33,9 @@ class IndicatorParams:
     weekly_macd_slow: int = 10
     weekly_macd_signal: int = 4
 
+    chip_concentration_strong: float = 10.0
+    chip_concentration_weak: float = 30.0
+
 
 @dataclass
 class ScoringParams:

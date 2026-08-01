@@ -105,3 +105,29 @@ def test_report_value_no_cache(mock_cfg, mock_sf, mock_engine, mock_repo_cls, mo
 def test_cli_report_tech_invocation(mock_run):
     main(["report", "tech", "600519", "--json"])
     mock_run.assert_called_once_with("600519", as_json=True, output=None, config=None)
+
+
+@patch("apps.cli.run_report_value")
+def test_cli_report_value_passes_anchor_price_opt_in_flag(mock_run):
+    main(["report", "value", "600519", "--show-anchor-price"])
+
+    mock_run.assert_called_once_with(
+        "600519",
+        as_json=False,
+        output=None,
+        config=None,
+        show_anchor_price=True,
+    )
+
+
+@patch("apps.cli.run_report_value")
+def test_cli_report_value_hides_anchor_price_by_default(mock_run):
+    main(["report", "value", "600519"])
+
+    mock_run.assert_called_once_with(
+        "600519",
+        as_json=False,
+        output=None,
+        config=None,
+        show_anchor_price=False,
+    )

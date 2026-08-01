@@ -2,6 +2,7 @@
 
 from service.tech.models.tech_result import (
     BuySignal,
+    ChipStatus,
     KDJStatus,
     MACDStatus,
     RSIStatus,
@@ -12,6 +13,7 @@ from service.tech.models.tech_result import (
 
 __all__ = [
     "BuySignal",
+    "ChipStatus",
     "KDJStatus",
     "MACDStatus",
     "RSIStatus",

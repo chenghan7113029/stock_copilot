@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from common.exceptions import DataProviderError
 from data_provider.akshare.fetcher import AKShareFetcher, _parse_value
 
 # ── _parse_value 工具测试 ─────────────────────────────────────────────────────
@@ -186,3 +187,45 @@ def test_fetch_all_merges(mock_ak):
     assert result.ok
     assert "current_price" in result.data or "current_price" in result.missing_fields
     assert "eps" in result.data
+
+
+def test_fetch_chip_distribution_normalizes_columns(mock_ak):
+    mock_ak.stock_cyq_em.return_value = pd.DataFrame(
+        {
+            "日期": ["2026-07-31"],
+            "获利比例": ["42.5"],
+            "平均成本": ["12.34"],
+            "90集中度": ["8.2"],
+            "70集中度": ["4.1"],
+            "90成本-低": ["10.0"],
+            "90成本-高": ["14.0"],
+            "70成本-低": ["11.0"],
+            "70成本-高": ["13.0"],
+        }
+    )
+    fetcher = AKShareFetcher()
+
+    with patch.object(fetcher, "_get_ak", return_value=mock_ak):
+        df = fetcher.fetch_chip_distribution("600519")
+
+    assert list(df.columns) == [
+        "trade_date",
+        "winner_ratio",
+        "avg_cost",
+        "concentration_90",
+        "concentration_70",
+        "cost_90_low",
+        "cost_90_high",
+        "cost_70_low",
+        "cost_70_high",
+    ]
+    assert df.iloc[0]["winner_ratio"] == pytest.approx(42.5)
+    mock_ak.stock_cyq_em.assert_called_once_with(symbol="600519", adjust="qfq")
+
+
+def test_fetch_chip_distribution_rejects_empty_data(mock_ak):
+    mock_ak.stock_cyq_em.return_value = pd.DataFrame()
+    fetcher = AKShareFetcher()
+
+    with patch.object(fetcher, "_get_ak", return_value=mock_ak), pytest.raises(DataProviderError):
+        fetcher.fetch_chip_distribution("600519")

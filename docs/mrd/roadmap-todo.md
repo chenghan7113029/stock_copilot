@@ -11,8 +11,18 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-01 | PO-10 组合级相关性粗估：复用 `add-trade-review-attribution` 的 `TradeRecord`，严格离线实现持仓集中度、前 N 大持仓占比、行业暴露度和内存加仓模拟；行业分组仍是原始文本粗匹配，可复用 T-7 行业映射的后续标准化演进提升精度 |
+| 2026-08-01 | PO-06 情绪面 V1：`sync market` 市场快照、涨跌停家数比、恐慌贪婪代理指数与 `report dual` 三维联合解读已实现 |
+| 2026-08-01 | PO-09 复盘归因：`trade record`、`TradeRecord`、FIFO 胜率与严格离线 `report trade-review` 已实现；Badcase 归因通过 PO-04 Checklist 软引用提供，缺关联数据时显式降级 |
+| 2026-08-01 | F-17 筹码分布：`stock_cyq_em` 独立缓存管道、获利/套牢比例与集中度分档已实现；V1 仅展示与风险文案增强，不纳入技术面评分 |
+| 2026-08-01 | T-15 V2 原型精确降级提示：保险/军工已识别行业显示具体暂缺方法论，其他 unknown 原型保留通用提示 |
+| 2026-08-01 | T-8 人工覆盖原型持久化：`prototype_overrides`、`PrototypeOverrideRepo` 与 `value override` CLI；人工覆盖优先于自动路由 |
+| 2026-08-01 | PO-05 无仓位视角入场检查：最小持仓表、`position set` 与严格离线 `entry-check` 已实现（`add-fresh-entry-check`） |
+| 2026-08-01 | PO-04 结构化 Checklist：`checklist submit/show`、确定性硬拦截与不合规留痕（`add-decision-checklist`） |
+| 2026-08-01 | T-7 行业→原型映射已实现：复用 Tushare 简化行业，保险/军工短路为 unknown，修复保险高杠杆误判 bank |
 | 2026-08-01 | PO-02 LLM 综合报告：`report summary [--narrate]`；解冻 `add-llm-narrative-core` |
 | 2026-08-01 | PO-01 CLI 多维看板：`report dashboard` + `DashboardBuilder`；PO-08 CLI 部分同步更新 |
+| 2026-08-01 | T-2 价值陷阱 High 专项警示：`value_trap_alert` + confidence 一级降级（`add-value-trap-high-alert`） |
 | 2026-07-18 | PO-03 红蓝对抗 V1（Skill 版）：`report dual` 证据分桶 + `.cursor/skills/red-blue-confrontation`；LLM API 版冻结 |
 | 2026-06-28 | 初稿：汇总 P0–V2 待办；标记 F-16/F-20/双轨 Facade 已交付 |
 | 2026-06-28 | 新增 §5.1 CLI 核心设计（add-cli-core 提案）；更新 §5 阶段 A 状态 |
@@ -48,8 +58,8 @@
 - [x] CLI 核心（`sync` / `report tech` / `report value`，`add-cli-core`）
 - [x] CLI 多维看板（`report dashboard`，`add-stock-dashboard`）
 - [x] LLM 综合报告（`report summary [--narrate]`，`add-llm-comprehensive-report`）
-- [ ] 情绪面整模块
-- [ ] 决策护航（Checklist、首开仓评估；红蓝对抗 V1 Skill 已交付）
+- [x] 情绪面 V1（涨跌停家数比 + 恐慌贪婪代理指数 + 三维联合解读）
+- [x] 决策护航（首开仓评估、Checklist 与红蓝对抗 V1 已交付）
 
 ---
 
@@ -64,14 +74,14 @@
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [x] 已实现（`report summary [--narrate]`） |
 | PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [x] V1 Skill 版已实现（证据分桶 + Cursor Skill）；Web+API / 用户声明待建 |
-| PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [ ] 待建 |
-| PO-05 | 假设今日首开仓 | 隐藏成本价/盈亏%，对抗沉没成本 | [ ] 待建 |
+| PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现（CLI `checklist submit/show`；不合规留痕） |
+| PO-05 | 假设今日首开仓 | 隐藏持仓成本/盈亏比例，对抗沉没成本 | [x] 已实现（`position set` + 严格离线 `entry-check`） |
 
 ### 2.2 P1 — 情绪与交互
 
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
-| PO-06 | **情绪面量化（整模块）** | 融资融券、涨跌停、恐慌贪婪等；须与技术+价值联合解读 | [ ] 待建 |
+| PO-06 | **情绪面量化（V1）** | 涨跌停家数比、恐慌贪婪代理指数；须与技术+价值联合解读 | [x] 已实现；个股融资余额、龙虎榜、社媒文本挖掘见 PO-12～14 |
 | PO-07 | 锚定防御 | 模糊区间概率估值，减少盯成本/历史高点 | [ ] 待建 |
 | PO-08 | Web / CLI | 发起分析、看板、Checklist、红蓝对抗 | [x] CLI 部分（`report dashboard` 等）已实现；Web 部分待建 |
 
@@ -79,9 +89,12 @@
 
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
-| PO-09 | 复盘归因 | 交易后胜率、badcase、规则反哺 Checklist | [ ] 待建 |
-| PO-10 | 组合级相关性 | 单票决策对整体组合的影响 | [ ] 待建 |
+| PO-09 | 复盘归因 | FIFO 胜率、Badcase 软引用归因、人工阅读统计 | [x] 已实现（`trade record` / `report trade-review`；无 Checklist 关联时降级） |
+| PO-10 | 组合级相关性 | 持仓集中度 + 原始行业文本暴露度粗估；不含协方差矩阵或组合优化 | [x] `report portfolio` 已实现；持仓来源为 `add-trade-review-attribution` 的 `TradeRecord` |
 | PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [ ] 待规划 |
+| PO-12 | 个股融资融券余额 | 个股级 `(code, trade_date)` 情绪数据与分析 | [ ] 待建 |
+| PO-13 | 龙虎榜情绪信号 | 席位、净买入与异常交易行为 | [ ] 待建 |
+| PO-14 | 社媒/新闻文本情绪 | 非结构化文本挖掘，需独立评估 NLP/LLM 管线 | [ ] 待建 |
 
 ---
 
@@ -91,7 +104,7 @@
 
 | ID | 功能 | 优先级 | 说明 | 建议 OpenSpec | 状态 |
 |----|------|--------|------|---------------|------|
-| F-17 | 筹码分布 | P2 | AKShare `stock_cyq_em`；获利/套牢比例 | `add-chip-distribution` | [ ] 待建 |
+| F-17 | 筹码分布 | P2 | AKShare `stock_cyq_em`；获利/套牢比例 | `add-chip-distribution` | [x] 已实现 |
 | F-18 | K 线形态识别 | V2 | 锤头、吞没、十字星等 | `add-pattern-recognition` | [ ] 待建 |
 | F-19 | 布林带 | V2 | 均值 ± N×σ；波动率收缩/扩张 | `add-bollinger-bands` | [ ] 待建 |
 | — | 月 K 线 | — | D-7 已决策：**暂不实现** | — | 已决策不做 |
@@ -114,11 +127,11 @@
 | ID | 项 | 说明 | 建议 change | 状态 |
 |----|-----|------|-------------|------|
 | T-1 | 安全边际按原型差异化 | 当前统一 MOS 阈值 | — | [ ] 待设计 |
-| T-2 | value_trap High 专项提示 | 摘要已进 warnings；High 级专项逻辑待做 | — | [ ] 待建 |
+| T-2 | value_trap High 专项提示 | `value_trap_alert` 独立高危区块 + confidence 一级降级；摘要仍保留 warnings | `add-value-trap-high-alert` | [x] 已实现 |
 | T-3 | 银行指标 E2E 验证 | 净息差/不良率等完整度 | value-bank-e2e | [x] 路由+聚合 ✅；专项指标 🔧 常 missing |
-| T-7 | 行业代码映射 Router | SW/CS 行业 → 原型（替代纯财务启发） | — | [ ] 待建 |
-| T-8 | 人工覆盖持久化 | VA-CLS-2，落 dao | — | [ ] 待建 |
-| T-15 | V2 原型显式降级 | 如平安 →「保险方法论暂缺」 | — | [ ] 待建 |
+| T-7 | 行业→原型映射 Router | Tushare `stock_basic.industry` 简化行业 → 原型；非 SW/CS 多级代码 | `add-industry-prototype-router` | [x] 已实现；保险高杠杆不再误判 bank |
+| T-8 | 人工覆盖持久化 | VA-CLS-2，`prototype_overrides` + `value override` CLI | `add-prototype-override-persistence` | [x] 已实现 |
+| T-15 | V2 原型显式降级 | 如平安 →「保险 EV/NBV 方法论暂缺」；复用行业识别字典 | `add-prototype-fallback-message` | [x] 已实现 |
 
 ### 4.2 数据与集成
 
@@ -221,9 +234,9 @@
 | **C2** | Tushare 财报补全（D-H） | 真实 revenue/fcf/net_debt；pe_relative + ev_ebitda 达标 | ✅ add-tushare-financials |
 | **C3** | 估值假设层修复 | TTM EPS、β-CAPM、growth floor；聚合中位对齐 LLM | ✅ fix-valuation-assumptions |
 | **C4** | 离线年报 FCF 合并 | Q1 快照不再覆盖 1231 年报 FCF | ✅ fix-offline-annual-fcf |
-| **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ⬜ 待立项 |
-| **E** | 情绪面（PO-06） | 补全三维框架 | ⬜ 待立项 |
-| **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | 🟨 PO-03 V1 Skill 版已交付；Checklist/首开仓待立项 |
+| **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ✅ 已实现 |
+| **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股融资、龙虎榜、文本情绪待后续 change |
+| **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ✅ PO-03 V1 Skill、Checklist 与首开仓检查已交付 |
 | **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web 待立项 |
 | **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | ⬜ 待立项 |
 

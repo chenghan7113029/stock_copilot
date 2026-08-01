@@ -11,7 +11,7 @@ import pytest
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
 from service.tech.analyzer import TechAnalyzer
 from service.tech.config import ScoringParams, TechAnalysisConfig
-from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus, WeeklyTrendStatus
+from service.tech.models.tech_result import BuySignal, ChipStatus, TechAnalysisResult, TrendStatus, WeeklyTrendStatus
 from service.tech.scorer import BullTrendScorer
 
 
@@ -221,3 +221,41 @@ def test_analyze_realtime_fallback_quote_mode():
 
     assert result.quote_mode == "eod_fallback"
     assert any("实时报价" in w for w in result.warnings)
+
+
+def test_analyze_merges_chip_data_without_changing_score():
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
+    chip_provider = MagicMock()
+    chip_provider.get_latest.return_value = (
+        {
+            "winner_ratio": 35.0,
+            "avg_cost": 12.34,
+            "concentration_90": 8.2,
+            "concentration_70": 4.1,
+        },
+        [],
+    )
+
+    with_chip = TechAnalyzer(kline_provider=provider, chip_provider=chip_provider).analyze("600519", offline=True)
+    without_chip = TechAnalyzer(kline_provider=provider).analyze("600519", offline=True)
+
+    assert with_chip.winner_ratio == 35.0
+    assert with_chip.trap_ratio == 65.0
+    assert with_chip.chip_status is ChipStatus.HIGHLY_CONCENTRATED
+    assert with_chip.signal_score == without_chip.signal_score
+    chip_provider.get_latest.assert_called_once_with("600519", offline=True)
+
+
+def test_analyze_keeps_technical_result_when_chip_unavailable():
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
+    chip_provider = MagicMock()
+    chip_provider.get_latest.return_value = (None, ["筹码分布数据不可用: network down"])
+
+    result = TechAnalyzer(kline_provider=provider, chip_provider=chip_provider).analyze("600519")
+
+    assert result.winner_ratio is None
+    assert result.chip_status is None
+    assert result.signal_score >= 0
+    assert any("筹码分布数据不可用" in warning for warning in result.warnings)

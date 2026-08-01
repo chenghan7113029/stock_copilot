@@ -13,6 +13,26 @@ _CODE_OVERRIDE: dict[str, str] = {
     "600519": "value_growth",
 }
 
+_INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
+    "银行": "bank",
+    "电力": "high_dividend",
+    "水务": "high_dividend",
+    "燃气": "high_dividend",
+    "高速公路": "high_dividend",
+    "港口": "high_dividend",
+}
+
+_INDUSTRY_V2_UNIMPLEMENTED: dict[str, str] = {
+    "保险": "保险",
+    "国防军工": "军工",
+    "军工": "军工",
+}
+
+_INDUSTRY_METHODOLOGY_GAP: dict[str, str] = {
+    "保险": "专用估值方法论（内含价值 EV/NBV 模型）暂缺",
+    "军工": "专用估值方法论（在手订单驱动 + 资产重估模型）暂缺",
+}
+
 _PROTOTYPE_METHODS: dict[str, list[str]] = {
     "bank": [
         "pb",
@@ -54,10 +74,26 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
 }
 
 
-class PrototypeRouter:
-    """V1 原型路由：硬编码覆盖 + 财务特征启发。"""
+def describe_unimplemented_industry(industry: str | None) -> tuple[str, str] | None:
+    """返回已识别但尚无专用估值方法论的行业及其缺口说明。"""
+    if not industry:
+        return None
 
-    def route(self, stock: StockData) -> tuple[str, list[str]]:
+    for industry_substring, label in _INDUSTRY_V2_UNIMPLEMENTED.items():
+        if industry_substring in industry:
+            return label, _INDUSTRY_METHODOLOGY_GAP.get(label, "专用估值方法论暂缺")
+
+    return None
+
+
+class PrototypeRouter:
+    """V1 原型路由：硬编码覆盖、行业映射与财务特征启发。"""
+
+    def route(self, stock: StockData, override: str | None = None) -> tuple[str, list[str]]:
+        if override in _PROTOTYPE_METHODS:
+            stock.proto = override
+            return override, list(_PROTOTYPE_METHODS[override])
+
         prototype = self._classify(stock)
         stock.proto = prototype
         return prototype, list(_PROTOTYPE_METHODS[prototype])
@@ -66,8 +102,9 @@ class PrototypeRouter:
         if stock.code in _CODE_OVERRIDE:
             return _CODE_OVERRIDE[stock.code]
 
-        if stock.industry and "银行" in stock.industry:
-            return "bank"
+        industry_prototype = self._classify_by_industry(stock.industry)
+        if industry_prototype is not None:
+            return industry_prototype
 
         if (
             stock.total_assets is None
@@ -86,3 +123,18 @@ class PrototypeRouter:
                 return "high_dividend"
 
         return "value_growth"
+
+    def _classify_by_industry(self, industry: str | None) -> str | None:
+        """根据 Tushare 简化行业名称映射原型；未收录时交由财务启发式。"""
+        if not industry:
+            return None
+
+        for industry_substring, prototype in _INDUSTRY_PROTOTYPE_MAP.items():
+            if industry_substring in industry:
+                return prototype
+
+        for industry_substring in _INDUSTRY_V2_UNIMPLEMENTED:
+            if industry_substring in industry:
+                return "unknown"
+
+        return None

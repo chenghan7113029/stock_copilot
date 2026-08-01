@@ -21,6 +21,10 @@
 | 2026-07-04 | fix-offline-annual-fcf | 离线合并分层选快照：行情取 fetched_at 最新、财报取 1231 年报；修复 Q1 FCF 263 亿覆盖年报 584 亿；600519 聚合中位 ~1404、DCF ~1950 |
 | 2026-07-05 | add-historical-multiples-5yr | Tushare `daily_basic` 5 年季末采样 historical_pe/pb（20 点）；解锁 pb_relative（银行原型）；DCF/EPV 报告语义注释；600519 sync 后 pe/pb 各 20 点 |
 | 2026-07-05 | add-prior-period-financials | Tushare 拉取 prior 年度（1231-1 年）财报，写入 6 个 prior_* 字段；600519 Piotroski F=6/9、Beneish M=-2.63 |
+| 2026-08-01 | add-industry-prototype-router | 复用 Tushare 简化行业名称优先路由；保险、军工短路为 unknown，避免高杠杆误判为银行 |
+| 2026-08-01 | add-prototype-fallback-message | 已识别但暂缺专用估值方法的保险/军工原型输出精确降级警告 |
+| 2026-08-01 | add-value-trap-high-alert | value_trap High 生成独立高危警示并将 confidence 降一级；不改变 assessment 语义 |
+| 2026-08-01 | add-prototype-override-persistence | 人工原型覆盖持久化：`prototype_overrides` + `value override` CLI；人工覆盖优先于行业与启发式判定 |
 | 2026-07-05 | value-bank-e2e | `stock_basic` 写入 `industry`；Router 行业「银行」分类；Tushare 银行指标字段映射（NIM/NPL/拨备）；601398 offline report 银行原型 E2E |
 
 ---
@@ -105,7 +109,7 @@
 **需求点：**
 
 - **VA-CLS-1**：系统按行业代码 + 财务特征自动建议估值原型，并给出置信度；
-- **VA-CLS-2**：用户可手动覆盖原型，覆盖结果与原因须可持久化、可追溯；
+- **VA-CLS-2**：✅ 用户可通过 `python -m apps.cli value override <code> <prototype> --reason "<原因>"` 手动覆盖原型；当前有效记录持久化于 `prototype_overrides`（`code`、`prototype`、`reason`、创建/更新时间），分析报告保留覆盖原因提示以便追溯；
 - **VA-CLS-3**：自动分类无法判定或落入 V2 暂缺原型时，显式标注并降级，不静默误用方法。
 
 > `valueinvest` 已有 `get_recommended_methods()` 做粗路由（银行/分红/成长/价值），可作为自动分类器起点，但需补 A 股行业映射与人工覆盖层。
@@ -237,7 +241,7 @@
 - **代码落点**：`src/service/value/valuation/value_trap.py` → `ValueTrapDetector`（method_key: `value_trap`）
 - **五维度**：财务健康、业务恶化、护城河侵蚀、AI/技术脆弱性（占位）、股息可持续性
 - **输出**：`details.output_type = "score"`；`details.overall_risk` = Low/Medium/High；不参与区间聚合
-- **编排层现状**：评分摘要已进入 `ValueAnalysisResult.warnings`（`ValuationAggregator` 实现）；`overall_risk=High` 时专项提示「疑似价值陷阱」并降低 `confidence` 尚未实现（T-2）
+- **编排层现状**：评分摘要持续进入 `ValueAnalysisResult.warnings`（`ValuationAggregator` 实现）；`overall_risk=High` 时额外输出独立的「疑似价值陷阱」高危警示，并将 `confidence` 降一级（T-2 已实现）。`assessment` 仍仅表示估值安全边际结论，不混入风险标签。
 
 ### 8.2 SBC 稀释分析（已实现）
 
@@ -360,7 +364,7 @@ pytest -m network test/e2e/ -v -s
 
 - **Given** 用户请求分析 `中国平安 601318`（保险，V2）
 - **When** 调用价值面分析
-- **Then** 系统标注"保险原型方法论暂缺"，降级为相对估值并明确提示置信度低，**不静默套用 PB/PE 误判**
+- **Then** 系统输出“检测到保险行业，专用估值方法论（内含价值 EV/NBV 模型）暂缺，当前使用通用方法，结果参考性有限”的精确警告，**不静默套用 PB/PE 误判**（已由 `add-prototype-fallback-message` 实现）
 
 ### 场景 6：输出反锚定
 
@@ -375,12 +379,12 @@ pytest -m network test/e2e/ -v -s
 | 编号 | 项 | 阶段 | 状态 |
 |------|----|------|------|
 | T-1 | 安全边际阈值按原型差异化（§6.2 VA-OUT-3） | V1.x | 待设计（V1 用统一阈值） |
-| T-2 | value_trap High → warnings 专项提示 + 降低 confidence | V1.x | 摘要已进 warnings；High 专项逻辑待实现 |
+| T-2 | value_trap High → 独立专项提示 + 降低 confidence | V1.x | ✅ `add-value-trap-high-alert`：独立 `value_trap_alert` + confidence 一级降级；摘要仍保留 warnings |
 | T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 🔧 路由+聚合 ✅；Tushare 专项字段常 missing |
 | T-4 | 保险内含价值（EV/NBV）模型 | V2 | 未开始 |
 | T-5 | 军工·订单驱动估值模型 | V2 | 未开始 |
 | T-6 | 历史 PE/PB fetcher（Tushare `daily_basic`，§13.1 D-E） | P1 | ✅ `add-historical-multiples-5yr`（5 年季末采样 20 点） |
-| T-7 | 行业代码映射路由（PrototypeRouter V2；A 股 SW/CS 行业） | P1 | 财务特征启发 ✅；行业代码映射待实现 |
+| T-7 | 行业→原型映射路由（PrototypeRouter V2；Tushare 简化行业） | P1 | ✅ `add-industry-prototype-router`；复用 `stock_basic.industry`，非 SW/CS 官方多级代码 |
 | T-8 | 人工覆盖原型持久化（VA-CLS-2，落 dao） | P1 | 未开始 |
 | T-9 | ValueAnalyzer Facade | P0 | ✅ `src/service/value/analyzer.py` |
 | T-10 | 区间聚合 Aggregator | P0 | ✅ `src/service/value/aggregator.py` |
@@ -388,7 +392,7 @@ pytest -m network test/e2e/ -v -s
 | T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | 未开始 |
 | T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
 | T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
-| T-15 | V2 原型显式降级提示（§10 场景 5；平安→「保险暂缺」） | V1.x | 当前 unknown 通用集，无「方法论暂缺」标注 |
+| T-15 | V2 原型显式降级提示（§10 场景 5；平安→「保险暂缺」） | V1.x | ✅ `add-prototype-fallback-message`：复用 `add-industry-prototype-router` 的行业识别字典，为保险/军工输出具体方法论缺口；未识别行业保留通用 unknown 警告 |
 
 ---
 
@@ -399,14 +403,14 @@ pytest -m network test/e2e/ -v -s
 | 方法论计算库（23 method_key） | ✅ `src/service/value/valuation/`（Phase 0–8） | Cyclical 4 种（V2 待 port） |
 | 数据模型 | ✅ `src/common/models/stock_data.py` | 历史 PE/PB 填充（Tushare D-E）；CyclicalStock（V2） |
 | 数据获取 | ✅ `src/data_provider/`（AKShare/Baostock/Tushare） | 部分字段覆盖率待 E2E 确认（prior_*、银行专项指标） |
-| 价值面编排 Facade | ✅ `src/service/value/analyzer.py` | value_trap High 专项（T-2）；V2 原型降级（T-15） |
+| 价值面编排 Facade | ✅ `src/service/value/analyzer.py` | value_trap High 专项 ✅（T-2）；V2 原型降级（T-15） |
 | 区间聚合 | ✅ `src/service/value/aggregator.py` | MOS 按原型差异化（T-1） |
-| 原型路由 | ✅ `src/service/value/router.py`（硬编码 + 财务启发） | 行业代码映射（T-7）；人工覆盖持久化（T-8） |
+| 原型路由 | ✅ `src/service/value/router.py`（硬编码 + 行业映射 + 财务启发） | 人工覆盖持久化（T-8） |
 | 分析结果模型 | ✅ `src/service/value/models/analysis_result.py` | — |
 | 综合评分 | ❌ 字段预留（`value_score=None`） | `ValueScore` 算法（T-11） |
 | API / CLI | ❌ `controller/`、`apps/` 为空壳 | REST 端点、CLI 入口（T-13） |
 | 双轨 LLM 集成 | ❌ 未建 | ContextPack 价值面 block（T-14） |
-| 价值陷阱 / SBC | ✅ `value_trap.py`、`sbc.py` + 摘要进 warnings | High 专项提示 + confidence 降级（T-2） |
+| 价值陷阱 / SBC | ✅ `value_trap.py`、`sbc.py`；value_trap 摘要进 warnings，High 有独立警示 + confidence 降级 | — |
 | 保险 / 军工模型 | ❌ | V2 新增（T-4/T-5） |
 
 ---
@@ -604,6 +608,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | 编排 Facade | `ValueAnalyzer` | `src/service/value/analyzer.py` | ✅ `analyze(code) → ValueAnalysisResult` |
 | 区间聚合 | `ValuationAggregator` | `src/service/value/aggregator.py` | ✅ 中位数 + IQR 过滤 |
 | 原型路由 | `PrototypeRouter` | `src/service/value/router.py` | ✅ 硬编码覆盖 + 财务特征启发 |
+| V2 原型降级提示 | `describe_unimplemented_industry()` + `ValueAnalyzer` | `src/service/value/router.py`、`analyzer.py` | ✅ 复用行业识别字典，保险/军工提示具体暂缺方法论；其他 unknown 原型保留通用提示 |
 | 分析结果模型 | `ValueAnalysisResult` | `src/service/value/models/analysis_result.py` | ✅ |
 | 单元测试 | 91 用例 | `test/service/value/` | ✅ 离线可跑 |
 
@@ -677,11 +682,11 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 
 **建议落点**：`src/service/value/router.py`  
 **参考**：`ref/valueinvest` 的 `get_recommended_methods()`（银行/分红/成长/价值粗路由）  
-**V1 已实现**：硬编码覆盖表（工行/长电/茅台等）+ 财务特征启发（杠杆率/股息/成长率）；`src/service/value/router.py`
+**V1 已实现**：硬编码覆盖表（工行/长电/茅台等）+ 行业→原型映射 + 财务特征启发（杠杆率/股息/成长率）；`src/service/value/router.py`。行业映射复用 Tushare `stock_basic.industry` 的简化分类名称，不是 SW/CS 官方多级代码：已支持银行及电力/水务/燃气/高速公路/港口，保险与军工显式降级为 `unknown`，避免高杠杆误用银行方法。
 
-**待实现**：
-- 行业代码映射（SW/CS 行业代码前缀 → 原型，T-7）
-- 人工覆盖持久化（VA-CLS-2，落 dao，T-8）
+**人工覆盖持久化（VA-CLS-2，T-8）**：✅ `PrototypeOverrideRepo` 持久化当前有效覆盖；`value override` CLI 写入或更新记录。分析时人工覆盖优先于固定样本、行业映射与财务特征启发式，并在 warnings 中输出覆盖原因。
+
+**Open Question**：若需要银行细分或更精确的行业归属，SW/CS 官方多级行业代码接入（如 Tushare `index_classify` / `index_member`）应作为未来独立 change 实施；当前变更不新增 fetcher、字段或持久化结构。
 
 #### D. 历史 PE/PB data_provider（P1）— 数据源已确定
 
@@ -802,5 +807,5 @@ V2（后置）
 3. **当前优先**：`add-historical-multiples-provider` — 解锁 pe_relative / pb_relative（T-6）
 4. **V1 三原型端到端验收**：工行 / 长电 / 茅台，对照 §10 场景 1–3 + §13.3 冒烟清单（需真实 data_provider，非 mock）
 5. **上层集成**：`add-value-api-cli`（T-13）→ `add-dual-track-llm-integration`（T-14）
-6. **P1 编排细化**：行业代码映射（T-7）、人工覆盖（T-8）、value_trap High 专项（T-2）
+6. **P1 编排细化**：行业代码映射（T-7）、人工覆盖（T-8）
 7. **文档同步**：将 §14 摘要合并回 [product-overview.md](../product-overview.md) §5.1.1

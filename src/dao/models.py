@@ -152,6 +152,49 @@ class Kline(Base):
         return f"<Kline code={self.code} date={self.trade_date}>"
 
 
+class MarketSentimentSnapshot(Base):
+    """按交易日缓存的全市场情绪快照。"""
+
+    __tablename__ = "market_sentiment_snapshot"
+
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    limit_up_count: Mapped[int | None] = mapped_column(Integer)
+    limit_down_count: Mapped[int | None] = mapped_column(Integer)
+    up_count: Mapped[int | None] = mapped_column(Integer)
+    down_count: Mapped[int | None] = mapped_column(Integer)
+    margin_balance_change_pct: Mapped[float | None] = mapped_column(Float)
+    turnover_percentile: Mapped[float | None] = mapped_column(Float)
+    fear_greed_index: Mapped[float | None] = mapped_column(Float)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<MarketSentimentSnapshot date={self.trade_date}>"
+
+
+class ChipDistribution(Base):
+    """东方财富口径的日度筹码分布缓存。"""
+
+    __tablename__ = "chip_distribution"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    winner_ratio: Mapped[float | None] = mapped_column(Float)
+    avg_cost: Mapped[float | None] = mapped_column(Float)
+    concentration_90: Mapped[float | None] = mapped_column(Float)
+    concentration_70: Mapped[float | None] = mapped_column(Float)
+    cost_90_low: Mapped[float | None] = mapped_column(Float)
+    cost_90_high: Mapped[float | None] = mapped_column(Float)
+    cost_70_low: Mapped[float | None] = mapped_column(Float)
+    cost_70_high: Mapped[float | None] = mapped_column(Float)
+
+    __table_args__ = (Index("ix_chip_distribution_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<ChipDistribution code={self.code} date={self.trade_date}>"
+
+
 class LLMNarrateCache(Base):
     """LLM narrate() 幂等缓存。"""
 
@@ -163,3 +206,83 @@ class LLMNarrateCache(Base):
 
     def __repr__(self) -> str:
         return f"<LLMNarrateCache key={self.cache_key[:12]}...>"
+
+
+class PrototypeOverrideRecord(Base):
+    """用户为股票设置的当前有效估值原型覆盖。"""
+
+    __tablename__ = "prototype_overrides"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    prototype: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=_utcnow,
+        onupdate=_utcnow,
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<PrototypeOverrideRecord code={self.code} prototype={self.prototype}>"
+
+
+class ChecklistRecord(Base):
+    """买卖意图 Checklist 的审计留痕，包含合规与被拒绝的提交。"""
+
+    __tablename__ = "checklist_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    action: Mapped[str | None] = mapped_column(String(10))
+    value_reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    tech_alignment: Mapped[str | None] = mapped_column(Text)
+    sentiment_position: Mapped[str | None] = mapped_column(Text)
+    stop_loss_price: Mapped[float | None] = mapped_column(Float)
+    take_profit_price: Mapped[float | None] = mapped_column(Float)
+    passed: Mapped[bool] = mapped_column(nullable=False)
+    rejection_reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ChecklistRecord code={self.code} passed={self.passed}>"
+
+
+class PositionRecord(Base):
+    """单只股票的一条当前持仓记录，用于入场检查的无仓位视角。"""
+
+    __tablename__ = "position_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, unique=True, index=True)
+    cost_price: Mapped[float] = mapped_column(Float, nullable=False)
+    shares: Mapped[int] = mapped_column(Integer, nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<PositionRecord code={self.code} shares={self.shares}>"
+
+
+class TradeRecord(Base):
+    """用户手工录入的买卖交易记录；checklist_id 为软引用。"""
+
+    __tablename__ = "trade_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(4), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    checklist_id: Mapped[int | None] = mapped_column(Integer)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    __table_args__ = (Index("ix_trade_records_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<TradeRecord code={self.code} action={self.action} quantity={self.quantity}>"

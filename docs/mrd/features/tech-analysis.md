@@ -17,6 +17,7 @@
 | 2026-06-21 | add-dual-track-analyzer | 双轨 Facade：`DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`；确定性 combined_signal 融合矩阵；39 项单测 |
 | 2026-06-28 | add-weekly-kline | F-20 周 K 线：日线聚合 `W-MON` → `WeeklyIndicators`；MACD(5/10/4)/RSI(6W)；`WeeklyTrendStatus` 5 级；`BullTrendScorer` 周线空头过滤 |
 | 2026-06-28 | add-realtime-overlay | F-16 实时行情：`fetch_realtime_quote` + `RealtimeOverlayProvider`；`use_realtime=True` 叠加当日报价；`quote_mode` 标识价格时效 |
+| 2026-08-01 | add-chip-distribution | F-17 筹码分布：AKShare `stock_cyq_em` 独立缓存管道；获利/套牢比例与集中度结构化输出，不纳入 signal_score |
 
 ---
 
@@ -68,7 +69,7 @@
 | # | 功能点 | 状态 | 说明 |
 |---|--------|------|------|
 | F-16 | 实时行情融合 | ✅ | AKShare `stock_zh_a_spot_em` 拉取当日报价；`RealtimeOverlayProvider` 替换 K 线末端；`analyze(use_realtime=True)` 启用；`quote_mode` 标识 eod/realtime/eod_fallback |
-| F-17 | 筹码分布 | 待建 | 获利比例、套牢盘比例（AKShare `stock_cyq_em`） |
+| F-17 | 筹码分布 | ✅ | 独立 AKShare `stock_cyq_em` 管道；获利/套牢比例、平均成本、90%/70%集中度与分档状态（V1 不参与评分） |
 | F-18 | K 线形态识别 | 待建 | 锤头线、吞没、十字星等经典形态 |
 | F-19 | 布林带（Bollinger Bands） | 待建 | 均值 ± N×σ，判断波动率收缩/扩张 |
 | F-20 | 周 K 线趋势分析 | ✅ | 日线按自然周（`W-MON`）聚合；MA5W/10W/20W、MACD(5/10/4)、RSI(6W)；`WeeklyTrendStatus` 5 级；周线空头过滤降级 buy_signal |
@@ -192,6 +193,14 @@ class TechAnalysisResult:
     kdj_status: KDJStatus            # 5 级枚举
     kdj_signal: str
 
+    # 筹码分布（F-17，数据不可用时均为 None）
+    winner_ratio: float | None        # 获利比例 %
+    trap_ratio: float | None          # 套牢比例 %（100 - winner_ratio）
+    avg_cost: float | None
+    concentration_90: float | None
+    concentration_70: float | None
+    chip_status: ChipStatus | None
+
     # 综合信号
     buy_signal: BuySignal            # 6 级枚举
     signal_score: int                # 0–100
@@ -226,6 +235,7 @@ class TechAnalysisResult:
 | `MACDStatus` | GOLDEN_CROSS_ZERO / GOLDEN_CROSS / BULLISH / CROSSING_UP / CROSSING_DOWN / BEARISH / DEATH_CROSS |
 | `RSIStatus` | OVERBOUGHT / STRONG_BUY / NEUTRAL / WEAK / OVERSOLD |
 | `KDJStatus` | OVERBOUGHT / GOLDEN_CROSS / NEUTRAL / DEATH_CROSS / OVERSOLD |
+| `ChipStatus` | HIGHLY_CONCENTRATED / CONCENTRATED / NORMAL / DISPERSED |
 | `BuySignal` | STRONG_BUY / BUY / HOLD / WAIT / SELL / STRONG_SELL |
 | `WeeklyTrendStatus` | STRONG_BULL / BULL / NEUTRAL / BEAR / STRONG_BEAR |
 
@@ -399,6 +409,11 @@ V1 采用「整段 API 拉取 + 增量 upsert 未缓存历史行」，而非先�
 | 数据 | `KlineProvider` | `src/data_provider/kline_provider.py` | 主备 + 缓存 + 当日合并 + 可选实时叠加 |
 | 数据 | `RealtimeOverlayProvider` | `src/data_provider/realtime_overlay_provider.py` | 实时报价注入 K 线末端 |
 | 数据 | `AKShareFetcher.fetch_realtime_quote` | `src/data_provider/akshare/fetcher.py` | AKShare 实时 OHLCV 快照 |
+| ORM | `ChipDistribution` | `src/dao/models.py` | `chip_distribution` 表 `(code, trade_date)` 主键 |
+| DAO | `ChipDistributionRepo` | `src/dao/chip_distribution_repo.py` | 筹码分布查询 / 批量 upsert |
+| 数据 | `AKShareFetcher.fetch_chip_distribution` | `src/data_provider/akshare/fetcher.py` | `stock_cyq_em` 前复权筹码分布 |
+| 数据 | `ChipDistributionProvider` | `src/data_provider/chip_distribution_provider.py` | AKShare 单源 + 缓存失败降级 |
+| 计算 | `classify_chip_status` | `src/service/tech/chip_classifier.py` | 90% 集中度四档纯规则分类 |
 | 配置 | `TechAnalysisConfig` 等 | `src/service/tech/config.py` | 指标/评分/kline_days |
 | 计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | 纯 pandas；`TechIndicators` + `WeeklyIndicators` + `WeeklyKlineAggregator` |
 | 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | 生产默认；含周线空头过滤；`ScoringEngine` Protocol |
@@ -577,7 +592,7 @@ class LegacyRefScorer(BullTrendScorer):
 | P1 | `add-dual-track-analyzer` | 价值面 + 技术面 Facade → `DualTrackReport` | ✅ 已交付 2026-06-21 |
 | P1 | `add-realtime-overlay` | 实时行情融合（F-16） | 待建 |
 | P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20） | 待建 |
-| P2 | `add-chip-distribution` | 筹码分布（F-17） | 待建 |
+| P2 | `add-chip-distribution` | 筹码分布（F-17） | ✅ 已实现 |
 | V2 | `add-pattern-recognition` | K 线形态识别（F-18） | 待建 |
 | V2 | `add-bollinger-bands` | 布林带（F-19） | 待建 |
 

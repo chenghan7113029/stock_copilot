@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from apps.formatters import (
+    format_checklist_records,
     format_dashboard_report,
     format_dual_report,
+    format_entry_check_report,
+    format_portfolio_report,
+    format_sentiment_report,
     format_summary_report,
     format_tech_report,
+    format_trade_review_report,
     format_value_report,
 )
 from common.cli_progress import CliProgress, cli_progress_enabled
@@ -25,19 +31,45 @@ from common.watchlist import (
     watchlist_path,
 )
 from common.win_console import setup_utf8_console
+from dao.checklist_repo import ChecklistRepo
+from dao.chip_distribution_repo import ChipDistributionRepo
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
 from dao.kline_repo import KlineRepo
 from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
-from dao.models import Kline  # noqa: F401 — register ORM model
+from dao.market_sentiment_repo import MarketSentimentRepo
+from dao.models import (  # noqa: F401 — register ORM models
+    ChecklistRecord,
+    ChipDistribution,
+    Kline,
+    MarketSentimentSnapshot,
+    PositionRecord,
+    PrototypeOverrideRecord,
+    TradeRecord,
+)
+from dao.position_repo import PositionRepo
+from dao.prototype_override_repo import PrototypeOverrideRepo
 from dao.stock_snapshot_repo import StockSnapshotRepo
+from dao.trade_record_repo import TradeRecordRepo
+from data_provider.base import is_a_share
+from data_provider.chip_distribution_provider import ChipDistributionProvider
 from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
+from data_provider.sentiment.provider import MarketSentimentProvider
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
+from service.guard.checklist_validator import ChecklistValidator
+from service.guard.fresh_entry_check import FreshEntryCheck
+from service.guard.fresh_entry_check import LocalDataMissingError as FreshEntryLocalDataMissingError
+from service.guard.models.checklist import ChecklistSubmission
+from service.portfolio.analyzer import PortfolioAnalyzer
 from service.report.comprehensive_narrator import narrate_comprehensive_report
 from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingError
+from service.sentiment.analyzer import SentimentAnalyzer
 from service.tech.analyzer import TechAnalyzer
+from service.trade_review.attribution import TradeReviewAnalyzer
 from service.value.analyzer import ValueAnalyzer
+from service.value.anchor import historical_high
+from service.value.router import _PROTOTYPE_METHODS
 
 
 def _configure_cli_logging(level_name: str = "ERROR") -> None:
@@ -116,6 +148,8 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             persist_today=realtime,
             on_progress=progress_cb,
         )
+        chip_provider = ChipDistributionProvider(ChipDistributionRepo(session))
+        _, chip_warnings = chip_provider.get_latest(code, offline=False, on_progress=progress_cb)
 
         progress.emit("正在提交数据库事务…")
         session.commit()
@@ -126,14 +160,51 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
         for w in kline_warnings:
             if "realtime" in w.lower() or "overlay" in w.lower() or "降级" in w:
                 print(f"[warn] {w}", file=sys.stderr)
+        for w in chip_warnings:
+            print(f"[warn] {w}", file=sys.stderr)
 
-        progress.emit(f"完成：value snapshot OK | {kline_status}")
+        chip_status = "筹码分布 OK" if not chip_warnings else "筹码分布已降级"
+        progress.emit(f"完成：value snapshot OK | {kline_status} | {chip_status}")
     except Exception as exc:
         session.rollback()
         print(f"[error] 数据拉取失败：{exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     finally:
         session.close()
+
+
+def run_sync_market(config: dict[str, Any] | None = None) -> None:
+    """联网同步全市场情绪快照；不接收股票代码。"""
+    cfg = config or load_app_config()
+    _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
+    progress = CliProgress("sync", enabled=cli_progress_enabled(cfg))
+    progress.emit("开始同步全市场情绪数据…")
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        snapshot = MarketSentimentProvider(MarketSentimentRepo(session)).fetch_and_persist_today()
+        session.commit()
+        message = (
+            "市场情绪同步完成："
+            f"涨停 {snapshot.get('limit_up_count', 'N/A')} | "
+            f"跌停 {snapshot.get('limit_down_count', 'N/A')} | "
+            f"指数 {_format_optional(snapshot.get('fear_greed_index'))}"
+        )
+        progress.emit(message)
+        if not progress.enabled:
+            print(message)
+    except Exception as exc:
+        session.rollback()
+        print(f"[error] 市场情绪同步失败：{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    finally:
+        session.close()
+
+
+def _format_optional(value: Any) -> str:
+    return f"{float(value):.1f}" if value is not None else "N/A"
 
 
 def run_report_tech(
@@ -165,6 +236,7 @@ def run_report_value(
     as_json: bool = False,
     output: str | None = None,
     config: dict[str, Any] | None = None,
+    show_anchor_price: bool = False,
 ) -> None:
     """离线生成价值面报告。"""
     cfg = config or load_app_config()
@@ -180,7 +252,11 @@ def run_report_value(
     try:
         snapshot_repo = StockSnapshotRepo(session)
         progress.emit("正在加载本地价值快照…")
-        analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
         result = analyzer.analyze_offline(code)
 
         if result is None:
@@ -188,8 +264,37 @@ def run_report_value(
             raise SystemExit(1)
 
         progress.emit("正在运行估值分析…")
-        text = format_value_report(result, as_json=as_json)
+        anchor_high = historical_high(code, KlineRepo(session)) if show_anchor_price else None
+        text = format_value_report(
+            result,
+            as_json=as_json,
+            show_anchor_price=show_anchor_price,
+            anchor_high=anchor_high,
+        )
         _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
+def run_report_sentiment(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线生成市场情绪报告。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        analyzer = SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session)))
+        result = analyzer.analyze_offline(code)
+        if result is None:
+            print("[error] 未找到市场情绪数据，请先运行 sync market", file=sys.stderr)
+            raise SystemExit(1)
+        _emit_report(format_sentiment_report(result, as_json=as_json), output)
     finally:
         session.close()
 
@@ -214,9 +319,17 @@ def run_report_dual(
     try:
         snapshot_repo = StockSnapshotRepo(session)
         progress.emit("正在加载本地快照并跑双轨离线分析…")
-        value_analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        value_analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
         tech_analyzer = TechAnalyzer.from_config(cfg)
-        dual = DualTrackAnalyzer(value_analyzer, tech_analyzer)
+        dual = DualTrackAnalyzer(
+            value_analyzer,
+            tech_analyzer,
+            sentiment_analyzer=SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session))),
+        )
         report = dual.analyze_offline(code)
 
         no_value = report.value_result is None
@@ -234,6 +347,7 @@ def run_report_dual(
             buckets.bear_evidence,
             analysis_summary=report.analysis_summary,
             as_json=as_json,
+            sentiment_result=report.sentiment_result,
         )
         _emit_report(text, output, progress)
     finally:
@@ -260,7 +374,11 @@ def run_report_dashboard(
     try:
         snapshot_repo = StockSnapshotRepo(session)
         progress.emit("正在加载本地快照并聚合看板…")
-        value_analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        value_analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
         tech_analyzer = TechAnalyzer.from_config(cfg)
         builder = DashboardBuilder(value_analyzer, tech_analyzer, config=cfg)
         try:
@@ -296,9 +414,17 @@ def run_report_summary(
     try:
         snapshot_repo = StockSnapshotRepo(session)
         progress.emit("正在加载本地快照并跑双轨离线分析…")
-        value_analyzer = ValueAnalyzer.from_config(cfg, repo=snapshot_repo)
+        value_analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
         tech_analyzer = TechAnalyzer.from_config(cfg)
-        dual = DualTrackAnalyzer(value_analyzer, tech_analyzer)
+        dual = DualTrackAnalyzer(
+            value_analyzer,
+            tech_analyzer,
+            sentiment_analyzer=SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session))),
+        )
         report = dual.analyze_offline(code)
 
         no_value = report.value_result is None
@@ -346,6 +472,292 @@ def run_report_summary(
         _emit_report(text, output, progress)
     finally:
         session.close()
+
+
+def run_position_set(
+    code: str,
+    cost_price: float,
+    shares: int,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """录入或覆盖一只股票的当前持仓。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        PositionRepo(session).upsert(code, cost_price, shares)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    print(f"持仓已录入: {code} | 成本={cost_price:.2f} | 股数={shares}")
+
+
+def run_trade_record(
+    code: str,
+    action: str,
+    price: float,
+    quantity: int,
+    *,
+    trade_date: str | None = None,
+    checklist_id: int | None = None,
+    note: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """校验并持久化一条本地交易记录。"""
+    normalized_action = action.upper()
+    if normalized_action not in {"BUY", "SELL"}:
+        print("[error] action 必须为 buy 或 sell", file=sys.stderr)
+        raise SystemExit(2)
+    if price <= 0:
+        print("[error] price 必须大于 0", file=sys.stderr)
+        raise SystemExit(2)
+    if quantity <= 0:
+        print("[error] quantity 必须大于 0", file=sys.stderr)
+        raise SystemExit(2)
+    if not is_a_share(code):
+        print("[error] 仅支持 A 股 6 位股票代码", file=sys.stderr)
+        raise SystemExit(2)
+    try:
+        parsed_date = datetime.fromisoformat(trade_date) if trade_date else datetime.now()
+    except ValueError as exc:
+        print("[error] date 必须为 ISO 日期，例如 2026-08-01", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        TradeRecordRepo(session).add(
+            TradeRecord(
+                code=code,
+                action=normalized_action,
+                trade_date=parsed_date,
+                price=price,
+                quantity=quantity,
+                checklist_id=checklist_id,
+                note=note,
+            )
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    print(f"交易已录入: {code} | {normalized_action} | 价格={price:.2f} | 数量={quantity}")
+
+
+def run_report_trade_review(
+    code: str | None = None,
+    *,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线输出全部或单标的交易复盘报告。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        trade_repo = TradeRecordRepo(session)
+        records = trade_repo.find_by_code(code) if code else trade_repo.find_all()
+        if not records:
+            print("[error] 未找到交易记录，请先使用 trade record 录入交易", file=sys.stderr)
+            raise SystemExit(1)
+        checklist_ids = {record.checklist_id for record in records if record.checklist_id is not None}
+        checklists = [
+            record
+            for record in session.query(ChecklistRecord).filter(ChecklistRecord.id.in_(checklist_ids)).all()
+        ] if checklist_ids else []
+        result = TradeReviewAnalyzer().analyze(records, checklists=checklists)
+        _emit_report(format_trade_review_report(result, as_json=as_json), output)
+    finally:
+        session.close()
+
+
+def run_report_portfolio(
+    code: str | None = None,
+    *,
+    add_quantity: int | None = None,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线输出组合集中度，并可纯内存模拟加仓。"""
+    if add_quantity is not None and not code:
+        print("[error] --add-quantity 必须与 --code 一起使用", file=sys.stderr)
+        raise SystemExit(2)
+    if add_quantity is not None and add_quantity <= 0:
+        print("[error] --add-quantity 必须大于 0", file=sys.stderr)
+        raise SystemExit(2)
+
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        analyzer = PortfolioAnalyzer(TradeRecordRepo(session), StockSnapshotRepo(session))
+        result = (
+            analyzer.simulate_add(code, add_quantity)
+            if code is not None and add_quantity is not None
+            else analyzer.analyze_offline()
+        )
+        if add_quantity is not None and "以下为模拟计算，不代表任何实际交易操作" not in result.warnings:
+            result.warnings.append("以下为模拟计算，不代表任何实际交易操作")
+        if not result.positions:
+            print("[error] 当前无持仓记录，请先使用 trade record 录入交易", file=sys.stderr)
+            raise SystemExit(1)
+        if code is not None:
+            exposure = analyzer.industry_exposure(code)
+            if exposure is not None:
+                result.warnings.append(f"{code} 所属行业当前组合暴露度: {exposure:.1%}")
+        _emit_report(format_portfolio_report(result, as_json=as_json), output)
+    finally:
+        session.close()
+
+
+def run_entry_check(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线生成无仓位视角入场检查。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        dual = DualTrackAnalyzer(
+            ValueAnalyzer.from_config(cfg, repo=snapshot_repo),
+            TechAnalyzer.from_config(cfg),
+            sentiment_analyzer=SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session))),
+        )
+        try:
+            view = FreshEntryCheck(dual, PositionRepo(session)).build(code)
+        except FreshEntryLocalDataMissingError as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        _emit_report(format_entry_check_report(view, as_json=as_json), output)
+    finally:
+        session.close()
+
+
+def _prompt_optional_price(label: str) -> float | None:
+    """采集可选价格；空值留给校验器输出统一的缺失字段原因。"""
+    raw = input(label).strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"[warn] {label.rstrip('：:')}格式无效，将按未填写处理")
+        return None
+
+
+def run_checklist_submit(
+    code: str,
+    action: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """交互式采集、校验并留痕一次 Checklist 提交。"""
+    cfg = config or load_app_config()
+    print(f"开始填写 {code} 的 Checklist（价值理由至少 2 条；直接回车结束理由输入）")
+    value_reasons: list[str] = []
+    while True:
+        reason = input(f"请输入第 {len(value_reasons) + 1} 条价值理由：").strip()
+        if not reason:
+            break
+        value_reasons.append(reason)
+
+    submission = ChecklistSubmission(
+        code=code,
+        action=action,
+        value_reasons=value_reasons,
+        tech_alignment=input("短期技术面配合情况：").strip() or None,
+        sentiment_position=input("当前情绪位置及解读：").strip() or None,
+        stop_loss_price=_prompt_optional_price("止损点："),
+        take_profit_price=_prompt_optional_price("止盈点："),
+    )
+    result = ChecklistValidator().validate(submission)
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        ChecklistRepo(session).save(submission, result)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    if result.passed:
+        print("Checklist 提交成功（合规）")
+        return
+
+    print("Checklist 提交被拒绝：")
+    for reason in result.rejection_reasons:
+        print(f"  - {reason}")
+    print("本次提交不构成合规 Checklist")
+
+
+def run_checklist_show(
+    code: str,
+    as_json: bool = False,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """显示某只股票所有已留痕的 Checklist 提交。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        records = ChecklistRepo(session).list_by_code(code)
+        if not records:
+            print(f"暂无 {code} 的 Checklist 记录")
+            return
+        print(format_checklist_records(code, records, as_json=as_json))
+    finally:
+        session.close()
+
+
+def run_value_override(
+    code: str,
+    prototype: str,
+    reason: str,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """设置或更新一只股票的估值原型人工覆盖。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        PrototypeOverrideRepo(session).upsert(code, prototype, reason)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    print(f"已设置 {code} 原型覆盖为 {prototype}")
 
 
 def run_watchlist_list() -> None:
@@ -464,10 +876,21 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
     _add_report_common(report_sub.add_parser("tech", help="技术面报告"))
-    _add_report_common(report_sub.add_parser("value", help="价值面报告"))
+    value_report_parser = report_sub.add_parser("value", help="价值面报告")
+    _add_report_common(value_report_parser)
+    value_report_parser.add_argument(
+        "--show-anchor-price",
+        action="store_true",
+        help="显式展示历史最高价（默认隐藏，以避免形成价格锚点）",
+    )
     _add_report_common(
         report_sub.add_parser("dual", help="红蓝对抗证据分桶（离线 Level 0）")
     )
+    sentiment_report_parser = report_sub.add_parser("sentiment", help="市场情绪报告（严格离线）")
+    sentiment_report_parser.add_argument("code", help="股票代码，仅用于报告标识")
+    sentiment_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    sentiment_report_parser.add_argument("--output", "-o", help="输出文件路径")
+    sentiment_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
     _add_report_common(report_sub.add_parser("dashboard", help="多维看板汇总（离线）"))
     summary_parser = report_sub.add_parser(
         "summary", help="综合摘要（默认离线；--narrate 联网 LLM 叙事）"
@@ -478,6 +901,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="显式联网调用 LLM 生成综合叙事（需配置 llm: 或 LLM_API_KEY）",
     )
+    trade_review_parser = report_sub.add_parser("trade-review", help="交易复盘归因报告（严格离线）")
+    trade_review_parser.add_argument("--code", help="仅复盘指定股票代码")
+    trade_review_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    trade_review_parser.add_argument("--output", "-o", help="输出文件路径")
+    trade_review_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    portfolio_parser = report_sub.add_parser("portfolio", help="持仓组合集中度与行业暴露度（严格离线）")
+    portfolio_parser.add_argument("--code", help="目标股票代码；用于查看行业暴露度或模拟加仓")
+    portfolio_parser.add_argument("--add-quantity", type=int, help="假设加仓数量，仅做内存模拟")
+    portfolio_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    portfolio_parser.add_argument("--output", "-o", help="输出文件路径")
+    portfolio_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+
+    trade_parser = sub.add_parser("trade", help="录入交易记录")
+    trade_sub = trade_parser.add_subparsers(dest="trade_action", required=True)
+    trade_record = trade_sub.add_parser("record", help="录入一笔买入或卖出交易")
+    trade_record.add_argument("code", help="A 股股票代码")
+    trade_record.add_argument("action", help="buy 或 sell（大小写不敏感）")
+    trade_record.add_argument("price", type=float, help="成交价格")
+    trade_record.add_argument("quantity", type=int, help="成交数量")
+    trade_record.add_argument("--date", help="成交日期（ISO 格式，如 2026-08-01）")
+    trade_record.add_argument("--checklist-id", type=int, help="关联的 Checklist 记录 ID（软引用）")
+    trade_record.add_argument("--note", help="备注")
 
     wl_parser = sub.add_parser("watchlist", help="维护常看股票列表（config/watchlist.yaml）")
     wl_sub = wl_parser.add_subparsers(dest="watchlist_action", required=True)
@@ -487,6 +932,35 @@ def build_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--name", help="可选名称")
     rm_p = wl_sub.add_parser("remove", help="从常看列表移除")
     rm_p.add_argument("code", help="股票代码")
+
+    checklist_parser = sub.add_parser("checklist", help="提交或查看决策 Checklist")
+    checklist_sub = checklist_parser.add_subparsers(dest="checklist_action", required=True)
+    checklist_submit = checklist_sub.add_parser("submit", help="交互式提交 Checklist")
+    checklist_submit.add_argument("code", help="股票代码")
+    checklist_submit.add_argument("--action", choices=("buy", "sell"), help="交易意图")
+    checklist_show = checklist_sub.add_parser("show", help="查看 Checklist 历史记录")
+    checklist_show.add_argument("code", help="股票代码")
+    checklist_show.add_argument("--json", action="store_true", help="JSON 输出")
+
+    position_parser = sub.add_parser("position", help="维护最小持仓记录")
+    position_sub = position_parser.add_subparsers(dest="position_action", required=True)
+    position_set = position_sub.add_parser("set", help="录入或更新当前持仓")
+    position_set.add_argument("code", help="股票代码")
+    position_set.add_argument("--cost", type=float, required=True, help="持仓成本价")
+    position_set.add_argument("--shares", type=int, required=True, help="持仓股数")
+
+    entry_check = sub.add_parser("entry-check", help="无仓位视角入场检查（严格离线）")
+    entry_check.add_argument("code", help="股票代码")
+    entry_check.add_argument("--json", action="store_true", help="JSON 输出")
+    entry_check.add_argument("--output", "-o", help="输出文件路径")
+    entry_check.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+
+    value_parser = sub.add_parser("value", help="管理价值面设置")
+    value_sub = value_parser.add_subparsers(dest="value_action", required=True)
+    value_override = value_sub.add_parser("override", help="设置股票估值原型人工覆盖")
+    value_override.add_argument("code", help="股票代码")
+    value_override.add_argument("prototype", choices=list(_PROTOTYPE_METHODS), help="目标估值原型")
+    value_override.add_argument("--reason", required=True, help="覆盖原因")
 
     return parser
 
@@ -508,6 +982,72 @@ def main(argv: list[str] | None = None) -> None:
                 run_watchlist_add(args.code, name=args.name)
             elif args.watchlist_action == "remove":
                 run_watchlist_remove(args.code)
+            return
+        if args.command == "checklist":
+            if args.checklist_action == "submit":
+                run_checklist_submit(args.code, action=args.action, config=config_override)
+            elif args.checklist_action == "show":
+                run_checklist_show(args.code, as_json=args.json, config=config_override)
+            return
+        if args.command == "position":
+            if args.position_action == "set":
+                run_position_set(
+                    args.code,
+                    cost_price=args.cost,
+                    shares=args.shares,
+                    config=config_override,
+                )
+            return
+        if args.command == "trade":
+            if args.trade_action == "record":
+                run_trade_record(
+                    args.code,
+                    args.action,
+                    args.price,
+                    args.quantity,
+                    trade_date=args.date,
+                    checklist_id=args.checklist_id,
+                    note=args.note,
+                    config=config_override,
+                )
+            return
+        if args.command == "entry-check":
+            run_entry_check(
+                args.code,
+                as_json=args.json,
+                output=args.output,
+                config=config_override,
+            )
+            return
+        if args.command == "value":
+            if args.value_action == "override":
+                run_value_override(
+                    args.code,
+                    args.prototype,
+                    args.reason,
+                    config=config_override,
+                )
+            return
+        if args.command == "report" and args.report_type == "trade-review":
+            run_report_trade_review(
+                args.code,
+                as_json=args.json,
+                output=args.output,
+                config=config_override,
+            )
+            return
+        if args.command == "report" and args.report_type == "portfolio":
+            run_report_portfolio(
+                args.code,
+                add_quantity=args.add_quantity,
+                as_json=args.json,
+                output=args.output,
+                config=config_override,
+            )
+            return
+
+        if args.command == "sync" and args.code == "market":
+            run_sync_market(config=config_override)
             return
 
         use_wl = bool(getattr(args, "watchlist", False))
@@ -532,6 +1072,7 @@ def main(argv: list[str] | None = None) -> None:
                 "tech": (run_report_tech, "tech"),
                 "value": (run_report_value, "value"),
                 "dual": (run_report_dual, "dual"),
+                "sentiment": (run_report_sentiment, "sentiment"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
             }
@@ -542,6 +1083,8 @@ def main(argv: list[str] | None = None) -> None:
             }
             if args.report_type == "summary":
                 extra["narrate"] = bool(getattr(args, "narrate", False))
+            if args.report_type == "value":
+                extra["show_anchor_price"] = bool(args.show_anchor_price)
             if len(codes) == 1 and not use_wl:
                 fn(codes[0], output=args.output, **extra)
             else:

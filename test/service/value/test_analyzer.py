@@ -8,6 +8,7 @@ import pytest
 
 from common.exceptions import UnsupportedMarketError
 from common.models.stock_data import StockData
+from service.value.aggregator import AggregateResult, ValuationAggregator
 from service.value.analyzer import ValueAnalyzer
 from service.value.models.analysis_result import ValueAnalysisResult
 from service.value.valuation.engine import default_engine
@@ -105,6 +106,37 @@ def test_unknown_prototype_warning():
     assert any("原型未识别" in w for w in result.warnings)
 
 
+def test_known_insurance_industry_uses_specific_methodology_gap_warning():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="601318",
+        name="中国平安",
+        industry="保险",
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("601318")
+
+    assert result.prototype == "unknown"
+    assert any("保险" in warning and "EV/NBV" in warning for warning in result.warnings)
+    assert not any("原型未识别" in warning for warning in result.warnings)
+
+
+def test_unknown_prototype_with_blank_industry_keeps_generic_warning():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="999999",
+        name="Unknown",
+        industry="",
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("999999")
+
+    assert result.prototype == "unknown"
+    assert any("原型未识别" in warning for warning in result.warnings)
+
+
 def test_output_fields_complete():
     provider = MagicMock()
     provider.get_stock_data.return_value = _rich_value_growth_stock()
@@ -119,3 +151,79 @@ def test_output_fields_complete():
     assert isinstance(result.method_results, dict)
     assert isinstance(result.warnings, list)
     assert result.value_score is None
+
+
+def test_analyze_propagates_value_trap_alert():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = _rich_value_growth_stock()
+    aggregator = MagicMock(spec=ValuationAggregator)
+    aggregator.aggregate.return_value = AggregateResult(
+        assessment="合理",
+        confidence="Medium",
+        value_trap_alert="🚨 疑似价值陷阱（High Risk）：财务健康。",
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine(), aggregator=aggregator)
+
+    result = analyzer.analyze("600519")
+
+    assert result.value_trap_alert == "🚨 疑似价值陷阱（High Risk）：财务健康。"
+
+
+def test_analyze_offline_propagates_value_trap_alert():
+    provider = MagicMock()
+    provider.get_stock_data_offline.return_value = _rich_value_growth_stock()
+    aggregator = MagicMock(spec=ValuationAggregator)
+    aggregator.aggregate.return_value = AggregateResult(
+        assessment="合理",
+        confidence="Medium",
+        value_trap_alert="🚨 疑似价值陷阱（High Risk）：业务恶化。",
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine(), aggregator=aggregator)
+
+    result = analyzer.analyze_offline("600519")
+
+    assert result is not None
+    assert result.value_trap_alert == "🚨 疑似价值陷阱（High Risk）：业务恶化。"
+
+
+def test_analyze_applies_persisted_prototype_override_and_warns():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = _rich_value_growth_stock()
+    override_repo = MagicMock()
+    override_repo.get_by_code.return_value = MagicMock(
+        prototype="high_dividend",
+        reason="管理层转向稳定分红策略",
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        override_repo=override_repo,
+    )
+
+    result = analyzer.analyze("600519")
+
+    override_repo.get_by_code.assert_called_once_with("600519")
+    assert result.prototype == "high_dividend"
+    assert "ddm" in result.method_keys_used
+    assert any(
+        "high_dividend" in warning and "管理层转向稳定分红策略" in warning
+        for warning in result.warnings
+    )
+
+
+def test_analyze_without_override_record_preserves_existing_behavior():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = _rich_value_growth_stock()
+    override_repo = MagicMock()
+    override_repo.get_by_code.return_value = None
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        override_repo=override_repo,
+    )
+
+    result = analyzer.analyze("600519")
+
+    override_repo.get_by_code.assert_called_once_with("600519")
+    assert result.prototype == "value_growth"
+    assert not any("原型已人工覆盖" in warning for warning in result.warnings)

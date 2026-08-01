@@ -95,6 +95,54 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 )
             )
             logger.info("已创建表 llm_narrate_cache")
+        if "prototype_overrides" not in tables:
+            conn.execute(
+                text(
+                    "CREATE TABLE prototype_overrides ("
+                    "code VARCHAR(10) NOT NULL PRIMARY KEY, "
+                    "prototype VARCHAR(20) NOT NULL, "
+                    "reason TEXT NOT NULL, "
+                    "created_at DATETIME NOT NULL, "
+                    "updated_at DATETIME NOT NULL"
+                    ")"
+                )
+            )
+            logger.info("已创建表 prototype_overrides")
+        if "checklist_records" not in tables:
+            conn.execute(
+                text(
+                    "CREATE TABLE checklist_records ("
+                    "id INTEGER NOT NULL PRIMARY KEY, "
+                    "code VARCHAR(10) NOT NULL, "
+                    "action VARCHAR(10), "
+                    "value_reasons_json TEXT NOT NULL, "
+                    "tech_alignment TEXT, "
+                    "sentiment_position TEXT, "
+                    "stop_loss_price FLOAT, "
+                    "take_profit_price FLOAT, "
+                    "passed BOOLEAN NOT NULL, "
+                    "rejection_reasons_json TEXT NOT NULL, "
+                    "created_at DATETIME NOT NULL"
+                    ")"
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_checklist_records_code ON checklist_records (code)"))
+            logger.info("已创建表 checklist_records")
+        if "position_records" not in tables:
+            conn.execute(
+                text(
+                    "CREATE TABLE position_records ("
+                    "id INTEGER NOT NULL PRIMARY KEY, "
+                    "code VARCHAR(10) NOT NULL UNIQUE, "
+                    "cost_price FLOAT NOT NULL, "
+                    "shares INTEGER NOT NULL, "
+                    "opened_at DATETIME NOT NULL, "
+                    "updated_at DATETIME NOT NULL"
+                    ")"
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_position_records_code ON position_records (code)"))
+            logger.info("已创建表 position_records")
 
 
 class Base(DeclarativeBase):

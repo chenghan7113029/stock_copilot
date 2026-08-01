@@ -28,6 +28,7 @@ class AggregateResult:
     assessment: str = "数据不足"
     confidence: str = "Low"
     warnings: list[str] = field(default_factory=list)
+    value_trap_alert: str | None = None
 
 
 class ValuationAggregator:
@@ -40,6 +41,7 @@ class ValuationAggregator:
     ) -> AggregateResult:
         warnings: list[str] = []
         values: list[float] = []
+        value_trap_alert = self._value_trap_alert_message(results.get("value_trap"))
 
         for key, result in results.items():
             if self._is_score_result(key, result):
@@ -54,7 +56,15 @@ class ValuationAggregator:
             values.append(result.fair_value)
 
         if not values:
-            return AggregateResult(assessment="数据不足", confidence="Low", warnings=warnings)
+            confidence = "Low"
+            if value_trap_alert:
+                confidence = self._downgrade_confidence(confidence)
+            return AggregateResult(
+                assessment="数据不足",
+                confidence=confidence,
+                warnings=warnings,
+                value_trap_alert=value_trap_alert,
+            )
 
         filtered, outlier_warnings = self._iqr_filter(values)
         warnings.extend(outlier_warnings)
@@ -83,6 +93,9 @@ class ValuationAggregator:
             confidence = "不可信"
             warnings.insert(0, _UNRELIABLE_WARNING)
 
+        if value_trap_alert:
+            confidence = self._downgrade_confidence(confidence)
+
         return AggregateResult(
             fair_value_range=fair_value_range,
             margin_of_safety=mos,
@@ -90,7 +103,43 @@ class ValuationAggregator:
             assessment=assessment,
             confidence=confidence,
             warnings=warnings,
+            value_trap_alert=value_trap_alert,
         )
+
+    @staticmethod
+    def _value_trap_alert_message(value_trap_result: ValuationResult | None) -> str | None:
+        if value_trap_result is None:
+            return None
+
+        details = value_trap_result.details
+        if details.get("overall_risk") != "High":
+            return None
+
+        dimension_names = {
+            "financial_health": "财务健康",
+            "business_deterioration": "业务恶化",
+            "moat_erosion": "护城河侵蚀",
+            "ai_vulnerability": "AI/技术脆弱性",
+            "dividend_sustainability": "股息可持续性",
+        }
+        high_dimensions = [
+            name for key, name in dimension_names.items() if details.get(key) == "High"
+        ]
+        dimensions_text = "、".join(high_dimensions) if high_dimensions else "检测维度"
+        return (
+            f"🚨 疑似价值陷阱（High Risk）：{dimensions_text}。\n"
+            "估值区间/安全边际仅反映价格与账面/现金流的相对关系，不代表基本面已改善，"
+            "决策前建议核对上述维度的最新变化。"
+        )
+
+    @staticmethod
+    def _downgrade_confidence(confidence: str) -> str:
+        return {
+            "High": "Medium",
+            "Medium": "Low",
+            "Low": "Low",
+            "不可信": "不可信",
+        }.get(confidence, confidence)
 
     @staticmethod
     def _is_score_result(key: str, result: ValuationResult) -> bool:

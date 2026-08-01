@@ -8,6 +8,7 @@ from enum import Enum
 
 from service.tech.models.tech_result import TechAnalysisResult
 from service.value.models.analysis_result import ValueAnalysisResult
+from service.sentiment.models.sentiment_result import SentimentAnalysisResult
 
 
 class CombinedSignal(Enum):
@@ -31,6 +32,7 @@ class DualTrackReport:
     code: str
     value_result: ValueAnalysisResult | None = None
     tech_result: TechAnalysisResult | None = None
+    sentiment_result: SentimentAnalysisResult | None = None
     combined_signal: CombinedSignal = CombinedSignal.WAIT
     value_rating: ValueRating | None = None
     analysis_summary: str = ""

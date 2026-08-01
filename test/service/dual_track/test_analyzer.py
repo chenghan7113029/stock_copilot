@@ -10,6 +10,7 @@ import pytest
 from common.exceptions import UnsupportedMarketError
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.models.report import CombinedSignal, ValueRating
+from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus
 from service.value.models.analysis_result import ValueAnalysisResult
 from service.value.valuation.base import ValuationRange
@@ -206,3 +207,48 @@ def test_analyze_online_unchanged_still_calls_analyze():
     analyzer._value_analyzer.analyze.assert_called_once_with("600519")
     analyzer._value_analyzer.analyze_offline.assert_not_called()
     analyzer._tech_analyzer.analyze.assert_called_once_with("600519")
+
+
+def test_analyze_offline_adds_sentiment_and_three_dimensional_interpretation():
+    value = _make_value_result()
+    tech = _make_tech_result()
+    sentiment = SentimentAnalysisResult(
+        code="600519",
+        market_sentiment_status=SentimentStatus.EXTREME_FEAR,
+        market_sentiment_score=10.0,
+        limit_updown_ratio=0.1,
+    )
+    sentiment_analyzer = MagicMock()
+    sentiment_analyzer.analyze_offline.return_value = sentiment
+
+    analyzer = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        sentiment_analyzer=sentiment_analyzer,
+    )
+    analyzer._tech_analyzer.analyze.return_value = tech
+    report = analyzer.analyze_offline("600519")
+
+    assert report.sentiment_result is sentiment
+    assert "极度恐慌" in report.analysis_summary
+    assert "价值面显示低估" in report.analysis_summary
+    assert report.combined_signal == CombinedSignal.STRONG_BUY
+
+
+def test_analyze_offline_explains_missing_sentiment_without_affecting_fusion():
+    value = _make_value_result()
+    tech = _make_tech_result()
+    sentiment_analyzer = MagicMock()
+    sentiment_analyzer.analyze_offline.return_value = None
+    analyzer = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        sentiment_analyzer=sentiment_analyzer,
+    )
+    analyzer._tech_analyzer.analyze.return_value = tech
+
+    report = analyzer.analyze_offline("600519")
+
+    assert report.sentiment_result is None
+    assert "情绪面数据缺失，本次报告仅基于价值+技术双维" in report.analysis_summary
+    assert report.combined_signal == CombinedSignal.STRONG_BUY

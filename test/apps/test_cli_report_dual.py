@@ -11,6 +11,7 @@ import pytest
 from apps.cli import main, run_report_dual
 from apps.formatters import format_dual_report
 from service.dual_track.models.report import CombinedSignal, DualTrackReport, ValueRating
+from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus
 from service.value.models.analysis_result import ValueAnalysisResult
 
@@ -205,3 +206,16 @@ def test_format_dual_report_text_and_json():
     js = format_dual_report("600519", ["b1"], ["e1"], as_json=True)
     assert '"code": "600519"' in js
     assert '"bull_evidence"' in js
+
+
+def test_format_dual_report_displays_sentiment_summary():
+    sentiment = SentimentAnalysisResult(
+        code="600519",
+        market_sentiment_status=SentimentStatus.GREED,
+        market_sentiment_score=70.0,
+        limit_updown_ratio=0.75,
+    )
+
+    text = format_dual_report("600519", [], [], sentiment_result=sentiment)
+
+    assert "市场情绪: 贪婪" in text

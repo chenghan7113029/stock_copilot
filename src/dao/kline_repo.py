@@ -38,6 +38,16 @@ class KlineRepo:
         )
         return [self._to_dict(row) for row in rows]
 
+    def list_by_code(self, code: str) -> list[dict[str, Any]]:
+        """读取某只股票全部本地 K 线记录，不触发数据源请求。"""
+        rows = (
+            self._session.query(Kline)
+            .filter(Kline.code == code)
+            .order_by(Kline.trade_date)
+            .all()
+        )
+        return [self._to_dict(row) for row in rows]
+
     def upsert_batch(self, records: list[dict[str, Any]]) -> None:
         """批量 upsert K 线记录（code + trade_date 唯一键）。"""
         if not records:

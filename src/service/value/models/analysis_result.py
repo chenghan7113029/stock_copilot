@@ -25,3 +25,4 @@ class ValueAnalysisResult:
     data_timestamp: datetime | None = None
     fundamental_report_date: date | None = None
     value_score: int | None = None
+    value_trap_alert: str | None = None

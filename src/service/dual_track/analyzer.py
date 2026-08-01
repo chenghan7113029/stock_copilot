@@ -10,6 +10,8 @@ from data_provider.base import is_a_share
 from service.dual_track.config import DualTrackConfig
 from service.dual_track.models.report import DualTrackReport, ValueRating
 from service.dual_track.signal_fusion import SignalFusion
+from service.sentiment.analyzer import SentimentAnalyzer
+from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.analyzer import TechAnalyzer
 from service.tech.models.tech_result import TechAnalysisResult
 from service.value.analyzer import ValueAnalyzer
@@ -22,6 +24,7 @@ def build_analysis_summary(
     tech_result: TechAnalysisResult | None,
     combined_signal: str,
     value_rating: ValueRating | None,
+    sentiment_result: SentimentAnalysisResult | None = None,
 ) -> str:
     parts: list[str] = [f"股票代码: {code}"]
     if value_result is not None and value_result.name:
@@ -41,6 +44,33 @@ def build_analysis_summary(
             f"技术面: {tech_result.trend_status.value}, 评分 {tech_result.signal_score}"
         )
 
+    if sentiment_result is None:
+        parts.append("情绪面数据缺失，本次报告仅基于价值+技术双维")
+    else:
+        status = sentiment_result.market_sentiment_status
+        score = sentiment_result.market_sentiment_score
+        if (
+            status == SentimentStatus.EXTREME_GREED
+            and tech_result is not None
+            and tech_result.trend_status.value == "强势多头"
+        ):
+            parts.append("情绪面极度贪婪叠加技术面强势，注意钝化与回调风险，不建议仅因情绪指标追高")
+        elif (
+            status == SentimentStatus.EXTREME_FEAR
+            and value_result is not None
+            and value_result.assessment == "低估"
+        ):
+            parts.append("市场极度恐慌但价值面显示低估，符合逆向逻辑，但仍需技术面企稳信号确认")
+        else:
+            label = status.value if status is not None else "数据不足"
+            score_text = f"{score:.1f}" if score is not None else "N/A"
+            assessment = value_result.assessment if value_result is not None else "缺失"
+            trend = tech_result.trend_status.value if tech_result is not None else "缺失"
+            parts.append(
+                f"情绪面: {label}（指数 {score_text}），须结合价值面「{assessment}」"
+                f"与技术面「{trend}」综合判断，不单独作为买卖依据"
+            )
+
     parts.append(f"综合信号: {combined_signal}")
     if value_rating is not None:
         parts.append(f"价值评级: {value_rating.value}")
@@ -57,11 +87,13 @@ class DualTrackAnalyzer:
         tech_analyzer: TechAnalyzer,
         config: DualTrackConfig | None = None,
         signal_fusion: SignalFusion | None = None,
+        sentiment_analyzer: SentimentAnalyzer | None = None,
     ) -> None:
         self._value_analyzer = value_analyzer
         self._tech_analyzer = tech_analyzer
         self._config = config or DualTrackConfig()
         self._signal_fusion = signal_fusion or SignalFusion(self._config)
+        self._sentiment_analyzer = sentiment_analyzer
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DualTrackAnalyzer":
@@ -69,6 +101,7 @@ class DualTrackAnalyzer:
             value_analyzer=ValueAnalyzer.from_config(config),
             tech_analyzer=TechAnalyzer.from_config(config),
             config=DualTrackConfig(),
+            sentiment_analyzer=SentimentAnalyzer.from_config(config),
         )
 
     def analyze(self, raw_code: str) -> DualTrackReport:
@@ -81,6 +114,7 @@ class DualTrackAnalyzer:
         warnings: list[str] = []
         value_result: ValueAnalysisResult | None = None
         tech_result: TechAnalysisResult | None = None
+        sentiment_result: SentimentAnalysisResult | None = None
 
         try:
             value_result = self._value_analyzer.analyze(code)
@@ -98,6 +132,13 @@ class DualTrackAnalyzer:
         except Exception as exc:
             warnings.append(f"技术面分析失败: {exc}")
 
+        if self._sentiment_analyzer is not None:
+            try:
+                sentiment_result = self._sentiment_analyzer.analyze(code)
+                warnings.extend(sentiment_result.warnings)
+            except Exception as exc:
+                warnings.append(f"情绪面分析失败: {exc}")
+
         combined_signal, value_rating = self._signal_fusion.fuse(
             value_result, tech_result
         )
@@ -108,6 +149,7 @@ class DualTrackAnalyzer:
             tech_result,
             combined_signal.value,
             value_rating,
+            sentiment_result,
         )
 
         data_timestamp = datetime.now(timezone.utc)
@@ -120,6 +162,7 @@ class DualTrackAnalyzer:
             code=code,
             value_result=value_result,
             tech_result=tech_result,
+            sentiment_result=sentiment_result,
             combined_signal=combined_signal,
             value_rating=value_rating,
             analysis_summary=analysis_summary,
@@ -138,6 +181,7 @@ class DualTrackAnalyzer:
         warnings: list[str] = []
         value_result: ValueAnalysisResult | None = None
         tech_result: TechAnalysisResult | None = None
+        sentiment_result: SentimentAnalysisResult | None = None
 
         try:
             value_result = self._value_analyzer.analyze_offline(code)
@@ -158,6 +202,16 @@ class DualTrackAnalyzer:
         except Exception as exc:
             warnings.append(f"技术面分析失败: {exc}")
 
+        if self._sentiment_analyzer is not None:
+            try:
+                sentiment_result = self._sentiment_analyzer.analyze_offline(code)
+                if sentiment_result is None:
+                    warnings.append("情绪面无本地快照，请先运行 sync market")
+                else:
+                    warnings.extend(sentiment_result.warnings)
+            except Exception as exc:
+                warnings.append(f"情绪面分析失败: {exc}")
+
         combined_signal, value_rating = self._signal_fusion.fuse(
             value_result, tech_result
         )
@@ -168,6 +222,7 @@ class DualTrackAnalyzer:
             tech_result,
             combined_signal.value,
             value_rating,
+            sentiment_result,
         )
 
         data_timestamp = datetime.now(timezone.utc)
@@ -180,6 +235,7 @@ class DualTrackAnalyzer:
             code=code,
             value_result=value_result,
             tech_result=tech_result,
+            sentiment_result=sentiment_result,
             combined_signal=combined_signal,
             value_rating=value_rating,
             analysis_summary=analysis_summary,

@@ -16,7 +16,8 @@ from common.models.stock_data import StockData
 @patch("apps.cli.make_session_factory")
 @patch("apps.cli.StockDataProvider")
 @patch("apps.cli.KlineProvider")
-def test_sync_success(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock_cfg):
+@patch("apps.cli.ChipDistributionProvider")
+def test_sync_success(mock_chip_cls, mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock_cfg):
     mock_cfg.return_value = {"tech": {"kline_days": 90}, "logging": {"cli_progress": False}}
     session = MagicMock()
     mock_sf.return_value = MagicMock(return_value=session)
@@ -27,6 +28,7 @@ def test_sync_success(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock
 
     kline = mock_kline_cls.return_value
     kline.get_kline.return_value = (pd.DataFrame({"date": ["2025-06-01"]}), [], "eod")
+    mock_chip_cls.return_value.get_latest.return_value = (None, ["筹码分布数据不可用: network down"])
 
     run_sync("600519")
     session.commit.assert_called_once()
@@ -37,6 +39,7 @@ def test_sync_success(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock
         persist_today=False,
         on_progress=None,
     )
+    mock_chip_cls.return_value.get_latest.assert_called_once_with("600519", offline=False, on_progress=None)
 
 
 @patch("apps.cli.load_app_config")
@@ -44,7 +47,8 @@ def test_sync_success(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock
 @patch("apps.cli.make_session_factory")
 @patch("apps.cli.StockDataProvider")
 @patch("apps.cli.KlineProvider")
-def test_sync_realtime(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock_cfg):
+@patch("apps.cli.ChipDistributionProvider")
+def test_sync_realtime(mock_chip_cls, mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock_cfg):
     mock_cfg.return_value = {"tech": {"kline_days": 90}, "logging": {"cli_progress": False}}
     session = MagicMock()
     mock_sf.return_value = MagicMock(return_value=session)
@@ -56,6 +60,7 @@ def test_sync_realtime(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, moc
         [],
         "realtime",
     )
+    mock_chip_cls.return_value.get_latest.return_value = (None, [])
 
     run_sync("600519", realtime=True)
     mock_kline_cls.return_value.get_kline.assert_called_once_with(
@@ -92,7 +97,8 @@ def test_sync_network_error_exits(mock_value_cls, mock_sf, mock_engine, mock_cfg
 @patch("apps.cli.make_session_factory")
 @patch("apps.cli.StockDataProvider")
 @patch("apps.cli.KlineProvider")
-def test_sync_emits_progress(mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock_cfg, capsys):
+@patch("apps.cli.ChipDistributionProvider")
+def test_sync_emits_progress(mock_chip_cls, mock_kline_cls, mock_value_cls, mock_sf, mock_engine, mock_cfg, capsys):
     mock_cfg.return_value = {"tech": {"kline_days": 90}, "logging": {"cli_progress": True}}
     session = MagicMock()
     mock_sf.return_value = MagicMock(return_value=session)
@@ -104,6 +110,7 @@ def test_sync_emits_progress(mock_kline_cls, mock_value_cls, mock_sf, mock_engin
         [],
         "eod",
     )
+    mock_chip_cls.return_value.get_latest.return_value = (None, [])
 
     run_sync("600519")
     out = capsys.readouterr().out

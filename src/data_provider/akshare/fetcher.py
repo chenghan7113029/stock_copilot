@@ -134,6 +134,37 @@ class AKShareFetcher(BaseFetcher):
             df[col] = pd.to_numeric(df[col], errors="coerce")
         return df[["date", "open", "high", "low", "close", "volume"]]
 
+    def fetch_chip_distribution(self, code: str) -> pd.DataFrame:
+        """获取东方财富口径的历史筹码分布（前复权）。"""
+        try:
+            raw_df = retry_with_backoff(self._get_ak().stock_cyq_em, symbol=code, adjust="qfq")
+        except Exception as exc:
+            raise DataProviderError(f"AKShare 筹码分布接口失败: {exc}") from exc
+        if raw_df is None or raw_df.empty:
+            raise DataProviderError(f"AKShare 未查询到 {code} 的筹码分布数据")
+
+        column_map = {
+            "日期": "trade_date",
+            "获利比例": "winner_ratio",
+            "平均成本": "avg_cost",
+            "90集中度": "concentration_90",
+            "70集中度": "concentration_70",
+            "90成本-低": "cost_90_low",
+            "90成本-高": "cost_90_high",
+            "70成本-低": "cost_70_low",
+            "70成本-高": "cost_70_high",
+        }
+        required_columns = list(column_map)
+        missing = [column for column in required_columns if column not in raw_df.columns]
+        if missing:
+            raise DataProviderError(f"AKShare 筹码分布缺少字段: {', '.join(missing)}")
+
+        df = raw_df.rename(columns=column_map)[list(column_map.values())].copy()
+        df["trade_date"] = df["trade_date"].astype(str).str[:10]
+        for column in list(column_map.values())[1:]:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+        return df
+
     def fetch_realtime_quote(self, code: str) -> dict[str, float | str]:
         """从 stock_zh_a_spot_em 获取当日实时 OHLCV 快照。"""
         norm_code = code.strip()[-6:].zfill(6)

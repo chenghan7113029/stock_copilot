@@ -177,3 +177,79 @@ def test_all_primary_na_marks_unreliable():
     out = agg.aggregate(results, current_price=1168.0)
     assert out.confidence == "不可信"
     assert out.warnings[0].startswith("⚠ 核心估值方法")
+
+
+def test_value_trap_high_adds_alert_and_downgrades_confidence():
+    agg = ValuationAggregator()
+    results = {
+        "a": _value_result(680.0),
+        "b": _value_result(700.0),
+        "c": _value_result(720.0),
+        "value_trap": _score_result(
+            "Value Trap Detector",
+            overall_risk="High",
+            financial_health="High",
+            business_deterioration="Low",
+        ),
+    }
+
+    out = agg.aggregate(results, current_price=700.0)
+
+    assert out.value_trap_alert is not None
+    assert "财务健康" in out.value_trap_alert
+    assert out.confidence == "Medium"
+    assert any("risk=High" in warning for warning in out.warnings)
+
+
+def test_non_high_value_trap_does_not_change_confidence_or_add_alert():
+    agg = ValuationAggregator()
+    base_results = {
+        "a": _value_result(680.0),
+        "b": _value_result(700.0),
+        "c": _value_result(720.0),
+    }
+    base = agg.aggregate(base_results, current_price=700.0)
+
+    for risk in ("Medium", "Low", "Limited"):
+        results = {
+            **base_results,
+            "value_trap": _score_result("Value Trap Detector", overall_risk=risk),
+        }
+        out = agg.aggregate(results, current_price=700.0)
+        assert out.value_trap_alert is None
+        assert out.confidence == base.confidence
+
+
+def test_value_trap_high_preserves_unreliable_confidence():
+    agg = ValuationAggregator()
+    results = {
+        "dcf": ValuationResult(
+            method="DCF",
+            fair_value=0,
+            current_price=1168.0,
+            premium_discount=0,
+            assessment="N/A",
+            error="missing fcf",
+            applicability="Not Applicable",
+        ),
+        "pe_relative": ValuationResult(
+            method="PE Relative",
+            fair_value=0,
+            current_price=1168.0,
+            premium_discount=0,
+            assessment="N/A",
+            error="historical_pe",
+            applicability="Not Applicable",
+        ),
+        "owner_earnings": _value_result(157.0, method="Owner Earnings"),
+        "value_trap": _score_result(
+            "Value Trap Detector",
+            overall_risk="High",
+            moat_erosion="High",
+        ),
+    }
+
+    out = agg.aggregate(results, current_price=1168.0)
+
+    assert out.value_trap_alert is not None
+    assert out.confidence == "不可信"

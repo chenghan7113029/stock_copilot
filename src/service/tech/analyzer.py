@@ -6,14 +6,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
+from dao.chip_distribution_repo import ChipDistributionRepo
 from dao.engine import Base, create_db_engine, make_session_factory
 from dao.kline_repo import KlineRepo
-from dao.models import Kline  # noqa: F401 — register ORM model
+from dao.models import ChipDistribution, Kline  # noqa: F401 — register ORM models
 from data_provider.base import is_a_share, normalize_stock_code
+from data_provider.chip_distribution_provider import ChipDistributionProvider
 from data_provider.kline_provider import KlineProvider
 from service.tech.calculator import IndicatorCalculator
+from service.tech.chip_classifier import classify_chip_status
 from service.tech.config import TechAnalysisConfig
-from service.tech.models.tech_result import BuySignal, TechAnalysisResult
+from service.tech.models.tech_result import BuySignal, ChipStatus, TechAnalysisResult
 from service.tech.scorer import BullTrendScorer, ScoringEngine
 
 
@@ -26,11 +29,13 @@ class TechAnalyzer:
         config: TechAnalysisConfig | None = None,
         calculator: IndicatorCalculator | None = None,
         scorer: ScoringEngine | None = None,
+        chip_provider: ChipDistributionProvider | None = None,
     ) -> None:
         self._kline_provider = kline_provider
         self._config = config or TechAnalysisConfig()
         self._calculator = calculator or IndicatorCalculator()
         self._scorer = scorer or BullTrendScorer()
+        self._chip_provider = chip_provider
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "TechAnalyzer":
@@ -38,12 +43,12 @@ class TechAnalyzer:
         Base.metadata.create_all(engine)
         session_factory = make_session_factory(engine)
         session = session_factory()
-        repo = KlineRepo(session)
-        provider = KlineProvider(repo)
+        kline_provider = KlineProvider(KlineRepo(session))
+        chip_provider = ChipDistributionProvider(ChipDistributionRepo(session))
         tech_cfg = TechAnalysisConfig(
             kline_days=config.get("tech", {}).get("kline_days", 90),
         )
-        return cls(kline_provider=provider, config=tech_cfg)
+        return cls(kline_provider=kline_provider, config=tech_cfg, chip_provider=chip_provider)
 
     def analyze(self, raw_code: str, use_realtime: bool = False, offline: bool = False) -> TechAnalysisResult:
         if not is_a_share(raw_code.strip()):
@@ -147,6 +152,34 @@ class TechAnalyzer:
             result.weekly_ma10 = weekly.weekly_ma10
             result.weekly_ma20 = weekly.weekly_ma20
             result.warnings.extend(weekly.warnings)
+        self._merge_chip_distribution(result, code, offline)
         result.data_timestamp = datetime.now(timezone.utc)
 
         return result
+
+    def _merge_chip_distribution(self, result: TechAnalysisResult, code: str, offline: bool) -> None:
+        """合并辅助筹码数据，任何失败均不影响既有技术面结论。"""
+        if self._chip_provider is None:
+            return
+        record, warnings = self._chip_provider.get_latest(code, offline=offline)
+        result.warnings.extend(warnings)
+        if record is None:
+            return
+
+        winner_ratio = record.get("winner_ratio")
+        result.winner_ratio = float(winner_ratio) if winner_ratio is not None else None
+        result.trap_ratio = 100.0 - result.winner_ratio if result.winner_ratio is not None else None
+        for field in ("avg_cost", "concentration_90", "concentration_70"):
+            value = record.get(field)
+            setattr(result, field, float(value) if value is not None else None)
+        result.chip_status = classify_chip_status(
+            result.concentration_90,
+            self._config.indicator_params,
+        )
+
+        if result.chip_status in (ChipStatus.HIGHLY_CONCENTRATED, ChipStatus.CONCENTRATED):
+            result.signal_reasons.append(
+                f"筹码集中度较高（90%集中度 {result.concentration_90:.1f}%），主力控盘特征明显"
+            )
+        if result.trap_ratio is not None and result.trap_ratio > 60:
+            result.risk_factors.append(f"套牢比例较高（{result.trap_ratio:.1f}%），反弹阻力可能较大")

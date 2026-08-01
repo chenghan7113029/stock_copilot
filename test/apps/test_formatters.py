@@ -8,6 +8,7 @@ from datetime import datetime
 from apps.formatters import format_tech_report, format_value_report
 from service.tech.models.tech_result import (
     BuySignal,
+    ChipStatus,
     TechAnalysisResult,
     TrendStatus,
 )
@@ -44,6 +45,26 @@ def test_format_tech_report_none_score_safe():
     assert "N/A" not in text or "综合评分: 0" in text
 
 
+def test_format_tech_report_renders_chip_section_only_when_available():
+    result = TechAnalysisResult(
+        code="600519",
+        winner_ratio=42.5,
+        trap_ratio=57.5,
+        avg_cost=12.34,
+        concentration_90=8.2,
+        concentration_70=4.1,
+        chip_status=ChipStatus.HIGHLY_CONCENTRATED,
+    )
+
+    text = format_tech_report(result)
+    payload = json.loads(format_tech_report(result, as_json=True))
+
+    assert "--- 筹码分布 ---" in text
+    assert "获利比例 42.5%" in text
+    assert payload["chip_status"] == "高度控盘"
+    assert "--- 筹码分布 ---" not in format_tech_report(TechAnalysisResult(code="600519"))
+
+
 def test_format_value_report_text():
     result = ValueAnalysisResult(
         code="600519",
@@ -62,6 +83,8 @@ def test_format_value_report_text():
     assert "=== 价值面分析报告 600519 ===" in text
     assert "估值" in text
     assert "安全边际" in text
+    assert "当前价格处于历史估值区间中性（分位 50%）" in text
+    assert "价格分位:" not in text
 
 
 def test_format_value_report_json():
@@ -80,6 +103,71 @@ def test_format_value_report_json():
     payload = json.loads(format_value_report(result, as_json=True))
     assert payload["code"] == "600519"
     assert payload["assessment"] == "合理"
+
+
+def test_format_value_report_hides_anchor_price_unless_explicitly_requested():
+    result = ValueAnalysisResult(
+        code="600519",
+        name="贵州茅台",
+        current_price=1800.0,
+        prototype="quality_growth",
+        method_keys_used=[],
+        fair_value_range=None,
+        margin_of_safety=None,
+        price_percentile=None,
+        assessment="合理",
+        confidence="Medium",
+    )
+
+    hidden = format_value_report(result, anchor_high=(2000.0, 250))
+    shown = format_value_report(result, show_anchor_price=True, anchor_high=(2000.0, 250))
+
+    assert "历史最高价" not in hidden
+    assert "历史最高价: 2000.00（基于本地缓存 250 条交易日数据）" in shown
+    assert "仅供参考，不建议作为决策心理锚点" in shown
+
+
+def test_format_value_report_value_trap_alert_text_and_json():
+    alert = "🚨 疑似价值陷阱（High Risk）：财务健康。"
+    result = ValueAnalysisResult(
+        code="600519",
+        name="贵州茅台",
+        current_price=1800.0,
+        prototype="quality_growth",
+        method_keys_used=[],
+        fair_value_range=None,
+        margin_of_safety=None,
+        price_percentile=None,
+        assessment="合理",
+        confidence="Medium",
+        warnings=["Value Trap Detector: risk=High"],
+        value_trap_alert=alert,
+    )
+
+    text = format_value_report(result)
+    payload = json.loads(format_value_report(result, as_json=True))
+
+    assert alert in text
+    assert text.index(alert) < text.index("评估:")
+    assert "--- 警告 ---" in text
+    assert payload["value_trap_alert"] == alert
+
+
+def test_format_value_report_omits_empty_value_trap_alert():
+    result = ValueAnalysisResult(
+        code="600519",
+        name="贵州茅台",
+        current_price=1800.0,
+        prototype="quality_growth",
+        method_keys_used=[],
+        fair_value_range=None,
+        margin_of_safety=None,
+        price_percentile=None,
+        assessment="合理",
+        confidence="Medium",
+    )
+
+    assert "⚠⚠⚠" not in format_value_report(result)
 
 
 def test_format_value_report_dcf_epv_semantic_hints():
