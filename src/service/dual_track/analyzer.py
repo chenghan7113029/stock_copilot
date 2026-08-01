@@ -24,6 +24,8 @@ def build_analysis_summary(
     value_rating: ValueRating | None,
 ) -> str:
     parts: list[str] = [f"股票代码: {code}"]
+    if value_result is not None and value_result.name:
+        parts.append(f"名称: {value_result.name}")
 
     if value_result is not None:
         if value_result.fair_value_range is not None:

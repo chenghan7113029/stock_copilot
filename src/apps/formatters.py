@@ -253,18 +253,26 @@ def format_summary_report(
         return _dump_json(payload)
 
     code = deterministic.get("code", "")
+    name = (deterministic.get("name") or "").strip()
+    title = f"=== 综合摘要 {code} {name} ===" if name else f"=== 综合摘要 {code} ==="
     lines: list[str] = [
-        f"=== 综合摘要 {code} ===",
+        title,
         "[离线模式] 确定性摘要"
         + (" + LLM 叙事" if narrative else "")
         + ("（叙事失败已降级）" if narrative_error else ""),
         "",
         "--- 确定性摘要 ---",
-        f"综合信号: {deterministic.get('combined_signal') or 'N/A'}",
-        f"价值评级: {deterministic.get('value_rating') or 'N/A'}",
-        f"红蓝证据: 多方 {deterministic.get('bull_evidence_count', 0)} 条 / "
-        f"空方 {deterministic.get('bear_evidence_count', 0)} 条",
     ]
+    if name:
+        lines.append(f"名称: {name}")
+    lines.extend(
+        [
+            f"综合信号: {deterministic.get('combined_signal') or 'N/A'}",
+            f"价值评级: {deterministic.get('value_rating') or 'N/A'}",
+            f"红蓝证据: 多方 {deterministic.get('bull_evidence_count', 0)} 条 / "
+            f"空方 {deterministic.get('bear_evidence_count', 0)} 条",
+        ]
+    )
     summary = deterministic.get("analysis_summary") or ""
     if summary:
         lines.extend(["", summary])

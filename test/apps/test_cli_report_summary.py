@@ -220,6 +220,7 @@ def test_cli_report_summary_invocation(mock_run):
 def test_format_summary_report_degrade_and_success():
     det = {
         "code": "600519",
+        "name": "贵州茅台",
         "analysis_summary": "摘要行",
         "combined_signal": "买入",
         "value_rating": "低估",
@@ -229,6 +230,8 @@ def test_format_summary_report_degrade_and_success():
     text = format_summary_report(det, narrative_error="LLM 未配置")
     assert "LLM 叙事生成失败" in text
     assert "确定性摘要" in text
+    assert "=== 综合摘要 600519 贵州茅台 ===" in text
+    assert "名称: 贵州茅台" in text
 
     ok = format_summary_report(
         det,
@@ -241,3 +244,43 @@ def test_format_summary_report_degrade_and_success():
     )
     assert "叙事正文" in ok
     assert "要点1" in ok
+
+
+def test_format_summary_report_without_name():
+    det = {
+        "code": "600519",
+        "combined_signal": "观望",
+        "value_rating": "高估",
+        "bull_evidence_count": 0,
+        "bear_evidence_count": 0,
+    }
+    text = format_summary_report(det)
+    assert "=== 综合摘要 600519 ===" in text
+    assert "名称:" not in text
+
+
+def test_report_summary_includes_stock_name(capsys):
+    from unittest.mock import MagicMock, patch
+
+    with (
+        patch("apps.cli.load_app_config", return_value={}),
+        patch("apps.cli.make_session_factory") as mock_sf,
+        patch("apps.cli.create_db_engine"),
+        patch("apps.cli.StockSnapshotRepo"),
+        patch("apps.cli.ValueAnalyzer"),
+        patch("apps.cli.TechAnalyzer"),
+        patch("apps.cli.DualTrackAnalyzer") as mock_dual_cls,
+        patch("apps.cli.EvidenceBucketer") as mock_bucketer_cls,
+    ):
+        mock_sf.return_value = MagicMock(return_value=MagicMock())
+        mock_dual_cls.return_value.analyze_offline.return_value = _dual_report()
+        buckets = MagicMock()
+        buckets.bull_evidence = ["b1"]
+        buckets.bear_evidence = ["e1"]
+        mock_bucketer_cls.return_value.bucket.return_value = buckets
+
+        run_report_summary("600519")
+
+    out = capsys.readouterr().out
+    assert "=== 综合摘要 600519 贵州茅台 ===" in out
+    assert "名称: 贵州茅台" in out

@@ -310,8 +310,12 @@ def run_report_summary(
             raise SystemExit(1)
 
         buckets = EvidenceBucketer().bucket(report)
+        name = ""
+        if report.value_result is not None and report.value_result.name:
+            name = report.value_result.name
         deterministic = {
             "code": code,
+            "name": name or None,
             "analysis_summary": report.analysis_summary,
             "combined_signal": report.combined_signal.value
             if report.combined_signal
