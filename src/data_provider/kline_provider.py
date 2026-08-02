@@ -1,4 +1,4 @@
-"""K 线数据提供者：Baostock 主 + AKShare 备 + SQLite 缓存与空洞回填。"""
+"""K 线数据提供者：Baostock 主 +（可选）AKShare 备 + SQLite 缓存与空洞回填。"""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from typing import Any, Callable, Protocol
 
 import pandas as pd
 
+from common.config_loader import is_data_source_enabled
 from common.exceptions import DataProviderError, KlineUnavailableError
 from dao.kline_repo import KlineRepo
-from data_provider.akshare.fetcher import AKShareFetcher
 from data_provider.baostock.fetcher import BaostockFetcher
 from data_provider.base import normalize_stock_code
 from data_provider.realtime_overlay_provider import RealtimeOverlayProvider
@@ -35,15 +35,38 @@ class KlineProvider:
         baostock_fetcher: _KlineFetcher | None = None,
         akshare_fetcher: _KlineFetcher | None = None,
         realtime_overlay: RealtimeOverlayProvider | None = None,
+        *,
+        use_akshare: bool = True,
     ) -> None:
         self._repo = repo
-        akshare = akshare_fetcher or AKShareFetcher()
         self._baostock = baostock_fetcher or BaostockFetcher()
-        self._akshare = akshare
-        quote_fetcher = (
-            akshare if hasattr(akshare, "fetch_realtime_quote") else AKShareFetcher()
-        )
-        self._realtime_overlay = realtime_overlay or RealtimeOverlayProvider(quote_fetcher)
+        self._use_akshare = use_akshare
+        self._akshare: _KlineFetcher | None = None
+        self._realtime_overlay: RealtimeOverlayProvider | None = realtime_overlay
+
+        if use_akshare:
+            if akshare_fetcher is not None:
+                self._akshare = akshare_fetcher
+            else:
+                from data_provider.akshare.fetcher import AKShareFetcher
+
+                self._akshare = AKShareFetcher()
+            if self._realtime_overlay is None:
+                quote_fetcher = (
+                    self._akshare
+                    if hasattr(self._akshare, "fetch_realtime_quote")
+                    else None
+                )
+                if quote_fetcher is None:
+                    from data_provider.akshare.fetcher import AKShareFetcher
+
+                    quote_fetcher = AKShareFetcher()
+                self._realtime_overlay = RealtimeOverlayProvider(quote_fetcher)
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any], repo: KlineRepo) -> "KlineProvider":
+        """按 data_sources.enabled 决定是否启用 AKShare 备源 / 实时叠加。"""
+        return cls(repo, use_akshare=is_data_source_enabled(config, "akshare"))
 
     def get_kline(
         self,
@@ -151,7 +174,7 @@ class KlineProvider:
         warnings: list[str] = []
         cached_rows = self._repo.query_range(norm_code, start_date, end_date)
         if not cached_rows:
-            warnings.append("无缓存数据")
+            warnings.append("无K线缓存")
             empty = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
             return empty, warnings, "eod"
         df = pd.DataFrame(cached_rows).drop(columns=["trade_date"], errors="ignore")
@@ -168,8 +191,12 @@ class KlineProvider:
     ) -> tuple[pd.DataFrame, list[str], str]:
         quote_mode = "eod"
         if use_realtime:
-            df, quote_mode, overlay_warnings = self._realtime_overlay.overlay(df, code)
-            warnings.extend(overlay_warnings)
+            if self._realtime_overlay is None:
+                warnings.append("实时报价依赖 AKShare，当前未启用，已使用 EOD")
+                quote_mode = "eod_fallback"
+            else:
+                df, quote_mode, overlay_warnings = self._realtime_overlay.overlay(df, code)
+                warnings.extend(overlay_warnings)
         if persist_today and use_realtime and not df.empty:
             self._persist_today_row(df, code)
         return df, warnings, quote_mode
@@ -204,7 +231,13 @@ class KlineProvider:
         on_progress: Callable[[str], None] | None = None,
     ) -> pd.DataFrame:
         errors: list[str] = []
-        for fetcher, name in ((self._baostock, "Baostock"), (self._akshare, "AKShare")):
+        sources: list[tuple[_KlineFetcher, str]] = [(self._baostock, "Baostock")]
+        if self._akshare is not None:
+            sources.append((self._akshare, "AKShare"))
+        elif on_progress and not self._use_akshare:
+            on_progress("K线 AKShare 未启用，跳过备源")
+
+        for fetcher, name in sources:
             if on_progress:
                 on_progress(f"K线 正在从 {name} 拉取…")
             try:

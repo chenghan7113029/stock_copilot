@@ -48,7 +48,7 @@ def _value_result(mos: float | None) -> ValueAnalysisResult:
         method_keys_used=["dcf"],
         fair_value_range=ValuationRange(low=80, base=100, high=120),
         margin_of_safety=mos,
-        price_percentile=0.5,
+        price_percentile=50.0,
         assessment="合理",
         confidence="High",
     )
@@ -61,11 +61,12 @@ def _tech_result(buy_signal: BuySignal) -> TechAnalysisResult:
 @pytest.mark.parametrize(
     "mos,expected",
     [
-        (0.25, ValueRating.UNDERVALUED),
-        (0.20, ValueRating.FAIR),
+        (25.0, ValueRating.UNDERVALUED),
+        (20.0, ValueRating.FAIR),
         (0.0, ValueRating.FAIR),
-        (-0.10, ValueRating.FAIR),
-        (-0.11, ValueRating.OVERVALUED),
+        (-10.0, ValueRating.FAIR),
+        (-10.1, ValueRating.OVERVALUED),
+        (-0.8, ValueRating.FAIR),
         (None, ValueRating.UNKNOWN),
     ],
 )
@@ -77,9 +78,9 @@ def test_derive_value_rating(mos: float | None, expected: ValueRating):
 @pytest.mark.parametrize("buy_signal", list(BuySignal))
 def test_fusion_matrix_all_combinations(value_rating: ValueRating, buy_signal: BuySignal):
     mos_map = {
-        ValueRating.UNDERVALUED: 0.25,
-        ValueRating.FAIR: 0.05,
-        ValueRating.OVERVALUED: -0.20,
+        ValueRating.UNDERVALUED: 25.0,
+        ValueRating.FAIR: 5.0,
+        ValueRating.OVERVALUED: -20.0,
     }
     fusion = SignalFusion()
     combined, rating = fusion.fuse(
@@ -92,13 +93,13 @@ def test_fusion_matrix_all_combinations(value_rating: ValueRating, buy_signal: B
 
 def test_fusion_overvalued_strong_buy_downgraded_to_hold():
     fusion = SignalFusion()
-    combined, _ = fusion.fuse(_value_result(-0.20), _tech_result(BuySignal.STRONG_BUY))
+    combined, _ = fusion.fuse(_value_result(-20.0), _tech_result(BuySignal.STRONG_BUY))
     assert combined == CombinedSignal.HOLD
 
 
 def test_fusion_undervalued_strong_sell_becomes_sell():
     fusion = SignalFusion()
-    combined, _ = fusion.fuse(_value_result(0.25), _tech_result(BuySignal.STRONG_SELL))
+    combined, _ = fusion.fuse(_value_result(25.0), _tech_result(BuySignal.STRONG_SELL))
     assert combined == CombinedSignal.SELL
 
 
@@ -111,7 +112,7 @@ def test_fusion_value_only_none():
 
 def test_fusion_tech_only_none():
     fusion = SignalFusion()
-    combined, rating = fusion.fuse(_value_result(0.25), None)
+    combined, rating = fusion.fuse(_value_result(25.0), None)
     assert combined == CombinedSignal.BUY
     assert rating == ValueRating.UNDERVALUED
 
@@ -135,9 +136,9 @@ def test_fusion_unknown_mos_uses_tech_signal():
 def test_fusion_tech_only_value_rating_mapping():
     fusion = SignalFusion()
     for mos, expected_signal in [
-        (0.25, CombinedSignal.BUY),
-        (0.05, CombinedSignal.HOLD),
-        (-0.20, CombinedSignal.WAIT),
+        (25.0, CombinedSignal.BUY),
+        (5.0, CombinedSignal.HOLD),
+        (-20.0, CombinedSignal.WAIT),
         (None, CombinedSignal.WAIT),
     ]:
         combined, _ = fusion.fuse(_value_result(mos), None)
@@ -145,7 +146,7 @@ def test_fusion_tech_only_value_rating_mapping():
 
 
 def test_custom_mos_thresholds():
-    config = DualTrackConfig(undervalued_mos_threshold=0.30, overvalued_mos_threshold=-0.05)
-    assert derive_value_rating(0.25, config) == ValueRating.FAIR
-    assert derive_value_rating(0.31, config) == ValueRating.UNDERVALUED
-    assert derive_value_rating(-0.06, config) == ValueRating.OVERVALUED
+    config = DualTrackConfig(undervalued_mos_threshold=30.0, overvalued_mos_threshold=-5.0)
+    assert derive_value_rating(25.0, config) == ValueRating.FAIR
+    assert derive_value_rating(31.0, config) == ValueRating.UNDERVALUED
+    assert derive_value_rating(-6.0, config) == ValueRating.OVERVALUED

@@ -26,7 +26,7 @@ def _dual_report(*, with_value: bool = True, with_tech: bool = True) -> DualTrac
             prototype="value_growth",
             method_keys_used=[],
             fair_value_range=None,
-            margin_of_safety=0.25,
+            margin_of_safety=25.0,
             price_percentile=None,
             assessment="低估",
             confidence="High",
@@ -176,8 +176,8 @@ def test_report_dual_no_cache(
     mock_sf.return_value = MagicMock(return_value=MagicMock())
     tech = TechAnalysisResult(
         code="600519",
-        warnings=["无缓存数据"],
-        risk_factors=["无缓存数据，请先运行 sync"],
+        warnings=["无K线缓存"],
+        risk_factors=["无K线缓存，请先运行 sync"],
     )
     mock_dual_cls.return_value.analyze_offline.return_value = DualTrackReport(
         code="600519",

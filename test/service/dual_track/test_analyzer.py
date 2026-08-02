@@ -16,7 +16,7 @@ from service.value.models.analysis_result import ValueAnalysisResult
 from service.value.valuation.base import ValuationRange
 
 
-def _make_value_result(mos: float = 0.25) -> ValueAnalysisResult:
+def _make_value_result(mos: float = 25.0) -> ValueAnalysisResult:
     return ValueAnalysisResult(
         code="600519",
         name="贵州茅台",
@@ -25,7 +25,7 @@ def _make_value_result(mos: float = 0.25) -> ValueAnalysisResult:
         method_keys_used=["dcf"],
         fair_value_range=ValuationRange(low=1800, base=2000, high=2200),
         margin_of_safety=mos,
-        price_percentile=0.3,
+        price_percentile=30.0,
         assessment="低估",
         confidence="High",
         data_timestamp=datetime(2026, 6, 21, tzinfo=timezone.utc),
@@ -107,7 +107,7 @@ def test_analyze_value_failure_degrades():
 
 def test_analyze_tech_failure_degrades():
     analyzer = _make_analyzer(
-        value_result=_make_value_result(0.25),
+        value_result=_make_value_result(25.0),
         tech_exc=RuntimeError("kline failed"),
     )
     report = analyzer.analyze("600519")

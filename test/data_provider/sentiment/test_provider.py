@@ -1,6 +1,9 @@
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
+
+from common.exceptions import DataProviderError
 from data_provider.base import FetchResult
 from data_provider.sentiment.provider import MarketSentimentProvider
 
@@ -30,4 +33,14 @@ def test_get_latest_offline_never_calls_fetcher() -> None:
     result = MarketSentimentProvider(repo, fetcher).get_latest_offline()
 
     assert result is cached
+    fetcher.fetch_market_breadth.assert_not_called()
+
+
+def test_fetch_raises_when_akshare_disabled() -> None:
+    repo = MagicMock()
+    fetcher = MagicMock()
+
+    with pytest.raises(DataProviderError, match="data_sources.enabled"):
+        MarketSentimentProvider(repo, fetcher, use_akshare=False).fetch_and_persist_today()
+
     fetcher.fetch_market_breadth.assert_not_called()

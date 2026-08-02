@@ -1,9 +1,9 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-08-01  
+> 最后更新：2026-08-02  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
-> OpenSpec 活跃 change：见 `openspec list`；`add-llm-narrative-core`（已冻结）
+> OpenSpec 活跃 change：见 `openspec list`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-02 | 报告内嵌讲解：`explainers.py` 默认在 tech/value/dual 输出指标注释、估值方法卡片与价值陷阱拆解；修复 MOS 百分数点展示与双轨阈值单位（`add-report-inline-explainers`） |
 | 2026-08-01 | PO-10 组合级相关性粗估：复用 `add-trade-review-attribution` 的 `TradeRecord`，严格离线实现持仓集中度、前 N 大持仓占比、行业暴露度和内存加仓模拟；行业分组仍是原始文本粗匹配，可复用 T-7 行业映射的后续标准化演进提升精度 |
 | 2026-08-01 | PO-06 情绪面 V1：`sync market` 市场快照、涨跌停家数比、恐慌贪婪代理指数与 `report dual` 三维联合解读已实现 |
 | 2026-08-01 | PO-09 复盘归因：`trade record`、`TradeRecord`、FIFO 胜率与严格离线 `report trade-review` 已实现；Badcase 归因通过 PO-04 Checklist 软引用提供，缺关联数据时显式降级 |

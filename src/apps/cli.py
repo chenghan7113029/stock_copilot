@@ -21,7 +21,7 @@ from apps.formatters import (
     format_value_report,
 )
 from common.cli_progress import CliProgress, cli_progress_enabled
-from common.config_loader import load_app_config
+from common.config_loader import is_data_source_enabled, load_app_config
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
 from common.watchlist import (
     add_to_watchlist,
@@ -140,7 +140,7 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
         value_provider.get_stock_data(code, on_progress=progress_cb)
 
         kline_repo = KlineRepo(session)
-        kline_provider = KlineProvider(kline_repo)
+        kline_provider = KlineProvider.from_config(cfg, kline_repo)
         df, kline_warnings, quote_mode = kline_provider.get_kline(
             code,
             days=cfg.get("tech", {}).get("kline_days", 90),
@@ -148,10 +148,15 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             persist_today=realtime,
             on_progress=progress_cb,
         )
-        chip_provider = ChipDistributionProvider(ChipDistributionRepo(session))
-        _, chip_warnings = chip_provider.get_latest(code, offline=False, on_progress=progress_cb)
+        # 先提交价值面 + K 线，避免筹码接口挂起导致整次 sync 回滚
+        progress.emit("正在提交价值面与 K 线…")
+        session.commit()
 
-        progress.emit("正在提交数据库事务…")
+        chip_provider = ChipDistributionProvider.from_config(
+            cfg, ChipDistributionRepo(session)
+        )
+        _, chip_warnings = chip_provider.get_latest(code, offline=False, on_progress=progress_cb)
+        progress.emit("正在提交筹码分布…")
         session.commit()
 
         kline_status = f"K线 {len(df)}行 OK"
@@ -178,13 +183,22 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
     cfg = config or load_app_config()
     _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
     progress = CliProgress("sync", enabled=cli_progress_enabled(cfg))
+    if not is_data_source_enabled(cfg, "akshare"):
+        print(
+            "[error] 市场情绪同步依赖 AKShare，请在 config/app.yaml 的 "
+            "data_sources.enabled 中启用 akshare",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     progress.emit("开始同步全市场情绪数据…")
     engine = create_db_engine(cfg)
     Base.metadata.create_all(engine)
     ensure_sqlite_schema(engine)
     session = make_session_factory(engine)()
     try:
-        snapshot = MarketSentimentProvider(MarketSentimentRepo(session)).fetch_and_persist_today()
+        snapshot = MarketSentimentProvider.from_config(
+            cfg, MarketSentimentRepo(session)
+        ).fetch_and_persist_today()
         session.commit()
         message = (
             "市场情绪同步完成："
@@ -221,8 +235,8 @@ def run_report_tech(
     analyzer = TechAnalyzer.from_config(cfg)
     result = analyzer.analyze(code, offline=True)
 
-    if any("无缓存" in w for w in result.warnings) or any(
-        "无缓存" in r for r in result.risk_factors
+    if any("无K线缓存" in w for w in result.warnings) or any(
+        "无K线缓存" in r for r in result.risk_factors
     ):
         print(f"[error] 未找到 {code} 的 K线缓存，请先运行 sync", file=sys.stderr)
         raise SystemExit(1)
@@ -289,7 +303,9 @@ def run_report_sentiment(
     ensure_sqlite_schema(engine)
     session = make_session_factory(engine)()
     try:
-        analyzer = SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session)))
+        analyzer = SentimentAnalyzer(
+            MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+        )
         result = analyzer.analyze_offline(code)
         if result is None:
             print("[error] 未找到市场情绪数据，请先运行 sync market", file=sys.stderr)
@@ -328,14 +344,16 @@ def run_report_dual(
         dual = DualTrackAnalyzer(
             value_analyzer,
             tech_analyzer,
-            sentiment_analyzer=SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session))),
+            sentiment_analyzer=SentimentAnalyzer(
+                MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+            ),
         )
         report = dual.analyze_offline(code)
 
         no_value = report.value_result is None
         no_tech = report.tech_result is None or any(
-            "无缓存" in w for w in report.tech_result.warnings
-        ) or any("无缓存" in r for r in report.tech_result.risk_factors)
+            "无K线缓存" in w for w in report.tech_result.warnings
+        ) or any("无K线缓存" in r for r in report.tech_result.risk_factors)
         if no_value and no_tech:
             print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
             raise SystemExit(1)
@@ -348,6 +366,8 @@ def run_report_dual(
             analysis_summary=report.analysis_summary,
             as_json=as_json,
             sentiment_result=report.sentiment_result,
+            value_result=report.value_result,
+            tech_result=report.tech_result,
         )
         _emit_report(text, output, progress)
     finally:
@@ -423,14 +443,16 @@ def run_report_summary(
         dual = DualTrackAnalyzer(
             value_analyzer,
             tech_analyzer,
-            sentiment_analyzer=SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session))),
+            sentiment_analyzer=SentimentAnalyzer(
+                MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+            ),
         )
         report = dual.analyze_offline(code)
 
         no_value = report.value_result is None
         no_tech = report.tech_result is None or any(
-            "无缓存" in w for w in report.tech_result.warnings
-        ) or any("无缓存" in r for r in report.tech_result.risk_factors)
+            "无K线缓存" in w for w in report.tech_result.warnings
+        ) or any("无K线缓存" in r for r in report.tech_result.risk_factors)
         if no_value and no_tech:
             print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
             raise SystemExit(1)
@@ -643,7 +665,9 @@ def run_entry_check(
         dual = DualTrackAnalyzer(
             ValueAnalyzer.from_config(cfg, repo=snapshot_repo),
             TechAnalyzer.from_config(cfg),
-            sentiment_analyzer=SentimentAnalyzer(MarketSentimentProvider(MarketSentimentRepo(session))),
+            sentiment_analyzer=SentimentAnalyzer(
+                MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+            ),
         )
         try:
             view = FreshEntryCheck(dual, PositionRepo(session)).build(code)

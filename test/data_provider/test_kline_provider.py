@@ -44,7 +44,7 @@ def test_offline_mode_empty_cache():
 
     assert df.empty
     assert quote_mode == "eod"
-    assert any("无缓存" in w for w in warnings)
+    assert any("无K线缓存" in w for w in warnings)
 
 
 def test_persist_today_writes_row():
@@ -78,3 +78,53 @@ def test_persist_today_writes_row():
     repo.upsert_batch.assert_called()
     upserted = repo.upsert_batch.call_args[0][0]
     assert upserted[-1]["trade_date"] == today
+
+
+def test_skips_akshare_fallback_when_disabled():
+    repo = MagicMock()
+    repo.query_range.return_value = []
+    baostock = MagicMock()
+    baostock.fetch_kline.side_effect = RuntimeError("baostock down")
+    akshare = MagicMock()
+
+    provider = KlineProvider(
+        repo,
+        baostock_fetcher=baostock,
+        akshare_fetcher=akshare,
+        use_akshare=False,
+    )
+
+    try:
+        provider.get_kline("600519", days=90)
+        raised = False
+    except Exception:
+        raised = True
+
+    assert raised
+    akshare.fetch_kline.assert_not_called()
+
+
+def test_realtime_falls_back_when_akshare_disabled():
+    cached = [
+        {
+            "code": "600519",
+            "trade_date": "2025-06-01",
+            "date": "2025-06-01",
+            "open": 10.0,
+            "high": 10.5,
+            "low": 9.5,
+            "close": 10.2,
+            "volume": 1_000_000.0,
+        }
+    ]
+    repo = MagicMock()
+    repo.query_range.return_value = cached
+    baostock = MagicMock()
+    baostock.fetch_kline.side_effect = RuntimeError("skip api")
+
+    provider = KlineProvider(repo, baostock_fetcher=baostock, use_akshare=False)
+    df, warnings, quote_mode = provider.get_kline("600519", days=90, use_realtime=True)
+
+    assert not df.empty
+    assert quote_mode == "eod_fallback"
+    assert any("AKShare" in w for w in warnings)

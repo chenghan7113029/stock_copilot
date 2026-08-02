@@ -41,3 +41,25 @@ def test_build_analysis_summary_without_name():
     text = build_analysis_summary("600519", None, None, "观望", None)
     assert text.startswith("股票代码: 600519")
     assert "名称:" not in text
+
+def test_build_analysis_summary_mos_percent_points():
+    from service.value.valuation.base import ValuationRange
+
+    value = ValueAnalysisResult(
+        code="002027",
+        name="分众传媒",
+        current_price=5.62,
+        prototype="high_dividend",
+        method_keys_used=[],
+        fair_value_range=ValuationRange(low=3.14, base=5.58, high=8.67),
+        margin_of_safety=-0.8,
+        price_percentile=45.0,
+        assessment="合理",
+        confidence="Medium",
+    )
+    text = build_analysis_summary(
+        "002027", value, None, "观望", ValueRating.FAIR
+    )
+    assert "安全边际: -0.8%" in text
+    assert "-80%" not in text
+

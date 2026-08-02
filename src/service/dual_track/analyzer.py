@@ -14,6 +14,7 @@ from service.sentiment.analyzer import SentimentAnalyzer
 from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.analyzer import TechAnalyzer
 from service.tech.models.tech_result import TechAnalysisResult
+from service.report.explainers import format_mos_percent_points
 from service.value.analyzer import ValueAnalyzer
 from service.value.models.analysis_result import ValueAnalysisResult
 
@@ -37,7 +38,9 @@ def build_analysis_summary(
                 f"价值面: 公允价区间 [{r.low:.2f}, {r.base:.2f}, {r.high:.2f}]"
             )
         if value_result.margin_of_safety is not None:
-            parts.append(f"安全边际: {value_result.margin_of_safety:.1%}")
+            parts.append(
+                f"安全边际: {format_mos_percent_points(value_result.margin_of_safety)}"
+            )
 
     if tech_result is not None:
         parts.append(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from apps.formatters import format_tech_report, format_value_report
+from apps.formatters import format_dual_report, format_tech_report, format_value_report
 from service.tech.models.tech_result import (
     BuySignal,
     ChipStatus,
@@ -207,3 +207,125 @@ def test_format_value_report_dcf_epv_semantic_hints():
     assert "含增长假设" in text
     assert "g₁=8.0% 5年" in text
     assert "零增长地板价" in text
+
+
+def test_format_tech_report_embeds_indicator_notes():
+    text = format_tech_report(
+        TechAnalysisResult(code="600519", buy_signal=BuySignal.HOLD, signal_score=50)
+    )
+    assert "指标说明" in text
+    assert "RSI" in text
+
+
+def test_format_value_mos_not_double_scaled():
+    result = ValueAnalysisResult(
+        code="002027",
+        name="分众传媒",
+        current_price=5.62,
+        prototype="high_dividend",
+        method_keys_used=[],
+        fair_value_range=ValuationRange(low=3.0, base=5.58, high=8.0),
+        margin_of_safety=-0.8,
+        price_percentile=45.0,
+        assessment="合理",
+        confidence="Medium",
+    )
+    text = format_value_report(result)
+    assert "安全边际: -0.8%" in text
+    assert "-80%" not in text
+
+
+def test_format_value_report_includes_method_cards():
+    result = ValueAnalysisResult(
+        code="600519",
+        name="贵州茅台",
+        current_price=1400.0,
+        prototype="value_growth",
+        method_keys_used=["ddm"],
+        fair_value_range=ValuationRange(low=900, base=1400, high=1950),
+        margin_of_safety=10.0,
+        price_percentile=50.0,
+        assessment="合理",
+        confidence="Medium",
+        method_results={
+            "ddm": ValuationResult(
+                method="DDM",
+                fair_value=1950.0,
+                current_price=1400.0,
+                premium_discount=-28.2,
+                assessment="Undervalued",
+                details={
+                    "formula": "P = D / (r - g)",
+                    "dividend": 1.2,
+                    "required_return": 8.0,
+                    "growth_rate": 3.0,
+                },
+                applicability="Applicable",
+            ),
+        },
+    )
+    text = format_value_report(result)
+    assert "估值方法详解" in text
+    assert "P = D / (r - g)" in text
+    assert "低估" in text
+
+
+def test_format_dual_embeds_explanations_text_only():
+    value = ValueAnalysisResult(
+        code="600519",
+        name="贵州茅台",
+        current_price=100.0,
+        prototype="value_growth",
+        method_keys_used=["ddm"],
+        fair_value_range=None,
+        margin_of_safety=-0.8,
+        price_percentile=None,
+        assessment="合理",
+        confidence="Medium",
+        method_results={
+            "value_trap": ValuationResult(
+                method="Value Trap Detector",
+                fair_value=100.0,
+                current_price=100.0,
+                premium_discount=0.0,
+                assessment="Medium Value Trap Risk",
+                details={
+                    "overall_risk": "Medium",
+                    "financial_health": "Low",
+                    "financial_health_note": "ok",
+                    "business_deterioration": "Medium",
+                    "business_deterioration_note": "x",
+                    "moat_erosion": "Low",
+                    "moat_erosion_note": "y",
+                    "ai_vulnerability": "Medium",
+                    "ai_vulnerability_note": "manual",
+                    "dividend_sustainability": "Low",
+                    "dividend_sustainability_note": "z",
+                },
+                applicability="Applicable",
+            )
+        },
+    )
+    tech = TechAnalysisResult(code="600519", signal_score=60)
+    text = format_dual_report(
+        "600519",
+        ["bull"],
+        ["bear"],
+        analysis_summary="安全边际: -0.8%",
+        value_result=value,
+        tech_result=tech,
+    )
+    payload = format_dual_report(
+        "600519",
+        ["bull"],
+        ["bear"],
+        as_json=True,
+        value_result=value,
+        tech_result=tech,
+    )
+    assert "价值面讲解" in text
+    assert "技术面讲解" in text
+    assert "价值陷阱" in text
+    assert "指标说明" in text
+    assert "bull_evidence" in payload
+    assert "价值面讲解" not in payload

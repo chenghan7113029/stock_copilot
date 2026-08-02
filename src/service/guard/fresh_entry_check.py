@@ -61,8 +61,8 @@ class FreshEntryCheck:
     @staticmethod
     def _require_local_data(report: DualTrackReport) -> None:
         tech = report.tech_result
-        no_tech = tech is None or any("无缓存" in item for item in tech.warnings) or any(
-            "无缓存" in item for item in tech.risk_factors
+        no_tech = tech is None or any("无K线缓存" in item for item in tech.warnings) or any(
+            "无K线缓存" in item for item in tech.risk_factors
         )
         if report.value_result is None or no_tech:
             raise LocalDataMissingError(f"未找到 {report.code} 的本地数据，请先运行 sync")

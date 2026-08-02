@@ -8,6 +8,7 @@ from common.exceptions import StockCopilotError
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.dual_track.models.report import DualTrackReport
+from service.report.explainers import format_mos_percent_points
 from service.report.models.dashboard_view import DashboardView
 from service.tech.analyzer import TechAnalyzer
 from service.tech.models.tech_result import TechAnalysisResult
@@ -31,8 +32,8 @@ class LocalDataMissingError(StockCopilotError):
 def _tech_has_no_cache(tech: TechAnalysisResult | None) -> bool:
     if tech is None:
         return True
-    return any("无缓存" in w for w in tech.warnings) or any(
-        "无缓存" in r for r in tech.risk_factors
+    return any("无K线缓存" in w for w in tech.warnings) or any(
+        "无K线缓存" in r for r in tech.risk_factors
     )
 
 
@@ -50,7 +51,7 @@ def _format_value_section(value: ValueAnalysisResult | None) -> str:
         r = value.fair_value_range
         lines.append(f"公允价区间: {r.low:.2f} ~ {r.base:.2f} ~ {r.high:.2f}")
     if value.margin_of_safety is not None:
-        lines.append(f"安全边际: {value.margin_of_safety:.1%}")
+        lines.append(f"安全边际: {format_mos_percent_points(value.margin_of_safety)}")
     return "\n".join(lines)
 
 
@@ -68,7 +69,7 @@ def _format_tech_section(tech: TechAnalysisResult | None) -> str:
         lines.append("信号理由: " + "；".join(tech.signal_reasons[:3]))
     if tech.risk_factors:
         # 过滤无缓存类提示（已作为整体缺失处理）
-        risks = [r for r in tech.risk_factors if "无缓存" not in r][:3]
+        risks = [r for r in tech.risk_factors if "无K线缓存" not in r][:3]
         if risks:
             lines.append("风险: " + "；".join(risks))
     return "\n".join(lines)

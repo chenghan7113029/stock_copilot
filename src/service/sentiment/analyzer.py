@@ -25,7 +25,9 @@ class SentimentAnalyzer:
         engine = create_db_engine(config)
         Base.metadata.create_all(engine)
         session = make_session_factory(engine)()
-        return cls(MarketSentimentProvider(MarketSentimentRepo(session)))
+        return cls(
+            MarketSentimentProvider.from_config(config, MarketSentimentRepo(session))
+        )
 
     def analyze(self, code: str) -> SentimentAnalysisResult:
         snapshot = self._provider.fetch_and_persist_today()

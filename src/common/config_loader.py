@@ -111,6 +111,20 @@ def resolve_llm_config(config: dict[str, Any] | None = None) -> LLMConfig | None
     )
 
 
+def is_data_source_enabled(config: dict[str, Any] | None, name: str) -> bool:
+    """判断 data_sources.enabled 是否包含指定源（大小写不敏感）。
+
+    未出现在 enabled 列表的源不应被实例化或联网调用（含 K 线备源、筹码、情绪等旁路）。
+    """
+    if not config:
+        return False
+    target = name.strip().lower()
+    for src in config.get("data_sources", {}).get("enabled", []) or []:
+        if str(src.get("name", "")).strip().lower() == target:
+            return True
+    return False
+
+
 def resolve_tushare_token(config: dict[str, Any] | None = None) -> str | None:
     """解析 Tushare Pro Token。
 

@@ -23,8 +23,8 @@ def _value() -> ValueAnalysisResult:
         prototype="value_growth",
         method_keys_used=["dcf"],
         fair_value_range=ValuationRange(low=1800, base=2000, high=2200),
-        margin_of_safety=0.25,
-        price_percentile=0.3,
+        margin_of_safety=25.0,
+        price_percentile=30.0,
         assessment="低估",
         confidence="High",
         data_timestamp=datetime(2026, 6, 21, tzinfo=timezone.utc),
@@ -35,8 +35,8 @@ def _tech(*, no_cache: bool = False) -> TechAnalysisResult:
     if no_cache:
         return TechAnalysisResult(
             code="600519",
-            warnings=["无缓存数据"],
-            risk_factors=["无缓存数据，请先运行 sync"],
+            warnings=["无K线缓存"],
+            risk_factors=["无K线缓存，请先运行 sync"],
         )
     return TechAnalysisResult(
         code="600519",

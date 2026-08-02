@@ -76,3 +76,18 @@ def test_get_latest_returns_warning_without_cache_after_fetch_failure() -> None:
 
     assert result is None
     assert any("network down" in warning for warning in warnings)
+
+
+def test_get_latest_skips_akshare_when_disabled() -> None:
+    cached = {"code": "600519", "trade_date": "2026-07-30"}
+    repo = MagicMock()
+    repo.query_latest.return_value = cached
+    fetcher = MagicMock()
+
+    result, warnings = ChipDistributionProvider(
+        repo, fetcher, use_akshare=False
+    ).get_latest("600519")
+
+    assert result == cached
+    assert any("未在 data_sources.enabled 中启用" in w for w in warnings)
+    fetcher.fetch_chip_distribution.assert_not_called()

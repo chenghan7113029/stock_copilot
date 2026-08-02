@@ -43,8 +43,10 @@ class TechAnalyzer:
         Base.metadata.create_all(engine)
         session_factory = make_session_factory(engine)
         session = session_factory()
-        kline_provider = KlineProvider(KlineRepo(session))
-        chip_provider = ChipDistributionProvider(ChipDistributionRepo(session))
+        kline_provider = KlineProvider.from_config(config, KlineRepo(session))
+        chip_provider = ChipDistributionProvider.from_config(
+            config, ChipDistributionRepo(session)
+        )
         tech_cfg = TechAnalysisConfig(
             kline_days=config.get("tech", {}).get("kline_days", 90),
         )
@@ -76,8 +78,8 @@ class TechAnalyzer:
 
         if df is None or df.empty:
             if offline:
-                result.warnings.append("无缓存数据")
-                result.risk_factors.append("无缓存数据，请先运行 sync")
+                result.warnings.append("无K线缓存")
+                result.risk_factors.append("无K线缓存，请先运行 sync")
             else:
                 result.risk_factors.append("数据不足，无法完成分析")
             result.buy_signal = BuySignal.WAIT

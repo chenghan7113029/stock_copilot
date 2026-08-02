@@ -25,7 +25,7 @@ def _value_result(
         prototype=prototype,
         method_keys_used=list((method_results or {}).keys()),
         fair_value_range=ValuationRange(low=1800, base=2000, high=2200),
-        margin_of_safety=0.25,
+        margin_of_safety=25.0,
         price_percentile=0.3,
         assessment=assessment,
         confidence="High",

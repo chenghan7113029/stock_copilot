@@ -10,6 +10,13 @@ from typing import Any
 
 from service.guard.models.fresh_entry_view import FreshEntryView
 from service.portfolio.models.portfolio_result import PortfolioAnalysisResult
+from service.report.explainers import (
+    applicability_to_zh,
+    assessment_to_zh,
+    format_mos_percent_points,
+    render_tech_explanations,
+    render_value_explanations,
+)
 from service.report.models.dashboard_view import DashboardView
 from service.sentiment.models.sentiment_result import SentimentAnalysisResult
 from service.tech.models.tech_result import TechAnalysisResult
@@ -116,6 +123,7 @@ def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str
     if result.warnings:
         lines.extend(["", "--- 警告 ---", *result.warnings])
 
+    lines.extend(render_tech_explanations(result))
     return "\n".join(lines)
 
 
@@ -174,7 +182,7 @@ def format_value_report(
         )
 
     if result.margin_of_safety is not None:
-        lines.append(f"安全边际: {result.margin_of_safety:.1f}%")
+        lines.append(f"安全边际: {format_mos_percent_points(result.margin_of_safety)}")
 
     if result.price_percentile is not None:
         band = percentile_band(result.price_percentile)
@@ -194,7 +202,9 @@ def format_value_report(
         for key, mr in result.method_results.items():
             fv = _fmt_num(mr.fair_value) if mr.fair_value else "N/A"
             hint = _method_semantic_hint(key, mr)
-            line = f"  {key}: 公允价={fv} | {mr.assessment} ({mr.applicability})"
+            assess = assessment_to_zh(mr.assessment)
+            appl = applicability_to_zh(mr.applicability)
+            line = f"  {key}: 公允价={fv} | {assess} ({appl})"
             if hint:
                 line = f"{line} {hint}"
             lines.append(line)
@@ -202,6 +212,7 @@ def format_value_report(
     if result.warnings:
         lines.extend(["", "--- 警告 ---", *result.warnings])
 
+    lines.extend(render_value_explanations(result))
     return "\n".join(lines)
 
 
@@ -213,8 +224,10 @@ def format_dual_report(
     analysis_summary: str = "",
     as_json: bool = False,
     sentiment_result: SentimentAnalysisResult | None = None,
+    value_result: ValueAnalysisResult | None = None,
+    tech_result: TechAnalysisResult | None = None,
 ) -> str:
-    """红蓝对抗 Level 0：证据分桶输出（供 Skill 消费）。"""
+    """红蓝对抗 Level 0：证据分桶输出（供 Skill 消费）；文本模式附加同源讲解。"""
     payload = {
         "code": code,
         "analysis_summary": analysis_summary,
@@ -223,6 +236,7 @@ def format_dual_report(
         "sentiment_result": _to_json_serializable(sentiment_result),
     }
     if as_json:
+        # 讲解仅默认出现在文本模式，避免撑破 Skill 消费体积；证据字段契约不变
         return _dump_json(payload)
 
     lines: list[str] = [
@@ -252,6 +266,13 @@ def format_dual_report(
         lines.extend(f"  [{i}] {item}" for i, item in enumerate(bear_evidence, 1))
     else:
         lines.append("  （空）")
+
+    if value_result is not None:
+        lines.extend(["", "=== 价值面讲解（与 report value 同源） ==="])
+        lines.extend(render_value_explanations(value_result))
+    if tech_result is not None:
+        lines.extend(["", "=== 技术面讲解（与 report tech 同源） ==="])
+        lines.extend(render_tech_explanations(tech_result))
 
     return "\n".join(lines)
 

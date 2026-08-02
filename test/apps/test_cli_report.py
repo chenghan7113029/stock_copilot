@@ -36,8 +36,8 @@ def test_report_tech_success(mock_cfg, mock_analyzer_cls):
 @patch("apps.cli.load_app_config")
 def test_report_tech_no_cache(mock_cfg, mock_analyzer_cls, capsys):
     mock_cfg.return_value = {}
-    result = TechAnalysisResult(code="600519", warnings=["无缓存数据"])
-    result.risk_factors.append("无缓存数据，请先运行 sync")
+    result = TechAnalysisResult(code="600519", warnings=["无K线缓存"])
+    result.risk_factors.append("无K线缓存，请先运行 sync")
     mock_analyzer_cls.from_config.return_value.analyze.return_value = result
 
     with pytest.raises(SystemExit) as exc:
