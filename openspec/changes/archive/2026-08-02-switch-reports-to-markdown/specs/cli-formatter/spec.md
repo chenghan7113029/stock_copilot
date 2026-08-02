@@ -1,10 +1,4 @@
-# cli-formatter Specification
-
-## Purpose
-
-CLI 报告格式化层：将分析结果转换为人类可读 Markdown 或 JSON 字符串。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 技术面文本格式化
 `format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str` SHALL 将技术面分析结果转换为可读字符串。
@@ -49,10 +43,3 @@ CLI 报告格式化层：将分析结果转换为人类可读 Markdown 或 JSON 
 #### Scenario: JSON 格式输出
 - **WHEN** 传入合法 `ValueAnalysisResult` 且 `as_json=True`
 - **THEN** 返回合法 JSON 字符串，字段类型同技术面规范
-
-### Requirement: 空结果安全
-formatter SHALL 在 result 为空或关键字段为 None 时返回友好提示而非抛异常。
-
-#### Scenario: 关键字段为 None
-- **WHEN** `TechAnalysisResult.score` 为 `None`
-- **THEN** 返回文本中对应行显示「N/A」，不抛 `AttributeError`

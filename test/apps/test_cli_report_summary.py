@@ -230,8 +230,8 @@ def test_format_summary_report_degrade_and_success():
     text = format_summary_report(det, narrative_error="LLM 未配置")
     assert "LLM 叙事生成失败" in text
     assert "确定性摘要" in text
-    assert "=== 综合摘要 600519 贵州茅台 ===" in text
-    assert "名称: 贵州茅台" in text
+    assert "# 综合摘要 600519 贵州茅台" in text
+    assert "名称:** 贵州茅台" in text or "名称: 贵州茅台" in text
 
     ok = format_summary_report(
         det,
@@ -255,7 +255,7 @@ def test_format_summary_report_without_name():
         "bear_evidence_count": 0,
     }
     text = format_summary_report(det)
-    assert "=== 综合摘要 600519 ===" in text
+    assert "# 综合摘要 600519" in text
     assert "名称:" not in text
 
 
@@ -282,5 +282,5 @@ def test_report_summary_includes_stock_name(capsys):
         run_report_summary("600519")
 
     out = capsys.readouterr().out
-    assert "=== 综合摘要 600519 贵州茅台 ===" in out
-    assert "名称: 贵州茅台" in out
+    assert "# 综合摘要 600519 贵州茅台" in out
+    assert "名称:** 贵州茅台" in out or "名称: 贵州茅台" in out

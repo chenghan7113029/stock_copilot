@@ -147,11 +147,11 @@ def test_cli_report_dashboard_invocation(mock_run):
 
 def test_format_dashboard_report_text_and_json():
     text = format_dashboard_report(_view())
-    assert "--- 价值面 ---" in text
-    assert "--- 技术面 ---" in text
-    assert "--- 情绪面 ---" in text
-    assert "--- Checklist ---" in text
-    assert "--- 综合摘要 ---" in text
+    assert "## 价值面" in text
+    assert "## 技术面" in text
+    assert "## 情绪面" in text
+    assert "## Checklist" in text
+    assert "## 综合摘要" in text
     js = format_dashboard_report(_view(), as_json=True)
     assert '"code": "600519"' in js
     assert '"combined_summary"' in js

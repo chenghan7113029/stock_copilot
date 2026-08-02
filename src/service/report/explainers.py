@@ -105,11 +105,11 @@ def render_tech_explanations(result: TechAnalysisResult) -> list[str]:
     if result.winner_ratio is not None:
         keys.append("chip")
 
-    lines = ["", "--- 指标说明（本次报告） ---"]
+    lines = ["", "## 指标说明（本次报告）", ""]
     for key in keys:
         note = _TECH_NOTES.get(key)
         if note:
-            lines.append(f"· {note}")
+            lines.append(f"- {note}")
     return lines
 
 
@@ -245,11 +245,12 @@ def render_value_method_card(key: str, mr: ValuationResult) -> list[str]:
 
     lines = [
         "",
-        f"【{meta['name']}】（键名: {key}）",
-        f"是什么：{meta['what']}",
-        f"适用场景：{meta['when']}",
-        f"公式：{formula if formula else '未在 details 中提供'}",
-        "本次入参：",
+        f"### {meta['name']}（键名: `{key}`）",
+        "",
+        f"- **是什么：** {meta['what']}",
+        f"- **适用场景：** {meta['when']}",
+        f"- **公式：** {formula if formula else '未在 details 中提供'}",
+        "- **本次入参：**",
     ]
 
     input_keys = [
@@ -258,7 +259,7 @@ def render_value_method_card(key: str, mr: ValuationResult) -> list[str]:
         if k not in _SKIP_DETAIL_KEYS and k != "formula" and not k.endswith("_note")
     ]
     if not input_keys:
-        lines.append("  （details 中无额外入参字段）")
+        lines.append("  - （details 中无额外入参字段）")
     else:
         for dk in input_keys:
             label, source = _DETAIL_SOURCES.get(dk, (dk, "见 details；来源未单独标注"))
@@ -267,12 +268,12 @@ def render_value_method_card(key: str, mr: ValuationResult) -> list[str]:
             )
 
     fv = f"{mr.fair_value:.2f}" if mr.fair_value is not None else "N/A"
-    lines.append(f"结果：公允价={fv} | 评估={assess_zh} | 适用性={app_zh}")
+    lines.append(f"- **结果：** 公允价={fv} | 评估={assess_zh} | 适用性={app_zh}")
 
     if mr.applicability and mr.applicability.lower() in ("not applicable", "limited"):
         err = mr.error or (mr.analysis[0] if mr.analysis else "")
         if err:
-            lines.append(f"说明：{err}")
+            lines.append(f"- **说明：** {err}")
 
     return lines
 
@@ -280,7 +281,7 @@ def render_value_method_card(key: str, mr: ValuationResult) -> list[str]:
 def render_all_value_method_cards(result: ValueAnalysisResult) -> list[str]:
     if not result.method_results:
         return []
-    lines = ["", "--- 估值方法详解（默认开启） ---"]
+    lines = ["", "## 估值方法详解（默认开启）", ""]
     for key, mr in result.method_results.items():
         lines.extend(render_value_method_card(key, mr))
     return lines
@@ -312,11 +313,14 @@ def render_value_trap_explainer(details: dict[str, Any] | None) -> list[str]:
     overall_zh = _RISK_ZH.get(str(overall), str(overall))
     lines = [
         "",
-        "--- 价值陷阱说明 ---",
+        "## 价值陷阱说明",
+        "",
         "含义：价格可能看起来「不贵」，但基本面有坑时，便宜也可能长期无法兑现为回报。",
-        f"本次总体风险：{overall_zh}（{overall}）",
+        f"本次总体风险：**{overall_zh}**（{overall}）",
         "怎么读：低=未发现明显陷阱信号；中等=需核对财报与竞争；高=便宜也不能闭眼买。",
-        "各维度：",
+        "",
+        "**各维度：**",
+        "",
     ]
     for risk_key, note_key, label in _TRAP_DIMS:
         risk = details.get(risk_key)
@@ -324,7 +328,7 @@ def render_value_trap_explainer(details: dict[str, Any] | None) -> list[str]:
         if risk is None:
             continue
         risk_zh = _RISK_ZH.get(str(risk), str(risk))
-        lines.append(f"  · {label}：{risk_zh} — {note}")
+        lines.append(f"- {label}：{risk_zh} — {note}")
     return lines
 
 

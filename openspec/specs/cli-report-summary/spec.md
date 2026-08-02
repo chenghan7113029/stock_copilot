@@ -23,3 +23,10 @@ CLI `report summary`：默认离线确定性摘要，`--narrate` 显式联网生
 #### Scenario: 无本地数据时明确报错
 - **WHEN** 运行 `report summary <code>` 但本地无该代码的价值快照与 K 线缓存
 - **THEN** SHALL 输出 `[error] 未找到 <code> 的本地数据，请先运行 sync`，退出码非 0，SHALL NOT 调用 LLM
+
+### Requirement: report summary 默认 Markdown 文本与 .md 落盘约定
+`report summary` 在非 `--json` 时的人类可读输出（含可选 `--narrate` 追加段）SHALL 为 Markdown（见 `report-markdown-output`）。批量 `-o` 目录默认文件名 SHALL 使用 `{code}_summary.md`。
+
+#### Scenario: 批量 summary 写 md
+- **WHEN** 用户执行 `report summary --watchlist -o reports/out`（非 `--json`）
+- **THEN** 输出文件扩展名 SHALL 为 `.md`

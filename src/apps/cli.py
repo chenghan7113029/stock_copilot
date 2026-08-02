@@ -106,8 +106,10 @@ def _resolve_target_codes(code: str | None, use_watchlist: bool) -> list[str]:
     return [code]
 
 
-def _batch_output_path(output: str | None, code: str, kind: str) -> str | None:
-    """批量模式下将 -o 视为目录，写入 {code}_{kind}.txt|.json。"""
+def _batch_output_path(
+    output: str | None, code: str, kind: str, *, as_json: bool = False
+) -> str | None:
+    """批量模式下将 -o 视为目录，写入 {code}_{kind}.md|.json。"""
     if not output:
         return None
     out = Path(output)
@@ -115,7 +117,8 @@ def _batch_output_path(output: str | None, code: str, kind: str) -> str | None:
     if out.suffix.lower() in {".txt", ".json", ".md"}:
         out = out.parent if out.parent != Path("") else Path(".")
     out.mkdir(parents=True, exist_ok=True)
-    return str(out / f"{code}_{kind}.txt")
+    ext = ".json" if as_json else ".md"
+    return str(out / f"{code}_{kind}{ext}")
 
 
 def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = None) -> None:
@@ -842,7 +845,13 @@ def _run_for_codes(
     for i, code in enumerate(codes, 1):
         if batch and len(codes) > 1:
             print(f"\n======== [{i}/{len(codes)}] {label} {code} ========", flush=True)
-        out = _batch_output_path(output, code, kind) if batch else output
+        out = (
+            _batch_output_path(
+                output, code, kind, as_json=bool(kwargs.get("as_json"))
+            )
+            if batch
+            else output
+        )
         try:
             fn(code, output=out, **kwargs)
         except SystemExit as exc:
@@ -895,7 +904,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument(
             "--output",
             "-o",
-            help="单票：文件路径；--watchlist：输出目录（写入 {code}_*.txt）",
+            help="单票：文件路径；--watchlist：输出目录（写入 {code}_*.md / *.json）",
         )
         p.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 

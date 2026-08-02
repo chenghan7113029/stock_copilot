@@ -228,13 +228,13 @@ git push
 ### 3.3 把报告存成文件
 
 ```cmd
-py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.txt
-py -m apps.cli report tech 600519 -o reports/600519_tech.txt
-py -m apps.cli report value 600519 -o reports/600519_value.txt
-py -m apps.cli report dual 600519 -o reports/600519_dual.txt
+py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.md
+py -m apps.cli report tech 600519 -o reports/600519_tech.md
+py -m apps.cli report value 600519 -o reports/600519_value.md
+py -m apps.cli report dual 600519 -o reports/600519_dual.md
 ```
 
-`reports/` 目录默认不进 Git，适合本地留存。
+`reports/` 目录默认不进 Git，适合本地留存。默认人类可读报告扩展名为 `.md`（Markdown）；若你显式传入 `-o .../*.txt` 仍按该路径写入。
 
 ### 3.4 一键试跑（推荐新手）
 
@@ -292,7 +292,7 @@ python -m apps.cli report tech <代码> [--json] [-o 文件] [--quiet]
 python -m apps.cli report tech --watchlist [-o 目录] [--json] [--quiet]
 ```
 
-`--watchlist` 时 `-o` 视为**目录**，写入 `{代码}_tech.txt`。
+`--watchlist` 时 `-o` 视为**目录**，写入 `{代码}_tech.md`。
 
 报告大致包含：
 
@@ -588,13 +588,13 @@ Checklist 提交被拒绝：
 
 ### 5.5 用一份真实报告走读（分众 002027）
 
-假设你打开了 `002027_dashboard.txt` / `002027_summary.txt`：
+假设你打开了 `002027_dashboard.md` / `002027_summary.md`：
 
 1. **综合信号 = 观望** → 先别想「软件让我买/卖」  
 2. **价值：公允价区间 3.14～5.58～8.67，安全边际为负，评级偏高估** → 相对工具算法，现价不便宜（甚至偏贵）  
 3. **技术：强势多头、评分 62、信号买入，但风险写着 RSI/KDJ 超买** → 涨势在，但短线过热  
 4. 结论翻译成人话：**「涨得好，但不便宜，还超买 → 观望更合适」**  
-5. 若要争论细节，再打开 `*_dual.txt` 或 `*_confrontation.md`，对照多方/空方条目，而不是只读 AI 论述段
+5. 若要争论细节，再打开 `*_dual.md` 或 `*_confrontation.md`，对照多方/空方条目，而不是只读 AI 论述段
 
 **海康 `002415` 的补充直觉：**  
 value 报告里 DCF 给了很高的公允价并标 Undervalued，但 EPV/EV·EBITDA 标 Overvalued，综合评估却可以是「合理」。  
@@ -791,9 +791,9 @@ py -m apps.cli trade record 600519 buy --price 10 --quantity 100
 py -m apps.cli sync market
 
 # 存盘
-py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.txt
-py -m apps.cli report summary 600519 -o reports/600519_summary.txt
-py -m apps.cli report value 600519 -o reports/600519_value.txt
+py -m apps.cli report dashboard 600519 -o reports/600519_dashboard.md
+py -m apps.cli report summary 600519 -o reports/600519_summary.md
+py -m apps.cli report value 600519 -o reports/600519_value.md
 py -m apps.cli report dual 600519 --json -o reports/600519_dual.json
 
 # 一键试跑
@@ -843,7 +843,7 @@ py -m apps.cli entry-check 600519
 需要保存可读报告或供其他工具读取的 JSON 时：
 
 ```powershell
-py -m apps.cli entry-check 600519 -o reports/600519_entry_check.txt
+py -m apps.cli entry-check 600519 -o reports/600519_entry_check.md
 py -m apps.cli entry-check 600519 --json -o reports/600519_entry_check.json
 ```
 
@@ -960,7 +960,7 @@ py -m apps.cli trade record 600000 buy 10 1000 --date 2026-08-01
 
 ```powershell
 py -m apps.cli report portfolio
-py -m apps.cli report portfolio -o reports/portfolio.txt
+py -m apps.cli report portfolio -o reports/portfolio.md
 py -m apps.cli report portfolio --json -o reports/portfolio.json
 ```
 

@@ -202,7 +202,7 @@ def test_cli_report_dual_invocation(mock_run):
 def test_format_dual_report_text_and_json():
     text = format_dual_report("600519", ["b1"], ["e1"], analysis_summary="摘要")
     assert "多方证据" in text
-    assert "[1] b1" in text
+    assert "1. b1" in text
     js = format_dual_report("600519", ["b1"], ["e1"], as_json=True)
     assert '"code": "600519"' in js
     assert '"bull_evidence"' in js
@@ -218,4 +218,4 @@ def test_format_dual_report_displays_sentiment_summary():
 
     text = format_dual_report("600519", [], [], sentiment_result=sentiment)
 
-    assert "市场情绪: 贪婪" in text
+    assert "市场情绪:** 贪婪" in text or "市场情绪: 贪婪" in text

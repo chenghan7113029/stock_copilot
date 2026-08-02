@@ -27,7 +27,7 @@ def test_format_tech_report_text():
         quote_mode="eod",
     )
     text = format_tech_report(result, as_json=False)
-    assert "=== 技术面分析报告 600519 ===" in text
+    assert "# 技术面分析报告 600519" in text
     assert "综合评分" in text
     assert "周线" not in text or "K线末行: 2025-06-28" in text
 
@@ -42,7 +42,7 @@ def test_format_tech_report_json():
 def test_format_tech_report_none_score_safe():
     result = TechAnalysisResult(code="600519", signal_score=0)
     text = format_tech_report(result, as_json=False)
-    assert "N/A" not in text or "综合评分: 0" in text
+    assert "综合评分:** 0" in text or "综合评分: 0" in text
 
 
 def test_format_tech_report_renders_chip_section_only_when_available():
@@ -59,10 +59,10 @@ def test_format_tech_report_renders_chip_section_only_when_available():
     text = format_tech_report(result)
     payload = json.loads(format_tech_report(result, as_json=True))
 
-    assert "--- 筹码分布 ---" in text
+    assert "## 筹码分布" in text
     assert "获利比例 42.5%" in text
     assert payload["chip_status"] == "高度控盘"
-    assert "--- 筹码分布 ---" not in format_tech_report(TechAnalysisResult(code="600519"))
+    assert "## 筹码分布" not in format_tech_report(TechAnalysisResult(code="600519"))
 
 
 def test_format_value_report_text():
@@ -80,7 +80,7 @@ def test_format_value_report_text():
         data_timestamp=datetime(2025, 6, 28, 9, 15),
     )
     text = format_value_report(result, as_json=False)
-    assert "=== 价值面分析报告 600519 ===" in text
+    assert "# 价值面分析报告 600519" in text
     assert "估值" in text
     assert "安全边际" in text
     assert "当前价格处于历史估值区间中性（分位 50%）" in text
@@ -148,8 +148,8 @@ def test_format_value_report_value_trap_alert_text_and_json():
     payload = json.loads(format_value_report(result, as_json=True))
 
     assert alert in text
-    assert text.index(alert) < text.index("评估:")
-    assert "--- 警告 ---" in text
+    assert text.index(alert) < text.index("评估")
+    assert "## 警告" in text
     assert payload["value_trap_alert"] == alert
 
 

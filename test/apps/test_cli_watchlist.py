@@ -50,7 +50,7 @@ def test_report_value_watchlist(mock_codes, mock_run):
     mock_run.assert_called_once()
     assert mock_run.call_args.args[0] == "600519"
     out = mock_run.call_args.kwargs["output"].replace("\\", "/")
-    assert out.endswith("600519_value.txt")
+    assert out.endswith("600519_value.md")
 
 
 def test_sync_code_and_watchlist_conflict():
