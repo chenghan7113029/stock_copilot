@@ -10,6 +10,7 @@
 | [roadmap-todo.md](roadmap-todo.md) | **功能待办清单**（已交付 vs 待实现，便于自检） | 维护中 |
 | [features/value-analysis.md](features/value-analysis.md) | 价值面分析模块需求细则 | 细则 v3 |
 | [features/tech-analysis.md](features/tech-analysis.md) | 技术面分析模块需求细则 | 细则 v3 |
+| [features/data-source-migration.md](features/data-source-migration.md) | **数据源架构迁移**（三阶段：架构统一 / Tushare 对齐 / AKShare 退役） | 草案 |
 | [../user_story.md](../user_story.md) | 原始用户故事与期望（素材） | 已纳入 product-overview |
 
 ## 维护规则
