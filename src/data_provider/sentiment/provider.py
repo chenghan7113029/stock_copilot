@@ -5,15 +5,13 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Protocol
 
-from common.config_loader import is_data_source_enabled
 from common.exceptions import DataProviderError
 from dao.models import MarketSentimentSnapshot
+from data_provider.router import DataFetcherRouter
 from data_provider.sentiment.akshare_sentiment_fetcher import AkshareSentimentFetcher
 from service.sentiment.scorer import calculate_fear_greed_index, calculate_limit_updown_ratio
 
-_AKSHARE_DISABLED_MSG = (
-    "市场情绪同步依赖 AKShare，当前未在 data_sources.enabled 中启用"
-)
+_NO_SOURCE_MSG = "市场情绪同步无可用数据源（请在 data_sources.enabled 中配置支持情绪的源）"
 
 
 class _MarketSentimentRepo(Protocol):
@@ -38,12 +36,15 @@ class MarketSentimentProvider:
 
     @classmethod
     def from_config(cls, config: dict[str, Any], repo: _MarketSentimentRepo) -> "MarketSentimentProvider":
-        return cls(repo, use_akshare=is_data_source_enabled(config, "akshare"))
+        """经 Router 判断是否启用 akshare；未启用则不实例化情绪 fetcher。"""
+        router = DataFetcherRouter.from_config(config)
+        has_akshare = any(f.source_name == "akshare" for f in router.fetchers)
+        return cls(repo, use_akshare=has_akshare)
 
     def fetch_and_persist_today(self) -> dict[str, Any]:
         """联网获取可用分量；市场广度失败时拒绝写入残缺快照。"""
         if not self._use_akshare or self._fetcher is None:
-            raise DataProviderError(_AKSHARE_DISABLED_MSG)
+            raise DataProviderError(_NO_SOURCE_MSG)
         breadth = self._fetcher.fetch_market_breadth()
         if not breadth.ok:
             raise DataProviderError(breadth.error or "市场广度接口不可用")

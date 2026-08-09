@@ -12,7 +12,11 @@
 
 | 日期 | 摘要 |
 |------|------|
-| 2026-08-09 | 数据源迁移：MRD 草案 + 本地交接文档 `docs/dev/data-source-migration-handoff.md`；关联 Issue #1 |
+| 2026-08-09 | 阶段 A 实现：unify-data-source-router（Router + baseline 门禁）；下一步 apply lign-tushare-coverage |
+| 2026-08-09 | 数据源迁移三阶段 OpenSpec 已立项：unify-data-source-router / lign-tushare-coverage / 
+etire-akshare-default |
+| 2026-08-09 | 数据源迁移测试口径 Owner 确认：结构可改、离线报告零漂移；写入 data-source-migration.md §12.0 |
+| 2026-08-09 | 数据源迁移：MRD 草案 + 本地交接文档 docs/dev/data-source-migration-handoff.md；关联 Issue #1 |
 | 2026-08-02 | 报告内嵌讲解：`explainers.py` 默认在 tech/value/dual 输出指标注释、估值方法卡片与价值陷阱拆解；修复 MOS 百分数点展示与双轨阈值单位（`add-report-inline-explainers`） |
 | 2026-08-01 | PO-10 组合级相关性粗估：复用 `add-trade-review-attribution` 的 `TradeRecord`，严格离线实现持仓集中度、前 N 大持仓占比、行业暴露度和内存加仓模拟；行业分组仍是原始文本粗匹配，可复用 T-7 行业映射的后续标准化演进提升精度 |
 | 2026-08-01 | PO-06 情绪面 V1：`sync market` 市场快照、涨跌停家数比、恐慌贪婪代理指数与 `report dual` 三维联合解读已实现 |

@@ -1,0 +1,204 @@
+{
+  "assessment": "数据不足",
+  "code": "601398",
+  "confidence": "Low",
+  "current_price": 7.15,
+  "fair_value_range": null,
+  "fundamental_report_date": null,
+  "margin_of_safety": null,
+  "method_keys_used": [
+    "pb",
+    "residual_income",
+    "ddm",
+    "two_stage_ddm",
+    "graham_number",
+    "altman_z",
+    "pb_relative",
+    "value_trap"
+  ],
+  "method_results": {
+    "altman_z": {
+      "analysis": [
+        "Cannot calculate: Missing required data: total_assets, total_liabilities, shares_outstanding"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: total_assets, total_liabilities, shares_outstanding",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: total_assets, total_liabilities, shares_outstanding",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "Altman Z-Score",
+      "missing_fields": [
+        "total_assets",
+        "total_liabilities",
+        "shares_outstanding"
+      ],
+      "premium_discount": 0
+    },
+    "ddm": {
+      "analysis": [
+        "Cannot calculate: Missing required data: dividend_per_share"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: dividend_per_share",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: dividend_per_share",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "DDM (Gordon Growth)",
+      "missing_fields": [
+        "dividend_per_share"
+      ],
+      "premium_discount": 0
+    },
+    "graham_number": {
+      "analysis": [
+        "Cannot calculate: Missing required data: bvps"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: bvps",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: bvps",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "Graham Number",
+      "missing_fields": [
+        "bvps"
+      ],
+      "premium_discount": 0
+    },
+    "pb": {
+      "analysis": [
+        "Cannot calculate: Missing required data: bvps"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: bvps",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: bvps",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "P/B Valuation",
+      "missing_fields": [
+        "bvps"
+      ],
+      "premium_discount": 0
+    },
+    "pb_relative": {
+      "analysis": [
+        "Cannot calculate: Missing required data: bvps"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: bvps",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: bvps",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "PB Relative",
+      "missing_fields": [
+        "bvps"
+      ],
+      "premium_discount": 0
+    },
+    "residual_income": {
+      "analysis": [
+        "Cannot calculate: Missing required data: bvps"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: bvps",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: bvps",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "Residual Income",
+      "missing_fields": [
+        "bvps"
+      ],
+      "premium_discount": 0
+    },
+    "two_stage_ddm": {
+      "analysis": [
+        "Cannot calculate: Missing required data: dividend_per_share"
+      ],
+      "applicability": "Not Applicable",
+      "assessment": "N/A - Missing required data: dividend_per_share",
+      "components": {},
+      "confidence": "N/A",
+      "current_price": 7.15,
+      "details": {},
+      "error": "Missing required data: dividend_per_share",
+      "fair_value": 0,
+      "fair_value_range": null,
+      "method": "Two-Stage DDM",
+      "missing_fields": [
+        "dividend_per_share"
+      ],
+      "premium_discount": 0
+    },
+    "value_trap": {
+      "analysis": [
+        "Overall Risk: Medium",
+        "",
+        "1. Financial Health: Limited — total_assets unavailable",
+        "2. Business Deterioration: Limited — operating_margin and revenue_growth unavailable",
+        "3. Moat Erosion: High — ROE=0.0% — moat under pressure",
+        "4. AI/Tech Vulnerability: Medium — 需人工评估：行业数字化程度与 AI 颠覆性依赖定性判断",
+        "5. Dividend Sustainability: Not Applicable — No dividend data",
+        "",
+        "Warnings:",
+        "  - Limited data for dimensions: financial_health, business_deterioration"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Medium Value Trap Risk",
+      "components": {},
+      "confidence": "Low",
+      "current_price": 7.15,
+      "details": {
+        "ai_vulnerability": "Medium",
+        "ai_vulnerability_note": "需人工评估：行业数字化程度与 AI 颠覆性依赖定性判断",
+        "business_deterioration": "Limited",
+        "business_deterioration_note": "operating_margin and revenue_growth unavailable",
+        "dividend_sustainability": "Not Applicable",
+        "dividend_sustainability_note": "No dividend data",
+        "financial_health": "Limited",
+        "financial_health_note": "total_assets unavailable",
+        "moat_erosion": "High",
+        "moat_erosion_note": "ROE=0.0% — moat under pressure",
+        "output_type": "score",
+        "overall_risk": "Medium"
+      },
+      "error": null,
+      "fair_value": 7.15,
+      "fair_value_range": null,
+      "method": "Value Trap Detector",
+      "missing_fields": [],
+      "premium_discount": 0
+    }
+  },
+  "name": "",
+  "price_percentile": null,
+  "prototype": "bank",
+  "value_score": null,
+  "value_trap_alert": null,
+  "warnings": [
+    "Altman Z-Score: N/A - Missing required data: total_assets, total_liabilities, shares_outstanding",
+    "Value Trap Detector: risk=Medium, Medium Value Trap Risk"
+  ]
+}

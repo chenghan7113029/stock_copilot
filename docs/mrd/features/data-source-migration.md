@@ -1,7 +1,7 @@
 # 数据源架构迁移与 AKShare 退役
 
-> 最后更新：2026-08-08  
-> 状态：**需求草案（待 OpenSpec 立项）**  
+> 最后更新：2026-08-09  
+> 状态：**阶段 A 已实现**（`unify-data-source-router`）；B/C 待 apply  
 > 关联 Issue：[#1 KlineProvider 不支持 Tushare](https://github.com/chenghan7113029/stock_copilot/issues/1)  
 > **本地接手**：[data-source-migration-handoff.md](../../dev/data-source-migration-handoff.md)  
 > 读者：产品 Owner、实现 Agent、Reviewer
@@ -12,8 +12,13 @@
 
 | 日期 | 摘要 |
 |------|------|
-| 2026-08-08 | 初稿：三阶段拆分（架构统一 / Tushare 对齐 / AKShare 退役）；对齐 Owner 对多源合并、实时 `rt_k`、默认配置与 Baostock 财报字段策略的决策 |
-| 2026-08-09 | 补充 §12 三阶段测试方案；§5 各阶段验收交叉引用 §12；新增本地交接文档 `docs/dev/data-source-migration-handoff.md` |
+| 2026-08-09 | 阶段 A unify-data-source-router 已实现：Router/Failover/去 override、migration baseline 门禁；§5.A.3 验收勾选 |
+| 2026-08-09 | OpenSpec 立项三 change：unify-data-source-router / lign-tushare-coverage / 
+etire-akshare-default（artifacts 齐全，待 apply） |
+| 2026-08-09 | Owner 确认 §12：迁移以「结构可改、离线报告结果不变」为验收口径；补充 §12.0 Owner 原则与三阶段门禁对照表 |
+| 2026-08-09 | 补充 §12 三阶段测试方案：分层门禁、迁移基线（golden baseline）、一致性维度与分阶段验收；§5 各阶段验收交叉引用 §12；本地交接见 docs/dev/data-source-migration-handoff.md |
+| 2026-08-08 | 初稿：三阶段拆分（架构统一 / Tushare 对齐 / AKShare 退役）；对齐 Owner 对多源合并、实时 
+t_k、默认配置与 Baostock 财报字段策略的决策 |
 
 ---
 
@@ -176,10 +181,10 @@ flowchart TB
 
 > 测试与结果一致性门禁见 **§12.4 阶段 A**、**§12.5 PR 检查清单**。
 
-- [ ] `enabled` 仅 `baostock` 时，**零 AKShare 网络调用**（含实时、筹码、情绪路径）
-- [ ] K 线 failover 顺序与 config priority 一致（可用 mock 断言调用顺序）
-- [ ] 价值面 merge 顺序与 priority 一致；**删除** `override_field` 特例（可与阶段 B 字段矩阵同步交付）
-- [ ] 现有 `pytest -q -m "not network"` 全绿
+- [x] `enabled` 仅 `baostock` 时，**零 AKShare 网络调用**（含实时、筹码、情绪路径）
+- [x] K 线 failover 顺序与 config priority 一致（可用 mock 断言调用顺序）
+- [x] 价值面 merge 顺序与 priority 一致；**删除** `override_field` 特例（可与阶段 B 字段矩阵同步交付）
+- [x] 现有 `pytest -q -m "not network"` 全绿
 - [ ] 文档：在本文档 §4 架构图落地，并更新 `engineering-conventions.md` 数据源小节（若分层有变）
 
 #### 5.A.4 风险
@@ -358,9 +363,11 @@ flowchart LR
 
 ## 10. 建议 OpenSpec 立项顺序
 
-1. `/opsx-propose unify-data-source-router` — 阶段 A  
-2. `/opsx-propose align-tushare-coverage` — 阶段 B（含 Issue #1）  
-3. `/opsx-propose retire-akshare-default` — 阶段 C  
+1. `/opsx-propose unify-data-source-router` — 阶段 A → **已立项**（`openspec/changes/unify-data-source-router/`）  
+2. `/opsx-propose align-tushare-coverage` — 阶段 B（含 Issue #1）→ **已立项**（`openspec/changes/align-tushare-coverage/`）  
+3. `/opsx-propose retire-akshare-default` — 阶段 C → **已立项**（`openspec/changes/retire-akshare-default/`）  
+
+下一步：按序 `/opsx-apply unify-data-source-router`（先采集 migration baseline）。
 
 每个 change 归档时合并 delta 至：
 
@@ -389,17 +396,37 @@ flowchart LR
 
 ## 12. 三阶段测试方案（结果一致性保障）
 
-> **原则**：架构可以变，**对外契约与可重复结论**不能无故漂移。测试分「必须完全一致」「允许有文档的偏差」「预期变更」三类，每阶段合并前须通过对应门禁。
+### 12.0 Owner 确认原则（验收口径）
+
+> **本次替换原则上只应影响代码结构，不应影响最终报告结果。**  
+> 可执行定义：给定**同一份本地 SQLite 缓存 / seed**，不联网的 `report tech|value|dual`（及同等离线看板/摘要的确定性部分）在迁移前后 **关键数值与关键文案零漂移**。架构 Router、failover、fetcher 落点可以大改；**分析与呈现层的结论不得无故变化**。
+
+| 路径 | Owner 期望 | 门禁 |
+|------|------------|------|
+| **离线报告**（读缓存出报告） | 三阶段全程结果不变 | **S2 / L3** `compare_migration_baseline.py` 硬门禁 |
+| **阶段 A / C 联网语义** | 不故意改 merge/failover 业务语义；A 删 `override_field` 须同步更新 mock golden | S3/S4 + L0 |
+| **阶段 B 联网 sync 写入** | 换主源后允许与旧 AKShare **可解释容差**内的数值差；**完备性不回归** | S5；情绪/筹码见 S6 |
+| **不以日更行情为门禁** | 真实市场波动不能当作「报告是否漂移」的证据 | 联网只用完备性 + 容差，不用逐日绝对相等 |
+
+**三阶段与原则对照（摘要）**
+
+| 阶段 | 对「报告结果不变」的含义 | 合并前最低门禁 |
+|------|--------------------------|----------------|
+| **A 架构统一** | 相同输入 → 相同输出；离线 seed 报告 **必须**与 baseline 一致 | L0 + L3 + S3/S4 单测 |
+| **B Tushare 对齐** | **离线报告仍零漂移**；新 sync 写入允许文档化容差；Issue #1 关闭 | L0 + L3 + 联网完备性（有 Token） |
+| **C 退役默认 AKShare** | 只切默认配置/扫尾；**离线仍零漂移**；无 AKShare 全流程可跑 | L0 + L3 + L5 trial |
+
+> 下文 §12.1–§12.8 为上述口径的细则与工件清单。测试结果分三类登记：**必须完全一致**、**允许有文档的偏差**、**预期变更（须写进 PR / manifest）**。
 
 ### 12.1 一致性要保护什么？
 
 | 维度 | 含义 | 一致性要求 |
 |------|------|------------|
 | **S1 结构契约** | CLI 输出字段、JSON key、`StockData`/`TechAnalysisResult` 字段集、DB 表结构 | **必须不变**（除非本 change 显式版本化） |
-| **S2 离线确定性** | 给定同一份 SQLite seed / fixture，不联网的 `report *` | **必须一致**（数值 + 关键文案；见 §12.4） |
+| **S2 离线确定性** | 给定同一份 SQLite seed / fixture，不联网的 `report *` | **必须一致**（数值 + 关键文案；见 §12.4）— **Owner 验收真源** |
 | **S3 合并语义** | 相同 mock `FetchResult` 输入 → `StockData` 合并结果 | **必须一致**（阶段 A 删除 `override_field` 后需更新 golden） |
 | **S4 Failover 语义** | 相同 mock 源成功/失败序列 → 命中源与返回 DataFrame | **必须一致** |
-| **S5 联网数值** | 换源后真实 API 返回值 | **不追求与 AKShare 逐字段相同**；追求**完备性不回归 + 可解释容差** |
+| **S5 联网数值** | 换源后真实 API 返回值 | **不追求与 AKShare 逐字段相同**；追求**完备性不回归 + 可解释容差**（不替代 S2） |
 | **S6 情绪/筹码** | 源切换后分量算法变化 | **允许偏差**；须记录 re-baseline 与 `warnings` 行为 |
 
 ### 12.2 测试分层（金字塔）
@@ -576,7 +603,8 @@ test/fixtures/migration_baseline/
 
 ### 12.8 一句话总结
 
+- **Owner 口径**：结构可换，**同一份缓存上的最终报告结果不应变**（S2 硬门禁贯穿 A/B/C）。  
 - **阶段 A**：相同输入 → 相同输出（**离线 seed 报告零漂移**是硬门禁）。  
-- **阶段 B**：换源后 **完备性不回归**、关键字段 **有文档容差**、Issue #1 关闭。  
+- **阶段 B**：离线仍零漂移；换源联网后 **完备性不回归**、关键字段 **有文档容差**、Issue #1 关闭。  
 - **阶段 C**：默认无 AKShare，**离线仍零漂移**，全流程 trial 通过。
 

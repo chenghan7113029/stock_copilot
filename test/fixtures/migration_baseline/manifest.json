@@ -1,0 +1,27 @@
+{
+  "captured_at": "2026-08-09T14:23:40.379498+00:00",
+  "codes": [
+    "600519",
+    "601398",
+    "601939"
+  ],
+  "file_hashes": {
+    "report_dual_600519.json": "c127de0677d783fe349289c82466f5651f7729c7d5a1eecd4234ab12c924034c",
+    "report_dual_601398.json": "f5cdc8e534171dd7ce9c72db78572699867e20e0805c19f238ce9f639e81cce1",
+    "report_dual_601939.json": "43deb16cc4b27c4be0c103f348a8c3bef0f7c41c6ca213b3ff48e64c737eef05",
+    "report_tech_600519.json": "c34e890fcd38b7ca687120bf3110d9d959f33a53e77ed3e2850ab50267acd46f",
+    "report_tech_601398.json": "6cde67af34165c9fca5b3c6cad0e8bc976e94b92078b70373f5d8a17cd5e803c",
+    "report_tech_601939.json": "d3370bfc6104cba10e23a5bc128c8f0f81a2ded67274c4f937d0e08fd198eaf7",
+    "report_value_600519.json": "ab870d78c61eabe7e7fe2a3e38b047688c892c9464de7a58bb2b120379488a68",
+    "report_value_601398.json": "0947777b8b854c4cae8bdc10ca7b7d32aa275218040f57a03119d62689e8453a",
+    "report_value_601939.json": "4082893ec78e066030dd963661fdf6643f8b5bbe09ba1d7f6b6493091d7bc9cf"
+  },
+  "float_rel_tol": 1e-06,
+  "git_sha": "be9537f7cccaa8374b924f06e6ee344803d050ff",
+  "kinds": [
+    "tech",
+    "value",
+    "dual"
+  ],
+  "seed_db": "D:/workspace/stock_copilot/data/fixtures/stock_copilot_seed.db"
+}

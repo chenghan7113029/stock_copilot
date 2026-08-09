@@ -127,4 +127,62 @@ def test_realtime_falls_back_when_akshare_disabled():
 
     assert not df.empty
     assert quote_mode == "eod_fallback"
-    assert any("AKShare" in w for w in warnings)
+    assert any("实时" in w or "EOD" in w for w in warnings)
+
+
+def test_failover_uses_second_source_when_first_fails():
+    repo = MagicMock()
+    repo.query_range.return_value = []
+    today = date.today().strftime("%Y-%m-%d")
+    df_api = pd.DataFrame(
+        {
+            "date": [today],
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.5],
+            "close": [10.2],
+            "volume": [1_000_000.0],
+        }
+    )
+    first = MagicMock()
+    first.fetch_kline.side_effect = RuntimeError("down")
+    second = MagicMock()
+    second.fetch_kline.return_value = df_api
+
+    provider = KlineProvider(
+        repo,
+        kline_fetchers=[(first, "baostock"), (second, "akshare")],
+        realtime_overlay=None,
+    )
+    df, warnings, quote_mode = provider.get_kline("600519", days=90)
+    assert not df.empty
+    assert quote_mode == "eod"
+    first.fetch_kline.assert_called()
+    second.fetch_kline.assert_called()
+
+
+def test_from_config_baostock_only_does_not_build_akshare(monkeypatch):
+    created: list[str] = []
+
+    class _FakeBS:
+        source_name = "baostock"
+        priority = 1
+
+        def fetch_kline(self, *args, **kwargs):
+            raise RuntimeError("no net")
+
+    def fake_build(name, priority_override, src=None, config=None):
+        created.append(name)
+        if name == "baostock":
+            return _FakeBS()
+        raise AssertionError(f"should not build {name}")
+
+    monkeypatch.setattr(
+        "data_provider.router.DataFetcherRouter.build_fetcher",
+        staticmethod(fake_build),
+    )
+    repo = MagicMock()
+    cfg = {"data_sources": {"enabled": [{"name": "baostock", "priority": 1}]}}
+    provider = KlineProvider.from_config(cfg, repo)
+    assert created == ["baostock"]
+    assert all(name != "akshare" for _, name in provider._kline_sources)

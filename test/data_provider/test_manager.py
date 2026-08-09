@@ -95,9 +95,13 @@ def test_from_config_unknown_source_skipped():
     assert len(mgr.fetchers) == 1
 
 
-def test_from_config_empty_raises():
-    with pytest.raises(DataProviderError):
-        SourceManager.from_config({"data_sources": {"enabled": []}})
+def test_from_config_empty_allows_offline_manager():
+    """空 enabled 允许构造（离线工具/baseline）；在线 get_stock_data 再报错。"""
+    mgr = SourceManager.from_config({"data_sources": {"enabled": []}})
+    assert mgr.fetchers == []
+    provider = StockDataProvider(mgr)
+    with pytest.raises(DataProviderError, match="没有启用任何数据源"):
+        provider.get_stock_data("600519")
 
 
 # ── StockDataProvider 测试 ────────────────────────────────────────────────────
