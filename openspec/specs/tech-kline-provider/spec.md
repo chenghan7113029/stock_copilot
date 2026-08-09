@@ -2,37 +2,37 @@
 
 ## Purpose
 TBD - created by archiving change add-tech-analyzer-core. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: K 线数据获取（Baostock 主，AKShare 备）
-`KlineProvider` 的 `get_kline(code, days, use_realtime=False, offline=False, persist_today=False)` 方法 SHALL 优先调用 `BaostockFetcher.fetch_kline()`；若 Baostock 拉取失败，SHALL 自动 fallback 到 `AKShareFetcher.fetch_kline()`；两者均失败时 SHALL 抛出 `KlineUnavailableError`。
+`KlineProvider` 的 `get_kline(code, days, use_realtime=False, offline=False, persist_today=False)` 方法 SHALL 通过 DataFetcherRouter / FailoverStrategy，按配置 `priority` 依次调用已启用源上可用的 `fetch_kline`（或等价），**首次成功即停止**；全部失败时 SHALL 抛出 `KlineUnavailableError`。系统 MUST NOT 无条件实例化 `BaostockFetcher()` 或硬编码「仅 Baostock→AKShare」顺序；未启用的源 MUST NOT 被调用。
 
 当 `offline=True` 时，SHALL 跳过所有外部调用，仅读缓存（见「offline 模式」需求）。
 
-当 `use_realtime=True` 时，SHALL 在正常流程完成后调用 `RealtimeOverlayProvider.overlay()` 将实时价格叠加到 DataFrame 末端。
+当 `use_realtime=True` 时，SHALL 在正常流程完成后调用经 Router 注入的 `RealtimeOverlayProvider.overlay()` 将实时价格叠加到 DataFrame 末端。
 
 当 `persist_today=True` 且 `use_realtime=True` 时，SHALL 将当日行写入 `KlineRepo`（upsert）。
 
-返回的 DataFrame SHALL 包含列：`date`（str，YYYY-MM-DD）、`open`、`high`、`low`、`close`、`volume`（均为 float），按 `date` 升序排列，且为前复权数据。返回签名为 `(DataFrame, list[str], str)`，第三元素为 `quote_mode`（`"eod"` / `"realtime"` / `"eod_fallback"`）。
+返回的 DataFrame SHALL 包含列：`date`（str，YYYY-MM-DD）、`open`、`high`、`low`、`close`、`volume`（均为 float），按 `date` 升序排列，且为前复权数据。返回签名为 `(DataFrame, list[str], str)`，第三元素为 `quote_mode`（`"eod"` / `"realtime"` / `"eod_fallback"`）。实现 SHOULD 在日志或进度回调中暴露实际 `kline_source`。
 
-#### Scenario: Baostock 正常返回（EOD 模式）
-- **WHEN** `get_kline("600519", days=90)` 被调用且 Baostock 可用
+#### Scenario: 最高 priority 源正常返回（EOD 模式）
+- **WHEN** `get_kline("600519", days=90)` 被调用且最高 priority 且支持 K 线的源可用
 - **THEN** 返回包含约 60 行（交易日）的 DataFrame，列完整，按日期升序排列，`quote_mode = "eod"`
 
 #### Scenario: 实时叠加模式
 - **WHEN** `get_kline("600519", days=90, use_realtime=True)` 被调用
 - **THEN** 末端行为当日实时价格，`quote_mode = "realtime"` 或 `"eod_fallback"`
 
-#### Scenario: Baostock 失败自动切换 AKShare
-- **WHEN** `get_kline("600519", days=90)` 被调用且 Baostock 抛出异常
-- **THEN** 自动调用 AKShare fetcher，返回相同格式的 DataFrame
+#### Scenario: 高优先级失败自动切换下一源
+- **WHEN** `get_kline("600519", days=90)` 被调用且最高 priority 源抛出异常、下一启用源成功
+- **THEN** 返回相同格式的 DataFrame，且不调用未启用源
 
-#### Scenario: 两者均失败
-- **WHEN** `get_kline("600519", days=90)` 被调用且 Baostock 与 AKShare 均失败
+#### Scenario: 全部启用源均失败
+- **WHEN** `get_kline("600519", days=90)` 被调用且所有启用且支持 K 线的源均失败
 - **THEN** 抛出 `KlineUnavailableError`，携带失败原因信息
 
----
+#### Scenario: 未启用 AKShare 时不调用
+- **WHEN** 配置未启用 `akshare` 且 Baostock（或其他启用源）成功
+- **THEN** 不实例化、不调用 `AKShareFetcher`
 
 ### Requirement: K 线本地 SQLite 缓存
 `KlineProvider` SHALL 使用 `KlineRepo` 将历史 K 线（日期 < 当日）持久化到 SQLite `kline` 表（`code + trade_date` 联合主键）。每次调用 `get_kline()` 时 SHALL 先查询缓存，仅对缺失的历史日期发起 API 请求。当日数据 SHALL 始终实时拉取，不写入缓存。
@@ -93,3 +93,4 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 #### Scenario: persist_today=False（默认）不写当日行
 - **WHEN** `get_kline("600519", 90, use_realtime=True)` 被调用（默认 persist_today=False）
 - **THEN** 当日行不写入缓存，现有行为不变
+
