@@ -3,6 +3,7 @@
 > 最后更新：2026-08-08  
 > 状态：**需求草案（待 OpenSpec 立项）**  
 > 关联 Issue：[#1 KlineProvider 不支持 Tushare](https://github.com/chenghan7113029/stock_copilot/issues/1)  
+> **本地接手**：[data-source-migration-handoff.md](../../dev/data-source-migration-handoff.md)  
 > 读者：产品 Owner、实现 Agent、Reviewer
 
 ---
@@ -12,7 +13,7 @@
 | 日期 | 摘要 |
 |------|------|
 | 2026-08-08 | 初稿：三阶段拆分（架构统一 / Tushare 对齐 / AKShare 退役）；对齐 Owner 对多源合并、实时 `rt_k`、默认配置与 Baostock 财报字段策略的决策 |
-| 2026-08-09 | 补充 §12 三阶段测试方案：分层门禁、迁移基线（golden baseline）、一致性维度与分阶段验收；§5 各阶段验收交叉引用 §12 |
+| 2026-08-09 | 补充 §12 三阶段测试方案；§5 各阶段验收交叉引用 §12；新增本地交接文档 `docs/dev/data-source-migration-handoff.md` |
 
 ---
 
