@@ -1,0 +1,69 @@
+## MODIFIED Requirements
+
+### Requirement: TechAnalyzer.analyze(code) 完整分析流程
+`TechAnalyzer.analyze(code, use_realtime=False, offline=False)` SHALL 完整执行：K 线获取 → 日线指标计算 → 周线指标计算 → K 线形态识别 → 评分 → 组装 `TechAnalysisResult`。日线分析完成后，SHALL 自动基于同一份 DataFrame 调用 `IndicatorCalculator.calculate_weekly()` 追加周线分析，并调用 `PatternRecognizer.recognize(df, pattern_params)` 追加形态识别；形态识别结果 SHALL 直接赋值给 `TechAnalysisResult.candlestick_patterns`，**不经过** `ScoringEngine.score()`，不影响 `signal_score`/`buy_signal`/`signal_reasons`/`risk_factors` 的计算结果。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
+
+`use_realtime=True` 时，SHALL 透传至 `KlineProvider.get_kline()`，并将返回的 `quote_mode` 赋值给 `TechAnalysisResult.quote_mode`。
+
+#### Scenario: 正常分析流程（含周线，EOD 模式）
+- **WHEN** `analyze("600519")` 被调用且数据充足（≥ 25 日线）
+- **THEN** 返回的 `TechAnalysisResult` 包含完整日线字段，且 `weekly_trend_status` 非 None，`quote_mode = "eod"`
+
+#### Scenario: 实时模式分析
+- **WHEN** `analyze("600519", use_realtime=True)` 被调用
+- **THEN** 返回完整 `TechAnalysisResult`，`quote_mode` 为 `"realtime"` 或 `"eod_fallback"`
+
+#### Scenario: 日线数据不足跳过周线
+- **WHEN** `analyze("600519")` 被调用但 K 线行数 < 25
+- **THEN** `TechAnalysisResult.weekly_trend_status = None`，`warnings` 含「周线数据不足」
+
+#### Scenario: 非 A 股代码被拒绝
+- **WHEN** `analyze("AAPL")` 或 `analyze("00700")` 被调用
+- **THEN** 抛出 `UnsupportedMarketError`
+
+#### Scenario: K 线获取失败
+- **WHEN** `KlineProvider.get_kline()` 抛出 `KlineUnavailableError`
+- **THEN** `TechAnalysisResult` 中 `buy_signal = WAIT`，`risk_factors` 包含数据获取失败原因，不抛出异常
+
+#### Scenario: 形态识别结果不影响打分
+- **WHEN** `analyze("600519")` 被调用且最新 K 线命中「看涨吞没」形态
+- **THEN** `TechAnalysisResult.candlestick_patterns` 包含对应 `PatternSignal`，且 `signal_score`/`buy_signal` 与「假设未命中任何形态」时的计算结果完全一致
+
+---
+
+### Requirement: TechAnalysisResult 输出契约
+`TechAnalysisResult` SHALL 为 Python dataclass，包含以下分组字段（所有数值字段在数据充足时不为 None）：
+
+- **基础**：`code`（str）、`current_price`（float）
+- **趋势**：`trend_status`（TrendStatus 枚举）、`ma_alignment`（str）、`trend_strength`（float 0~100）
+- **均线**：`ma5/10/20/60`（float）、`bias_ma5/10/20`（float，百分比）
+- **量能**：`volume_status`（VolumeStatus 枚举）、`volume_ratio_5d`（float）、`volume_trend`（str）
+- **支撑**：`support_ma5/ma10`（bool）、`support_levels`（list[float]）、`resistance_levels`（list[float]）
+- **MACD**：`macd_dif/dea/bar`（float）、`macd_status`（MACDStatus 枚举）、`macd_signal`（str）
+- **RSI**：`rsi_6/12/24`（float）、`rsi_status`（RSIStatus 枚举）、`rsi_signal`（str）
+- **KDJ**：`kdj_k/d/j`（float）、`kdj_status`（KDJStatus 枚举）、`kdj_signal`（str）
+- **K 线形态**（F-18，新增）：`candlestick_patterns`（list[PatternSignal]，默认空列表）——每个 `PatternSignal` 含 `pattern`（CandlestickPattern 枚举）、`direction`（str，"看多"/"看空"）、`trade_date`（str）、`description`（str）；本字段**不参与** `signal_score`/`buy_signal` 计算，也不写入 `signal_reasons`/`risk_factors`
+- **信号**：`buy_signal`（BuySignal 枚举）、`signal_score`（int 0~100）、`signal_reasons`（list[str]）、`risk_factors`（list[str]）
+- **周线**（F-20）：`weekly_trend_status`（WeeklyTrendStatus | None）、`weekly_ma_alignment`（str）、`weekly_macd_signal`（str）、`weekly_rsi_6`（float | None）、`weekly_ma5/10/20`（float | None）
+- **价格时效**（F-16）：`quote_mode`（str，`"eod"` / `"realtime"` / `"eod_fallback"`）
+- **元数据**：`warnings`（list[str]）、`data_timestamp`（datetime | None）
+
+#### Scenario: 完整输出包含所有分组
+- **WHEN** 对有效股票调用 `analyze()`，数据充足
+- **THEN** 返回的 `TechAnalysisResult` 所有分组字段均有有意义的值，枚举字段非 None，数值字段非 0.0（除非计算结果确为零）
+
+#### Scenario: 数据不足时降级输出
+- **WHEN** K 线数据行数 < 26（不足以计算 MACD）
+- **THEN** MACD 相关字段为 None 或默认枚举值，`warnings` 包含数据不足说明，不抛出异常
+
+#### Scenario: 完整周线字段
+- **WHEN** 日线行数 ≥ 25 且周线指标计算成功
+- **THEN** `weekly_trend_status` 为有效枚举值（非 None），`weekly_ma5/10/20` 均非 0
+
+#### Scenario: 周线字段为 None 时不影响日线输出
+- **WHEN** 周线计算跳过（数据不足）
+- **THEN** 日线所有字段正常，`weekly_*` 字段为 None 或默认字符串
+
+#### Scenario: 无形态命中时字段为空列表
+- **WHEN** 最新 K 线不满足任何已实现形态的判定条件
+- **THEN** `candlestick_patterns = []`，不为 `None`，不抛出异常
