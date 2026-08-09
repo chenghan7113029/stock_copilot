@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -159,6 +159,61 @@ def test_failover_uses_second_source_when_first_fails():
     assert quote_mode == "eod"
     first.fetch_kline.assert_called()
     second.fetch_kline.assert_called()
+
+
+def test_failover_baostock_fails_tushare_succeeds():
+    """Baostock 失败时 Tushare 可独立完成 K 线拉取并写入缓存（Issue #1）。"""
+    repo = MagicMock()
+    hist_date = (date.today() - timedelta(days=3)).strftime("%Y-%m-%d")
+    today = date.today().strftime("%Y-%m-%d")
+    df_api = pd.DataFrame(
+        {
+            "date": [hist_date, today],
+            "open": [10.0, 10.1],
+            "high": [10.5, 10.6],
+            "low": [9.5, 9.6],
+            "close": [10.2, 10.3],
+            "volume": [1_000_000.0, 1_100_000.0],
+        }
+    )
+    baostock = MagicMock()
+    baostock.fetch_kline.side_effect = RuntimeError("baostock down")
+    tushare = MagicMock()
+    tushare.fetch_kline.return_value = df_api
+
+    def _query_after_upsert(code, start, end):
+        if repo.upsert_batch.called:
+            return [
+                {
+                    "code": "600519",
+                    "trade_date": hist_date,
+                    "date": hist_date,
+                    "open": 10.0,
+                    "high": 10.5,
+                    "low": 9.5,
+                    "close": 10.2,
+                    "volume": 1_000_000.0,
+                }
+            ]
+        return []
+
+    repo.query_range.side_effect = _query_after_upsert
+
+    provider = KlineProvider(
+        repo,
+        kline_fetchers=[(baostock, "baostock"), (tushare, "tushare")],
+        realtime_overlay=None,
+    )
+    df, warnings, quote_mode = provider.get_kline("600519", days=90)
+
+    assert not df.empty
+    assert quote_mode == "eod"
+    baostock.fetch_kline.assert_called()
+    tushare.fetch_kline.assert_called()
+    repo.upsert_batch.assert_called()
+    upserted = repo.upsert_batch.call_args[0][0]
+    assert any(r["trade_date"] == hist_date for r in upserted)
+    assert provider._last_kline_source == "tushare"
 
 
 def test_from_config_baostock_only_does_not_build_akshare(monkeypatch):

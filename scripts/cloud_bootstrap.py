@@ -68,9 +68,19 @@ def _enable_tushare_if_token() -> bool:
         config = yaml.safe_load(f) or {}
 
     enabled: list[dict] = config.setdefault("data_sources", {}).setdefault("enabled", [])
-    names = {s.get("name", "").lower() for s in enabled}
-    if "tushare" not in names:
-        enabled.append({"name": "tushare", "priority": 3})
+    changed = False
+    tushare_entry = next(
+        (s for s in enabled if str(s.get("name", "")).lower() == "tushare"),
+        None,
+    )
+    if tushare_entry is None:
+        enabled.append({"name": "tushare", "priority": 1})
+        changed = True
+    elif tushare_entry.get("priority") != 1:
+        # 有 Token 时提升为最高优先级（阶段 B）
+        tushare_entry["priority"] = 1
+        changed = True
+    if changed:
         with _APP_YAML.open("w", encoding="utf-8") as f:
             yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
         return True

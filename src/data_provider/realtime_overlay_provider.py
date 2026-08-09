@@ -46,7 +46,9 @@ class RealtimeOverlayProvider:
             return df, "eod_fallback", warnings
 
         if not self._fetchers:
-            warnings.append("无可用实时报价数据源，已降级为 EOD")
+            warnings.append(
+                "无可用实时报价数据源（需 rt_k/实时接口，禁止用历史日线冒充），已降级为 EOD"
+            )
             return df.copy(), "eod_fallback", warnings
 
         try:
@@ -57,7 +59,10 @@ class RealtimeOverlayProvider:
             )
             quote = result.value
         except RuntimeError as exc:
-            warnings.append(f"实时报价获取失败，已降级为 EOD: {exc}")
+            warnings.append(
+                f"实时报价获取失败（rt_k/实时接口；未开通权限或接口失败时不会用 daily 冒充），"
+                f"已降级为 EOD: {exc}"
+            )
             return df.copy(), "eod_fallback", warnings
 
         close = quote.get("close")

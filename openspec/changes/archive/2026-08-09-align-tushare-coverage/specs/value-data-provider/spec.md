@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Baostock 不产出低可信财报字段
 `BaostockFetcher` 在 fundamentals / `fetch_all` 结果中 MUST NOT 写入下列字段的有效数值（可省略键或显式 missing）：`revenue`、`fcf`、`capex`、`net_debt`、`ebit`、`depreciation`、`total_assets`、`total_liabilities`、`bvps`、`roic`、`net_income`（与代码中 `FINANCIAL_STATEMENT_FIELDS` 保持同步）。在 `tushare` priority 高于 `baostock` 的配置下，这些字段 SHALL 由 Tushare（若提供）主导。

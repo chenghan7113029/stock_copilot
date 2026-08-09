@@ -31,8 +31,18 @@ from data_provider.baostock.field_mapping import (
     PROFIT_DATA_FIELD_MAP,
 )
 from data_provider.base import BaseFetcher, FetchResult
+from data_provider.provider import FINANCIAL_STATEMENT_FIELDS
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_financial_statement_fields(data: dict[str, Any], missing: list[str]) -> None:
+    """阶段 B：Baostock 不向外产出低可信财报字段，避免污染多源 merge。"""
+    for field in FINANCIAL_STATEMENT_FIELDS:
+        if field in data:
+            data.pop(field, None)
+        if field not in missing:
+            missing.append(field)
 
 _DEFAULT_FCF_RATE = 0.85
 _CAGR_MIN = -50.0
@@ -245,11 +255,12 @@ class BaostockFetcher(BaseFetcher):
         except Exception as exc:
             logger.warning("Baostock fetch_all 失败 %s: %s", code, exc)
             if data:
+                _strip_financial_statement_fields(data, missing)
                 return FetchResult(
                     code=code,
                     source=self.source_name,
                     data=data,
-                    missing_fields=missing,
+                    missing_fields=sorted(set(missing) - set(data.keys())),
                     error=str(exc),
                 )
             return FetchResult(code=code, source=self.source_name, error=str(exc))
@@ -262,6 +273,7 @@ class BaostockFetcher(BaseFetcher):
                 error="Baostock 未返回任何字段",
             )
 
+        _strip_financial_statement_fields(data, missing)
         return FetchResult(
             code=code,
             source=self.source_name,
@@ -390,10 +402,22 @@ class BaostockFetcher(BaseFetcher):
             raise
         except Exception as exc:
             logger.warning("Baostock fundamentals 失败 %s: %s", bs_code, exc)
-            return FetchResult(code=code, source=self.source_name,
-                               data=data, missing_fields=missing, error=str(exc))
+            _strip_financial_statement_fields(data, missing)
+            return FetchResult(
+                code=code,
+                source=self.source_name,
+                data=data,
+                missing_fields=sorted(set(missing) - set(data.keys())),
+                error=str(exc),
+            )
 
-        return FetchResult(code=code, source=self.source_name, data=data, missing_fields=missing)
+        _strip_financial_statement_fields(data, missing)
+        return FetchResult(
+            code=code,
+            source=self.source_name,
+            data=data,
+            missing_fields=sorted(set(missing) - set(data.keys())),
+        )
 
     # ── 私有：在已有 session 内查询各财务接口 ─────────────────────────────────
 

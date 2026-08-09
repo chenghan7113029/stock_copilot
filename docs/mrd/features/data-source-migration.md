@@ -1,8 +1,8 @@
 # 数据源架构迁移与 AKShare 退役
 
 > 最后更新：2026-08-09  
-> 状态：**阶段 A 已实现**（`unify-data-source-router`）；B/C 待 apply  
-> 关联 Issue：[#1 KlineProvider 不支持 Tushare](https://github.com/chenghan7113029/stock_copilot/issues/1)  
+> 状态：**阶段 A 已归档**；**阶段 B 已实现**（`align-tushare-coverage`）；C 待 apply  
+> 关联 Issue：[#1 KlineProvider 不支持 Tushare](https://github.com/chenghan7113029/stock_copilot/issues/1)（阶段 B 关闭）  
 > **本地接手**：[data-source-migration-handoff.md](../../dev/data-source-migration-handoff.md)  
 > 读者：产品 Owner、实现 Agent、Reviewer
 
@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-09 | 阶段 B align-tushare-coverage：Tushare K 线/rt_k、Baostock 财报收敛、情绪 Tushare 替代、字段矩阵、bootstrap priority=1；S2 baseline 绿；关闭 Issue #1 |
 | 2026-08-09 | 阶段 A unify-data-source-router 已实现：Router/Failover/去 override、migration baseline 门禁；§5.A.3 验收勾选 |
 | 2026-08-09 | OpenSpec 立项三 change：unify-data-source-router / lign-tushare-coverage / 
 etire-akshare-default（artifacts 齐全，待 apply） |
@@ -239,11 +240,11 @@ flowchart TB
 
 > 测试与联网数值容差见 **§12.4 阶段 B**、**§12.5 PR 检查清单**。
 
-- [ ] Issue #1 关闭：`sync 600519` 在仅 `tushare+baostock`、Baostock 不可用时，K 线仍可通过 Tushare 拉取
-- [ ] `sync --realtime`：已开通 `rt_k` 时使用 Tushare 实时；未开通则 **EOD 降级 + 明确警告**（不静默用 daily）
-- [ ] 价值面：样本股 `600519` 在 `tushare(1)+baostock(2)` 下，`industry`/银行指标来自 Tushare；Baostock 不污染 §3 财报字段
-- [ ] `sync market` 在无 AKShare、有 Tushare 时可写入情绪快照（允许部分分量 missing + 降级）
-- [ ] 字段矩阵文档与实现一致
+- [x] Issue #1 关闭：`sync 600519` 在仅 `tushare+baostock`、Baostock 不可用时，K 线仍可通过 Tushare 拉取
+- [x] `sync --realtime`：已开通 `rt_k` 时使用 Tushare 实时；未开通则 **EOD 降级 + 明确警告**（不静默用 daily）
+- [x] 价值面：样本股 `600519` 在 `tushare(1)+baostock(2)` 下，`industry`/银行指标来自 Tushare；Baostock 不污染 §3 财报字段
+- [x] `sync market` 在无 AKShare、有 Tushare 时可写入情绪快照（允许部分分量 missing + 降级）
+- [x] 字段矩阵文档与实现一致
 
 #### 5.B.5 风险
 

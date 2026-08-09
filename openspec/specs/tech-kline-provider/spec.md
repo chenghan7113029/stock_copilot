@@ -4,7 +4,7 @@
 TBD - created by archiving change add-tech-analyzer-core. Update Purpose after archive.
 ## Requirements
 ### Requirement: K 线数据获取（Baostock 主，AKShare 备）
-`KlineProvider` 的 `get_kline(code, days, use_realtime=False, offline=False, persist_today=False)` 方法 SHALL 通过 DataFetcherRouter / FailoverStrategy，按配置 `priority` 依次调用已启用源上可用的 `fetch_kline`（或等价），**首次成功即停止**；全部失败时 SHALL 抛出 `KlineUnavailableError`。系统 MUST NOT 无条件实例化 `BaostockFetcher()` 或硬编码「仅 Baostock→AKShare」顺序；未启用的源 MUST NOT 被调用。
+`KlineProvider` 的 `get_kline(code, days, use_realtime=False, offline=False, persist_today=False)` 方法 SHALL 通过 DataFetcherRouter / FailoverStrategy，按配置 `priority` 依次调用已启用源上可用的 `fetch_kline`（或等价），**首次成功即停止**；全部失败时 SHALL 抛出 `KlineUnavailableError`。系统 MUST NOT 无条件实例化 `BaostockFetcher()` 或硬编码「仅 Baostock→AKShare」顺序；未启用的源 MUST NOT 被调用。Failover 链 SHALL 能调用已启用的 `TushareFetcher.fetch_kline`；当更高 priority 源失败或未启用时，Tushare 成功即视为 K 线获取成功，缓存契约（列名、SQLite upsert）保持不变。
 
 当 `offline=True` 时，SHALL 跳过所有外部调用，仅读缓存（见「offline 模式」需求）。
 
@@ -26,6 +26,10 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 - **WHEN** `get_kline("600519", days=90)` 被调用且最高 priority 源抛出异常、下一启用源成功
 - **THEN** 返回相同格式的 DataFrame，且不调用未启用源
 
+#### Scenario: Tushare 作为 failover 成功
+- **WHEN** Baostock K 线失败且 Tushare 启用并成功
+- **THEN** 返回合法 OHLCV DataFrame，`offline=False` 路径可写入缓存
+
 #### Scenario: 全部启用源均失败
 - **WHEN** `get_kline("600519", days=90)` 被调用且所有启用且支持 K 线的源均失败
 - **THEN** 抛出 `KlineUnavailableError`，携带失败原因信息
@@ -33,6 +37,10 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 #### Scenario: 未启用 AKShare 时不调用
 - **WHEN** 配置未启用 `akshare` 且 Baostock（或其他启用源）成功
 - **THEN** 不实例化、不调用 `AKShareFetcher`
+
+#### Scenario: offline 仍不联网
+- **WHEN** `offline=True`
+- **THEN** 不调用 Tushare 或任何外部源，仅读 `KlineRepo`
 
 ### Requirement: K 线本地 SQLite 缓存
 `KlineProvider` SHALL 使用 `KlineRepo` 将历史 K 线（日期 < 当日）持久化到 SQLite `kline` 表（`code + trade_date` 联合主键）。每次调用 `get_kline()` 时 SHALL 先查询缓存，仅对缺失的历史日期发起 API 请求。当日数据 SHALL 始终实时拉取，不写入缓存。

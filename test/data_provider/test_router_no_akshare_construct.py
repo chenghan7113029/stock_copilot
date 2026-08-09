@@ -61,3 +61,37 @@ def test_sentiment_from_config_baostock_only_no_akshare(monkeypatch):
     )
     assert provider._fetcher is None
     assert provider._use_akshare is False
+
+
+def test_sentiment_from_config_tushare_only(monkeypatch):
+    class _TS:
+        source_name = "tushare"
+        priority = 1
+
+    monkeypatch.setattr(
+        "data_provider.router.DataFetcherRouter.build_fetcher",
+        staticmethod(lambda name, priority_override, src=None, config=None: _TS()),
+    )
+    monkeypatch.setattr(
+        "data_provider.sentiment.provider.resolve_tushare_token",
+        lambda config: "tok",
+    )
+    created: list[str] = []
+
+    class _FakeTS:
+        source_name = "tushare"
+
+        def __init__(self, token: str):
+            created.append(token)
+
+    monkeypatch.setattr(
+        "data_provider.sentiment.provider.TushareSentimentFetcher",
+        _FakeTS,
+    )
+    provider = MarketSentimentProvider.from_config(
+        {"data_sources": {"enabled": [{"name": "tushare", "priority": 1}]}},
+        MagicMock(),
+    )
+    assert created == ["tok"]
+    assert provider._use_akshare is False
+    assert isinstance(provider._fetcher, _FakeTS)

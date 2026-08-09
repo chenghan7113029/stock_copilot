@@ -13,7 +13,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from common.exceptions import DataProviderError
-from data_provider.base import BaseFetcher, FetchResult
+from data_provider.base import BaseFetcher, FetchResult, normalize_stock_code
 from data_provider.tushare.field_mapping import (
     BALANCE_SHEET_FIELD_MAP,
     CASHFLOW_FIELD_MAP,
@@ -44,6 +44,17 @@ def _to_ts_code(code: str, exchange: str) -> str:
     if suffix is None:
         raise DataProviderError(f"Tushare 不支持交易所 {exchange!r}")
     return f"{code}{suffix}"
+
+
+def _to_yyyymmdd(date_str: str) -> str:
+    return str(date_str).replace("-", "").strip()[:8]
+
+
+def _normalize_trade_date(raw: Any) -> str:
+    s = str(raw).strip()
+    if len(s) >= 8 and s[:8].isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s[:10]
 
 
 def _safe_float(raw: Any) -> Optional[float]:
@@ -262,6 +273,104 @@ class TushareFetcher(BaseFetcher):
             data=data,
             missing_fields=sorted(set(missing) - set(data.keys())),
         )
+
+    def fetch_kline(
+        self,
+        code: str,
+        exchange: str,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        """获取日 K 线 OHLCV（前复权），列名与 Baostock/AKShare 对齐。"""
+        import tushare as ts
+
+        ts_code = _to_ts_code(code, exchange)
+        start = _to_yyyymmdd(start_date)
+        end = _to_yyyymmdd(end_date)
+        try:
+            raw_df = ts.pro_bar(
+                ts_code=ts_code,
+                start_date=start,
+                end_date=end,
+                adj="qfq",
+                asset="E",
+                freq="D",
+                api=self._pro,
+            )
+        except DataProviderError:
+            raise
+        except Exception as exc:
+            raise DataProviderError(f"Tushare pro_bar K线失败 [{code}]: {exc}") from exc
+
+        if raw_df is None or raw_df.empty:
+            raise DataProviderError(f"Tushare 未查询到 {code} 的 K 线数据")
+
+        work = raw_df.copy()
+        if "trade_date" not in work.columns:
+            raise DataProviderError(f"Tushare K线缺少 trade_date 列 [{code}]")
+        if "vol" in work.columns and "volume" not in work.columns:
+            work = work.rename(columns={"vol": "volume"})
+        work["date"] = work["trade_date"].map(_normalize_trade_date)
+        required = ("open", "high", "low", "close", "volume")
+        missing_cols = [c for c in required if c not in work.columns]
+        if missing_cols:
+            raise DataProviderError(
+                f"Tushare K线缺少列 {missing_cols} [{code}]"
+            )
+        for col in required:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+        df = work[["date", "open", "high", "low", "close", "volume"]].copy()
+        df = df.sort_values("date", ascending=True).reset_index(drop=True)
+        if df.empty:
+            raise DataProviderError(f"Tushare 未查询到 {code} 的 K 线数据")
+        return df
+
+    def fetch_realtime_quote(self, code: str) -> dict[str, float | str]:
+        """通过 pro.rt_k 获取当日实时 OHLCV；禁止回退到 daily。"""
+        norm_code, exchange = normalize_stock_code(code)
+        ts_code = _to_ts_code(norm_code, exchange)
+        try:
+            df = self._pro.rt_k(ts_code=ts_code)
+        except Exception as exc:
+            msg = str(exc)
+            if any(k in msg for k in ("权限", "积分", "permission", "特权", "没有接口访问")):
+                raise DataProviderError(
+                    f"Tushare rt_k 无权限或未开通 [{norm_code}]: {exc}"
+                ) from exc
+            raise DataProviderError(f"Tushare rt_k 失败 [{norm_code}]: {exc}") from exc
+
+        if df is None or df.empty:
+            raise DataProviderError(
+                f"Tushare rt_k 无数据 [{norm_code}]（可能无权限或非交易时段）"
+            )
+
+        row = df.iloc[0]
+        close = _safe_float(row.get("close"))
+        if close is None or close <= 0:
+            raise DataProviderError(f"Tushare rt_k 价格无效 [{norm_code}]")
+
+        open_ = _safe_float(row.get("open"))
+        high = _safe_float(row.get("high"))
+        low = _safe_float(row.get("low"))
+        volume = _safe_float(row.get("vol") if "vol" in df.columns else row.get("volume"))
+
+        trade_date = date.today().strftime("%Y-%m-%d")
+        trade_time = row.get("trade_time")
+        if trade_time is not None and not (isinstance(trade_time, float) and pd.isna(trade_time)):
+            text = str(trade_time).strip()
+            if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+                trade_date = text[:10]
+            elif len(text) >= 8 and text[:8].isdigit():
+                trade_date = _normalize_trade_date(text[:8])
+
+        return {
+            "date": trade_date,
+            "open": float(open_ if open_ is not None else close),
+            "high": float(high if high is not None else close),
+            "low": float(low if low is not None else close),
+            "close": float(close),
+            "volume": float(volume if volume is not None else 0.0),
+        }
 
     # ── 基本面 ───────────────────────────────────────────────────────────────
 

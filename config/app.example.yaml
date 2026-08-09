@@ -42,9 +42,10 @@ data_sources:
       priority: 2         # 第二源，行情/财务交叉校验
     # Tushare Pro：需 Token（免费注册 https://tushare.pro ）
     # Token 仅写入本地 config/app.yaml（已 gitignore），或使用环境变量 TUSHARE_TOKEN
-    # 默认 priority 3：排在免 token 源之后；积分充足时可改为 1 提高合并权重
+    # 阶段 B/C 目标默认序预览：tushare(1) + baostock(2)；正式去 akshare 见阶段 C
+    # cloud_bootstrap 在检测到 TUSHARE_TOKEN 时会写入/提升 tushare priority=1
     # - name: tushare
-    #   priority: 3
+    #   priority: 1
     #   token: ""          # 从 tushare.pro 个人中心复制，勿提交到 Git
 
 # 价值面分析假设（Baostock FCF 推导 fallback 等）
