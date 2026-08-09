@@ -1,8 +1,9 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-08-02  
+> 最后更新：2026-08-09  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
+> 数据源迁移（三阶段 + 测试基线）：[features/data-source-migration.md](features/data-source-migration.md)  
 > OpenSpec 活跃 change：见 `openspec list`
 
 ---

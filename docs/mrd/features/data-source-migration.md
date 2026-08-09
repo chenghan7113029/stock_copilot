@@ -12,7 +12,7 @@
 | 日期 | 摘要 |
 |------|------|
 | 2026-08-08 | 初稿：三阶段拆分（架构统一 / Tushare 对齐 / AKShare 退役）；对齐 Owner 对多源合并、实时 `rt_k`、默认配置与 Baostock 财报字段策略的决策 |
-| 2026-08-09 | 补充 §12 三阶段测试方案：分层门禁、迁移基线（golden baseline）、一致性维度与分阶段验收 |
+| 2026-08-09 | 补充 §12 三阶段测试方案：分层门禁、迁移基线（golden baseline）、一致性维度与分阶段验收；§5 各阶段验收交叉引用 §12 |
 
 ---
 
@@ -173,6 +173,8 @@ flowchart TB
 
 #### 5.A.3 验收标准
 
+> 测试与结果一致性门禁见 **§12.4 阶段 A**、**§12.5 PR 检查清单**。
+
 - [ ] `enabled` 仅 `baostock` 时，**零 AKShare 网络调用**（含实时、筹码、情绪路径）
 - [ ] K 线 failover 顺序与 config priority 一致（可用 mock 断言调用顺序）
 - [ ] 价值面 merge 顺序与 priority 一致；**删除** `override_field` 特例（可与阶段 B 字段矩阵同步交付）
@@ -229,6 +231,8 @@ flowchart TB
 
 #### 5.B.4 验收标准
 
+> 测试与联网数值容差见 **§12.4 阶段 B**、**§12.5 PR 检查清单**。
+
 - [ ] Issue #1 关闭：`sync 600519` 在仅 `tushare+baostock`、Baostock 不可用时，K 线仍可通过 Tushare 拉取
 - [ ] `sync --realtime`：已开通 `rt_k` 时使用 Tushare 实时；未开通则 **EOD 降级 + 明确警告**（不静默用 daily）
 - [ ] 价值面：样本股 `600519` 在 `tushare(1)+baostock(2)` 下，`industry`/银行指标来自 Tushare；Baostock 不污染 §3 财报字段
@@ -272,6 +276,8 @@ flowchart TB
 - 重写历史 OpenSpec 归档文档
 
 #### 5.C.3 验收标准
+
+> 测试与 legacy 隔离见 **§12.4 阶段 C**、**§12.5 PR 检查清单**。
 
 - [ ] 全新 bootstrap 后 `config/app.yaml` 无 akshare 条目
 - [ ] 全量 `pytest -q -m "not network"` 无 AKShare 实例化
