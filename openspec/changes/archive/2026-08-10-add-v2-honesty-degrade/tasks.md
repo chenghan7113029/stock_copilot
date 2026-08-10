@@ -27,4 +27,4 @@
 - [x] 5.1 Update `docs/mrd/features/value-analysis.md`：场景 5 扩展为三层压制；记录 code 白名单与 T-15 补完说明
 - [x] 5.2 Update `docs/mrd/roadmap-todo.md`（若有对应行）：标注 V2 诚实层 / 本 change
 - [x] 5.3 Update `propose_list.md`：本 change 状态
-- [ ] 5.4 归档前：合并 proposal/design/specs 要点回 `docs/mrd`（或 `docs/design`），再执行 archive 流程
+- [x] 5.4 归档前：合并 proposal/design/specs 要点回 `docs/mrd`（或 `docs/design`），再执行 archive 流程
