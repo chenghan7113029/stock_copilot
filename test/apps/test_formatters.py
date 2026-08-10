@@ -232,7 +232,45 @@ def test_format_value_report_cyclical_section():
     assert "方法暂不适用" not in text
 
 
-def test_format_value_report_insurance_ev_section():
+def test_format_value_report_growth_tech_section():
+    peg = ValuationResult(
+        method="PEG Ratio",
+        fair_value=45.0,
+        current_price=40.0,
+        premium_discount=12.5,
+        assessment="Fair",
+        details={"peg_ratio": 1.1, "pe_ratio": 25.0, "growth_rate": 22.0},
+        applicability="Applicable",
+    )
+    rule = ValuationResult(
+        method="Rule of 40",
+        fair_value=40.0,
+        current_price=40.0,
+        premium_discount=0,
+        assessment="Healthy",
+        details={"rule_of_40_score": 42.0, "growth": 22.0, "fcf_margin": 20.0},
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="300627",
+        name="华测导航",
+        current_price=40.0,
+        prototype="growth_tech",
+        method_keys_used=["peg", "rule_of_40"],
+        fair_value_range=ValuationRange(low=35, base=45, high=55),
+        margin_of_safety=11.0,
+        price_percentile=40.0,
+        assessment="合理",
+        confidence="Medium",
+        method_results={"peg": peg, "rule_of_40": rule},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 成长科技方法" in text
+    assert "PEG" in text
+    assert "Rule of 40" in text
+
     insurance = ValuationResult(
         method="Insurance EV/NBV",
         fair_value=55.0,

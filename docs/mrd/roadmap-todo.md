@@ -224,7 +224,7 @@ etire-akshare-default |
 |----|-----|--------|------|
 | T-4 | 保险 EV/NBV 模型 | 中国平安 | [x] V2 P4（`insurance`；本分支） |
 | T-5 | 军工·订单驱动模型 | 中船科技 | [x] V2 P3（`defense_orders`；本分支） |
-| T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [ ] V2 |
+| T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [x] V2 P5（`growth_tech` 路由接线；本分支） |
 | — | 成长 + 制造周期情景 DCF | 比亚迪 | [x] V2 P1（`growth_manufacturing` + 浅情景 DCF；本分支） |
 | — | 周期 + 资产重估 | 北大荒 | [ ] V2 |
 | — | 现金流 + 广告周期 | 分众传媒 | [x] V2 P2（`cashflow_ad_cycle` + cyclical 子集；本分支） |

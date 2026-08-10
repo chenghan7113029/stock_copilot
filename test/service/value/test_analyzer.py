@@ -182,6 +182,35 @@ def test_ping_an_graduates_with_ev_inputs():
     assert result.method_results["insurance_ev"].details.get("output_type") == "insurance_ev"
 
 
+def test_huace_routes_to_growth_tech_methods():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="300627",
+        name="华测导航",
+        industry="通信设备",
+        current_price=40.0,
+        eps=1.2,
+        pe_ratio=25.0,
+        growth_rate=22.0,
+        revenue=5e9,
+        fcf=8e8,
+        shares_outstanding=5e8,
+        total_assets=1e10,
+        ebitda=1e9,
+        net_debt=0.0,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("300627")
+
+    assert result.prototype == "growth_tech"
+    assert "peg" in result.method_keys_used
+    assert "rule_of_40" in result.method_keys_used
+    assert result.methodology_applicable is True
+    assert any("growth_tech" in w or "成长科技" in w for w in result.warnings)
+    assert result.assessment != "方法暂不适用"
+
+
 def test_byd_graduates_with_scenario_dcf_when_fcf_available():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(

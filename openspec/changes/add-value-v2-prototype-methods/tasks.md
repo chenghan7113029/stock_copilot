@@ -34,12 +34,12 @@
 
 ## 5. Phase P5 — 华测成长路由
 
-- [ ] 5.1 Create `growth_tech` 原型与 method_keys（接线既有 peg/garp/rule_of_40 等）
-- [ ] 5.2 路由 `300627`（及可选行业启发）
-- [ ] 5.3 Test + 目视 `report value 300627`
+- [x] 5.1 Create `growth_tech` 原型与 method_keys（接线既有 peg/garp/rule_of_40 等）
+- [x] 5.2 路由 `300627`（及可选行业启发）
+- [x] 5.3 Test + 目视 `report value 300627`
 
 ## 6. 文档与归档
 
-- [ ] 6.1 Update `docs/mrd/features/value-analysis.md` §2.2/路由表/T-4～T-12 状态（随 Phase 更新）
-- [ ] 6.2 Update `docs/mrd/roadmap-todo.md` §4.3
+- [x] 6.1 Update `docs/mrd/features/value-analysis.md` §2.2/路由表/T-4～T-12 状态（随 Phase 更新）
+- [x] 6.2 Update `docs/mrd/roadmap-todo.md` §4.3
 - [ ] 6.3 全部 Phase 完成后 `/opsx-archive`（中途可先合 PR，归档可等收官或按子 change 归档）

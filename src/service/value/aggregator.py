@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from service.value.mos_thresholds import assessment_from_mos
 from service.value.valuation.base import ValuationRange, ValuationResult
 
-SCORE_METHOD_KEYS = frozenset({"altman_z", "piotroski_f", "beneish_m", "value_trap", "sbc"})
+SCORE_METHOD_KEYS = frozenset(
+    {"altman_z", "piotroski_f", "beneish_m", "value_trap", "sbc", "rule_of_40"}
+)
 
 PRIMARY_METHODS_BY_PROTOTYPE: dict[str, frozenset[str]] = {
     "value_growth": frozenset({"dcf", "pe_relative"}),
@@ -18,6 +20,7 @@ PRIMARY_METHODS_BY_PROTOTYPE: dict[str, frozenset[str]] = {
     "cashflow_ad_cycle": frozenset({"cyclical_fcf", "cyclical_pe"}),
     "defense_orders": frozenset({"defense_orders"}),
     "insurance": frozenset({"insurance_ev"}),
+    "growth_tech": frozenset({"peg", "ev_ebitda"}),
 }
 
 _UNRELIABLE_WARNING = (
@@ -223,6 +226,8 @@ class ValuationAggregator:
             return "insurance"
         if "cyclical_fcf" in keys or "cyclical_pe" in keys:
             return "cashflow_ad_cycle"
+        if "peg" in keys or "rule_of_40" in keys or "garp" in keys:
+            return "growth_tech"
         if "dcf" in keys or "pe_relative" in keys:
             return "value_growth"
         if "pb_relative" in keys or "residual_income" in keys:

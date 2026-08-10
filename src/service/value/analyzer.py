@@ -177,6 +177,10 @@ class ValueAnalyzer:
             )
         elif prototype == "unknown":
             warnings.append("原型未识别，使用通用方法集，置信度低")
+        elif prototype == "growth_tech":
+            warnings.append(
+                "原型为成长科技（growth_tech）：优先 PEG/GARP/Rule of 40，非 value_growth 静默替代"
+            )
 
         if prototype == "cashflow_ad_cycle":
             for note in apply_cycle_inputs(stock, self._config):

@@ -161,6 +161,18 @@ def _method_semantic_hint(key: str, mr: Any) -> str:
         if pev is not None:
             return f"(EV/NBV；P/EV={pev:.2f}x)"
         return "(EV/NBV)"
+    if key == "peg":
+        peg = details.get("peg_ratio") or details.get("peg")
+        if peg is not None:
+            return f"(成长 PEG={peg:.2f})"
+        return "(成长 PEG)"
+    if key == "garp":
+        return "(成长 GARP)"
+    if key == "rule_of_40":
+        score = details.get("rule_of_40_score") or details.get("score")
+        if score is not None:
+            return f"(Rule of 40={score:.1f})"
+        return "(Rule of 40)"
     if key == "dcf":
         g1 = details.get("growth_1_5")
         if g1 is not None:
@@ -287,6 +299,35 @@ def _append_insurance_section(lines: list[str], result: ValueAnalysisResult) -> 
     lines.append("- 说明: EV/NBV 依赖年报或配置手工输入；缺 EV 时保持诚实降级")
 
 
+def _append_growth_tech_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    if result.prototype != "growth_tech":
+        return
+    methods = result.method_results or {}
+    if not any(k in methods for k in ("peg", "garp", "rule_of_40")):
+        return
+
+    lines.extend(["", "## 成长科技方法（PEG / GARP / Rule of 40）", ""])
+    peg = methods.get("peg")
+    if peg is not None and peg.error is None and peg.applicability != "Not Applicable":
+        pd = peg.details or {}
+        lines.append(
+            f"- **PEG:** {_fmt_num(pd.get('peg_ratio'))}"
+            f"（PE {_fmt_num(pd.get('pe_ratio'), 1)} / 增速 {_fmt_num(pd.get('growth_rate'), 1)}%）"
+            f" → 公允价 {_fmt_num(peg.fair_value)}"
+        )
+    garp = methods.get("garp")
+    if garp is not None and garp.error is None and garp.applicability != "Not Applicable":
+        lines.append(f"- **GARP:** 公允价 {_fmt_num(garp.fair_value)} | {garp.assessment}")
+    rule = methods.get("rule_of_40")
+    if rule is not None and rule.error is None and rule.applicability != "Not Applicable":
+        rd = rule.details or {}
+        lines.append(
+            f"- **Rule of 40:** 得分 {_fmt_num(rd.get('rule_of_40_score') or rd.get('score'), 1)}"
+            f"（增速 {_fmt_num(rd.get('growth'), 1)}% + FCF 利润率 {_fmt_num(rd.get('fcf_margin'), 1)}%）"
+        )
+    lines.append("- 说明: 成长科技路由显式使用 PEG 族方法，避免被当成普通 value_growth")
+
+
 def format_value_report(
     result: ValueAnalysisResult,
     as_json: bool = False,
@@ -388,6 +429,7 @@ def format_value_report(
     _append_cyclical_section(lines, result)
     _append_defense_section(lines, result)
     _append_insurance_section(lines, result)
+    _append_growth_tech_section(lines, result)
 
     if result.method_results:
         lines.extend(["", "## 估值方法", ""])

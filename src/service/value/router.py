@@ -17,10 +17,11 @@ _CODE_OVERRIDE: dict[str, str] = {
     "002027": "cashflow_ad_cycle",
     "600072": "defense_orders",
     "601318": "insurance",
+    "300627": "growth_tech",
 }
 
 # code → (标签, 方法论/偏差说明基句)；命中后短路为 unknown（诚实层）
-# P1–P4：比亚迪/分众/中船/平安已毕业；其他军工与其他保险仍走行业诚实层
+# P1–P5：持仓样本已毕业；其他军工与其他保险仍走行业诚实层
 _CODE_V2_HONESTY: dict[str, tuple[str, str]] = {}
 
 _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
@@ -30,6 +31,10 @@ _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
     "燃气": "high_dividend",
     "高速公路": "high_dividend",
     "港口": "high_dividend",
+    "软件服务": "growth_tech",
+    "软件开发": "growth_tech",
+    "互联网服务": "growth_tech",
+    "通信设备": "growth_tech",
 }
 
 _INDUSTRY_V2_UNIMPLEMENTED: dict[str, str] = {
@@ -54,6 +59,7 @@ _IMPLEMENTED_PROTOTYPES = frozenset(
         "cashflow_ad_cycle",
         "defense_orders",
         "insurance",
+        "growth_tech",
     }
 )
 
@@ -108,6 +114,15 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
     "insurance": [
         "insurance_ev",
         "altman_z",
+        "value_trap",
+    ],
+    "growth_tech": [
+        "peg",
+        "garp",
+        "rule_of_40",
+        "ev_ebitda",
+        "dcf",
+        "piotroski_f",
         "value_trap",
     ],
     "unknown": [

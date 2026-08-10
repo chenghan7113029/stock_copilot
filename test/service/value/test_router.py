@@ -188,6 +188,24 @@ def test_describe_honesty_gap_code_priority_and_industry():
     assert describe_honesty_gap("600519", "白酒") is None
 
 
+def test_huace_routes_to_growth_tech():
+    router = PrototypeRouter()
+    stock = StockData(code="300627", name="华测导航", growth_rate=25.0, total_assets=1e10)
+    prototype, keys = router.route(stock)
+    assert prototype == "growth_tech"
+    assert "peg" in keys
+    assert "rule_of_40" in keys
+    assert "garp" in keys
+
+
+def test_software_industry_maps_to_growth_tech():
+    router = PrototypeRouter()
+    stock = StockData(code="999001", industry="软件服务", growth_rate=20.0, total_assets=1e10)
+    prototype, keys = router.route(stock)
+    assert prototype == "growth_tech"
+    assert "peg" in keys
+
+
 def test_ping_an_routes_to_insurance():
     router = PrototypeRouter()
     stock = StockData(
