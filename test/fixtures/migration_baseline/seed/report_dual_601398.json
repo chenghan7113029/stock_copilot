@@ -1,0 +1,15 @@
+{
+  "analysis_summary": "股票代码: 601398 | 技术面: 空头排列, 评分 47 | 情绪面数据缺失，本次报告仅基于价值+技术双维 | 综合信号: 强烈卖出 | 价值评级: 未知",
+  "bear_evidence": [
+    "[价值陷阱] Value Trap Detector: overall_risk=Medium, Medium Value Trap Risk",
+    "[技术风险] ⚠️ 空头排列，不宜做多"
+  ],
+  "bull_evidence": [
+    "[技术信号] ✅ 价格略低于MA5(-1.1%)，回踩买点",
+    "[技术信号] MACD 中性区域",
+    "[技术信号] RSI中性(41.4)，震荡整理中",
+    "[技术信号] KDJ中性"
+  ],
+  "code": "601398",
+  "sentiment_result": null
+}

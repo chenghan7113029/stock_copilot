@@ -1,19 +1,17 @@
 """SourceManager：多数据源选源、优先级管理与自动 failover。
 
-对齐 ref/daily_stock_analysis 的 DataFetcherManager 设计：
-- 持有 fetcher 列表，按 priority 排序（数字越小越优先）
-- 取数时顺序调用，第一个成功则返回；全部失败抛 DataProviderError
-- 通过 from_config() 工厂方法按配置实例化（未启用的源不创建）
+选源真源为 DataFetcherRouter（config enabled + priority）。
+价值面在线取数由 StockDataProvider 对全部 fetcher 做字段合并；
+本类保留的 `_fetch_with_fallback` 供遗留单字段 failover 调用。
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
-from common.exceptions import DataProviderError
 from data_provider.base import BaseFetcher, FetchResult
+from data_provider.router import DataFetcherRouter
 
 logger = logging.getLogger(__name__)
 
@@ -26,35 +24,9 @@ class SourceManager:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "SourceManager":
-        """根据 config 的 data_sources.enabled 列表按需实例化 fetcher。
-
-        config 结构示例（对应 app.yaml）：
-            data_sources:
-              enabled:
-                - name: akshare
-                  priority: 1
-                - name: baostock
-                  priority: 2
-        """
-        enabled: list[dict] = config.get("data_sources", {}).get("enabled", [])
-        fetchers: list[BaseFetcher] = []
-
-        for src in enabled:
-            name = src.get("name", "").lower()
-            priority_override = src.get("priority")
-
-            fetcher = cls._build_fetcher(name, priority_override, src, config)
-            if fetcher is not None:
-                fetchers.append(fetcher)
-            elif name == "tushare":
-                pass  # 已在 _build_fetcher 内记录 token 缺失 warning
-            else:
-                logger.warning("未知数据源 %r，跳过", name)
-
-        if not fetchers:
-            raise DataProviderError("配置中没有启用任何数据源，请检查 config/app.yaml")
-
-        return cls(fetchers)
+        """根据 config 的 data_sources.enabled 列表按需实例化 fetcher。"""
+        router = DataFetcherRouter.from_config(config)
+        return cls(router.fetchers)
 
     @staticmethod
     def _build_fetcher(
@@ -63,35 +35,8 @@ class SourceManager:
         src: dict | None = None,
         config: dict | None = None,
     ) -> BaseFetcher | None:
-        """根据名称构建 fetcher 实例，可覆写优先级。"""
-        if name == "akshare":
-            from data_provider.akshare.fetcher import AKShareFetcher
-            f = AKShareFetcher()
-            if priority_override is not None:
-                f.priority = priority_override
-            return f
-
-        if name == "baostock":
-            from data_provider.baostock.fetcher import BaostockFetcher
-            f = BaostockFetcher(config=config or {})
-            if priority_override is not None:
-                f.priority = priority_override
-            return f
-
-        if name == "tushare":
-            token = ((src or {}).get("token") or os.environ.get("TUSHARE_TOKEN") or "").strip()
-            if not token:
-                logger.warning("Tushare 已启用但未配置 token，跳过（请编辑 config/app.yaml 或设置 TUSHARE_TOKEN）")
-                return None
-            from data_provider.tushare.fetcher import TushareFetcher
-            f = TushareFetcher(token=token)
-            if priority_override is not None:
-                f.priority = priority_override
-            return f
-
-        return None
-
-    # ── 取数 ─────────────────────────────────────────────────────────────────
+        """兼容旧调用点；委托 DataFetcherRouter.build_fetcher。"""
+        return DataFetcherRouter.build_fetcher(name, priority_override, src, config)
 
     @property
     def fetchers(self) -> list[BaseFetcher]:

@@ -1,0 +1,445 @@
+{
+  "assessment": "合理偏低",
+  "code": "600519",
+  "confidence": "Medium",
+  "current_price": 1194.45,
+  "fair_value_range": {
+    "base": 1403.78,
+    "high": 1823.335,
+    "low": 1058.5275
+  },
+  "fundamental_report_date": null,
+  "margin_of_safety": 14.911880779039446,
+  "method_keys_used": [
+    "dcf",
+    "epv",
+    "owner_earnings",
+    "graham_formula",
+    "ev_ebitda",
+    "pe_relative",
+    "piotroski_f",
+    "beneish_m",
+    "value_trap"
+  ],
+  "method_results": {
+    "beneish_m": {
+      "analysis": [
+        "=== Beneish M-Score Analysis: 600519 ===",
+        "M-Score: -2.11",
+        "Threshold: < -2.22 (safe), > -1.78 (high risk)",
+        "Risk Level: Medium",
+        "Is Manipulator: NO",
+        "",
+        "Component Scores:",
+        "  DSRI: 1.000",
+        "  GMI: 1.000",
+        "  AQI: 1.000",
+        "  SGI: 1.000",
+        "  DEPI: 1.000",
+        "  SGAI: 1.000",
+        "  LVGI: 1.000",
+        "  TATA: 0.079",
+        "",
+        "✅ Company shows low risk of earnings manipulation.",
+        "",
+        "Notes:",
+        "  - DSRI estimated as 1.0 (insufficient prior data)",
+        "  - GMI estimated as 1.0 (insufficient margin data)",
+        "  - AQI estimated as 1.0 (insufficient asset data)",
+        "  - SGI estimated as 1.0 (no prior revenue)",
+        "  - DEPI estimated as 1.0 (insufficient depreciation data)",
+        "  - SGAI estimated as 1.0 (insufficient SG&A data)",
+        "  - LVGI estimated as 1.0 (insufficient leverage data)"
+      ],
+      "applicability": "Limited",
+      "assessment": "Manipulation Risk: Medium (M=-2.11)",
+      "components": {
+        "AQI": 1.0,
+        "DEPI": 1.0,
+        "DSRI": 1.0,
+        "GMI": 1.0,
+        "LVGI": 1.0,
+        "SGAI": 1.0,
+        "SGI": 1.0,
+        "TATA": 0.07874494153492052
+      },
+      "confidence": "Low",
+      "current_price": 1194.45,
+      "details": {
+        "component_scores": {
+          "AQI": 1.0,
+          "DEPI": 1.0,
+          "DSRI": 1.0,
+          "GMI": 1.0,
+          "LVGI": 1.0,
+          "SGAI": 1.0,
+          "SGI": 1.0,
+          "TATA": 0.079
+        },
+        "is_manipulator": false,
+        "m_score": -2.11,
+        "manipulation_risk": "Medium",
+        "output_type": "score",
+        "red_flags": [],
+        "threshold_high_risk": -1.78,
+        "threshold_safe": -2.22
+      },
+      "error": null,
+      "fair_value": 1194.45,
+      "fair_value_range": null,
+      "method": "Beneish M-Score",
+      "missing_fields": [],
+      "premium_discount": 0
+    },
+    "dcf": {
+      "analysis": [
+        "10-year DCF with terminal value",
+        "Terminal Value represents 73.9% of total value",
+        "FCF Year 10: 99.47B",
+        "Warning: Terminal value is >60% of total - consider sensitivity to growth assumptions"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Undervalued",
+      "components": {
+        "enterprise_value": 2385823492828.496,
+        "equity_value": 2437514103774.996,
+        "pv_fcf": 622253057256.5491,
+        "pv_terminal": 1763570435571.947
+      },
+      "confidence": "Low",
+      "current_price": 1194.45,
+      "details": {
+        "discount_rate": 5.3999999999999995,
+        "growth_1_5": 8.0,
+        "growth_6_10": 3.0,
+        "terminal_growth": 2.0,
+        "terminal_value_pct": 73.91873040369632
+      },
+      "error": null,
+      "fair_value": 1949.88,
+      "fair_value_range": {
+        "base": 1949.88,
+        "high": 8109.21,
+        "low": 1035.29
+      },
+      "method": "DCF (10-Year)",
+      "missing_fields": [],
+      "premium_discount": 63.2
+    },
+    "epv": {
+      "analysis": [
+        "Value assuming ZERO future growth",
+        "Market prices in 24.8% growth above this floor",
+        "Distributable CF: 61.79B",
+        "Implied P/E at EPV: 18.7x",
+        "Note: depreciation (Depreciation)"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Overvalued",
+      "components": {
+        "distributable_cash_flow": 61793444258.94094,
+        "ebit": 85310347600.57059,
+        "epv_operating": 1144323041832.2397,
+        "nopat": 63982760700.42794
+      },
+      "confidence": "High",
+      "current_price": 1194.45,
+      "details": {
+        "growth_priced_in": 24.8,
+        "implied_pe": 18.69,
+        "maintenance_capex_pct": 70.0
+      },
+      "error": null,
+      "fair_value": 956.75,
+      "fair_value_range": {
+        "base": 956.75,
+        "high": 1228.64,
+        "low": 769.82
+      },
+      "method": "EPV (Zero Growth)",
+      "missing_fields": [],
+      "premium_discount": -19.9
+    },
+    "ev_ebitda": {
+      "analysis": [
+        "Current EV/EBITDA: 10.5x (Reasonable)",
+        "Fair EV/EBITDA Multiple: 12.0x",
+        "EBITDA: 137.77B",
+        "Enterprise Value: 1441.47B (Market Cap: 1493.16B + Net Debt: -51.69B)",
+        "Fair EV: 1653.25B → Fair Equity: 1704.94B",
+        "Implied fair price: 1363.86 vs Current: 1194.45",
+        "Compare to P/E: 18.1x",
+        "Note: EV/EBITDA significantly lower than P/E - check for high depreciation or debt",
+        "Note: ebitda (EBITDA)",
+        "Note: depreciation (Depreciation)",
+        "Note: EBITDA estimated (EBIT × 1.2)"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Fair",
+      "components": {
+        "ebitda": 137770740197.088,
+        "fair_equity": 1704939493311.5562,
+        "fair_ev": 1653248882365.0562
+      },
+      "confidence": "Low",
+      "current_price": 1194.45,
+      "details": {
+        "current_ev_ebitda": 10.5,
+        "ebitda": 137770740197.088,
+        "enterprise_value": 1441469356173.5002,
+        "fair_enterprise_value": 1653248882365.0562,
+        "fair_ev_ebitda_multiple": 12.0,
+        "net_debt": -51690610946.5
+      },
+      "error": null,
+      "fair_value": 1363.86,
+      "fair_value_range": {
+        "base": 1363.86,
+        "high": 1628.37,
+        "low": 1099.36
+      },
+      "method": "EV/EBITDA",
+      "missing_fields": [],
+      "premium_discount": 14.2
+    },
+    "graham_formula": {
+      "analysis": [
+        "Original Graham formula: V = (EPS × (8.5 + 2g) × 4.4) / Y",
+        "Growth rate used: 3.1365763561473026% (original: 3.1365763561473026%)",
+        "Base P/E equivalent: 14.8x"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Overvalued",
+      "components": {
+        "eps": 65.85175482610754,
+        "growth_rate": 3.1365763561473026
+      },
+      "confidence": "High",
+      "current_price": 1194.45,
+      "details": {
+        "aaa_yield": 5.3,
+        "base_pe": 14.773152712294605,
+        "formula": "V = (EPS × (8.5 + 2g) × 4.4) / Y",
+        "growth_rate": 3.1365763561473026,
+        "original_growth": 3.1365763561473026
+      },
+      "error": null,
+      "fair_value": 807.64,
+      "fair_value_range": {
+        "base": 807.64,
+        "high": 1354.33,
+        "low": 464.69
+      },
+      "method": "Graham Formula",
+      "missing_fields": [],
+      "premium_discount": -32.4
+    },
+    "owner_earnings": {
+      "analysis": [
+        "Owner Earnings: 86.88B (vs Net Income: 82.32B)",
+        "Owner Earnings/Share: 69.50",
+        "Earnings Quality: 105.5% (Normal)",
+        "Implied P/E (Owner Earnings): 17.2x (vs Reported P/E: 18.1x)",
+        "Zero-growth value: 1287.09",
+        "With 3.1% growth: 3167.01",
+        "Note: depreciation (Depreciation & Amortization)",
+        "Note: net_working_capital (Net Working Capital)",
+        "Note: Depreciation estimated at 5% of revenue"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Undervalued",
+      "components": {
+        "depreciation": 8441905125.739501,
+        "maintenance_capex": 2189316441.487,
+        "net_income": 82320067101.68,
+        "nwc_change": 1688381025.1479
+      },
+      "confidence": "Medium",
+      "current_price": 1194.45,
+      "details": {
+        "depreciation_used": 8441905125.739501,
+        "earnings_quality": 1.055,
+        "growth_value": 3167.01,
+        "implied_pe": 17.2,
+        "maintenance_capex": 2189316441.487,
+        "nwc_change": 1688381025.1479,
+        "owner_earnings": 86884274760.78459,
+        "owner_earnings_per_share": 69.5,
+        "zero_growth_value": 1287.09
+      },
+      "error": null,
+      "fair_value": 2227.05,
+      "fair_value_range": {
+        "base": 2227.05,
+        "high": 2248.62,
+        "low": 845.31
+      },
+      "method": "Owner Earnings",
+      "missing_fields": [],
+      "premium_discount": 86.4
+    },
+    "pe_relative": {
+      "analysis": [
+        "Current P/E: 18.1x",
+        "Historical Average: 21.9x (7 data points)",
+        "Historical Range: 19.7x - 26.6x",
+        "Current Percentile: -23th",
+        "vs Historical: -17.3%",
+        "Fair Value (EPS × avg PE): 1443.70",
+        "Premium/Discount: +20.9%"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Undervalued (bottom quartile historically)",
+      "components": {
+        "current_pe": 18.138468794858134,
+        "historical_avg": 21.923538836740068
+      },
+      "confidence": "Medium",
+      "current_price": 1194.45,
+      "details": {
+        "current_pe": 18.14,
+        "data_points": 7,
+        "historical_avg_pe": 21.92,
+        "historical_high_pe": 26.56,
+        "historical_low_pe": 19.69,
+        "historical_median_pe": 21.95,
+        "percentile_in_history": -22.6,
+        "vs_historical_pct": -17.3
+      },
+      "error": null,
+      "fair_value": 1443.7,
+      "fair_value_range": null,
+      "method": "PE Relative",
+      "missing_fields": [],
+      "premium_discount": 20.9
+    },
+    "piotroski_f": {
+      "analysis": [
+        "F-Score: 5/8 (1 criteria skipped)",
+        "Interpretation: Average - Some financial concerns",
+        "Risk Level: Medium",
+        "",
+        "Profitability: 2/4",
+        "Leverage/Liquidity: 3/3",
+        "Operating Efficiency: 0/2",
+        "",
+        "Criteria Met:",
+        "  ✓ F1: ROA > 0",
+        "  ✓ F2: OCF > 0",
+        "  ✓ F5: Debt ratio decreased",
+        "  ✓ F6: Current ratio increased",
+        "  ✓ F7: No significant share dilution",
+        "",
+        "Criteria Failed:",
+        "  ✗ F3: ROA improved",
+        "  ✗ F4: OCF > Net Income",
+        "  ✗ F9: Asset turnover improved",
+        "",
+        "Criteria Skipped (no prior year data):",
+        "  - F8: Margin improved (no prior year data)",
+        "",
+        "Key Metrics:",
+        "  ROA: 27.09%",
+        "  Debt Ratio: 16.42%",
+        "  Current Ratio: 5.09",
+        "  Asset Turnover: 0.56",
+        "",
+        "Notes:",
+        "  - OCF estimated from FCF + CapEx"
+      ],
+      "applicability": "Applicable",
+      "assessment": "F-Score: 5/9 - Average - Some financial concerns",
+      "components": {
+        "efficiency": 0,
+        "leverage": 3,
+        "profitability": 2
+      },
+      "confidence": "Medium",
+      "current_price": 1194.45,
+      "details": {
+        "asset_turnover": 0.5557,
+        "criteria_failed": [
+          "F3: ROA improved",
+          "F4: OCF > Net Income",
+          "F9: Asset turnover improved"
+        ],
+        "criteria_met": [
+          "F1: ROA > 0",
+          "F2: OCF > 0",
+          "F5: Debt ratio decreased",
+          "F6: Current ratio increased",
+          "F7: No significant share dilution"
+        ],
+        "criteria_skipped": [
+          "F8: Margin improved (no prior year data)"
+        ],
+        "current_ratio": 5.09,
+        "debt_ratio": 0.1642,
+        "efficiency_score": 0,
+        "f_score": 5,
+        "interpretation": "Average - Some financial concerns",
+        "leverage_score": 3,
+        "max_score": 8,
+        "output_type": "score",
+        "profitability_score": 2,
+        "risk_level": "Medium",
+        "roa": 0.2709
+      },
+      "error": null,
+      "fair_value": 1194.45,
+      "fair_value_range": null,
+      "method": "Piotroski F-Score",
+      "missing_fields": [],
+      "premium_discount": 0
+    },
+    "value_trap": {
+      "analysis": [
+        "Overall Risk: Medium",
+        "",
+        "1. Financial Health: Low — Z=21.05, CR=5.09",
+        "2. Business Deterioration: Low — Operating margin 50.5% — healthy",
+        "3. Moat Erosion: High — ROE=0.1%; ROIC=31.5% — moat under pressure",
+        "4. AI/Tech Vulnerability: Medium — 需人工评估：行业数字化程度与 AI 颠覆性依赖定性判断",
+        "5. Dividend Sustainability: Medium — FCF=positive",
+        "",
+        "Warnings:",
+        "  - revenue_growth unavailable — business deterioration dimension uses operating_margin only"
+      ],
+      "applicability": "Applicable",
+      "assessment": "Medium Value Trap Risk",
+      "components": {},
+      "confidence": "High",
+      "current_price": 1194.45,
+      "details": {
+        "ai_vulnerability": "Medium",
+        "ai_vulnerability_note": "需人工评估：行业数字化程度与 AI 颠覆性依赖定性判断",
+        "business_deterioration": "Low",
+        "business_deterioration_note": "Operating margin 50.5% — healthy",
+        "dividend_sustainability": "Medium",
+        "dividend_sustainability_note": "FCF=positive",
+        "financial_health": "Low",
+        "financial_health_note": "Z=21.05, CR=5.09",
+        "moat_erosion": "High",
+        "moat_erosion_note": "ROE=0.1%; ROIC=31.5% — moat under pressure",
+        "output_type": "score",
+        "overall_risk": "Medium"
+      },
+      "error": null,
+      "fair_value": 1194.45,
+      "fair_value_range": null,
+      "method": "Value Trap Detector",
+      "missing_fields": [],
+      "premium_discount": 0
+    }
+  },
+  "name": "",
+  "price_percentile": 17.772119128015888,
+  "prototype": "value_growth",
+  "value_score": null,
+  "value_trap_alert": null,
+  "warnings": [
+    "Piotroski F-Score: F=5, F-Score: 5/9 - Average - Some financial concerns",
+    "Beneish M-Score: M=-2.11, Manipulation Risk: Medium (M=-2.11)",
+    "Value Trap Detector: risk=Medium, Medium Value Trap Risk"
+  ]
+}

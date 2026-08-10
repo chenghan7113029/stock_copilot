@@ -141,6 +141,7 @@ def test_get_required_fields_bank():
 # ── 网络测试（标记 network，交付前运行）────────────────────────────────────────
 
 @pytest.mark.network
+@pytest.mark.akshare_legacy
 def test_network_bank_completeness():
     """网络版：对工行 601398 做银行原型完备性检查（需安装 akshare）。"""
     from data_provider.akshare.fetcher import AKShareFetcher
@@ -158,6 +159,7 @@ def test_network_bank_completeness():
 
 
 @pytest.mark.network
+@pytest.mark.akshare_legacy
 def test_network_dividend_completeness():
     """网络版：对长江电力 600900 做高股息原型完备性检查。"""
     from data_provider.akshare.fetcher import AKShareFetcher
@@ -173,6 +175,7 @@ def test_network_dividend_completeness():
 
 
 @pytest.mark.network
+@pytest.mark.akshare_legacy
 def test_network_growth_completeness():
     """网络版：对贵州茅台 600519 做价值成长原型完备性检查。"""
     from data_provider.akshare.fetcher import AKShareFetcher

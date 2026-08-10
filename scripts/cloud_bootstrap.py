@@ -53,28 +53,71 @@ def _ensure_app_yaml() -> str:
     return "existing"
 
 
-def _enable_tushare_if_token() -> bool:
-    token = os.environ.get("TUSHARE_TOKEN", "").strip()
-    if not token:
-        return False
+def _write_app_yaml(config: dict) -> None:
+    import yaml
 
+    with _APP_YAML.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
+
+
+def _normalize_default_sources(*, created_from_example: bool) -> bool:
+    """阶段 C：示例/新配置仅保留 tushare+baostock；有 Token 时 tushare priority=1。"""
     try:
         import yaml
     except ImportError:
-        logger.warning("缺少 pyyaml，无法自动启用 tushare")
+        logger.warning("缺少 pyyaml，无法规范化 data_sources")
         return False
 
     with _APP_YAML.open(encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
     enabled: list[dict] = config.setdefault("data_sources", {}).setdefault("enabled", [])
-    names = {s.get("name", "").lower() for s in enabled}
-    if "tushare" not in names:
-        enabled.append({"name": "tushare", "priority": 3})
-        with _APP_YAML.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
-        return True
-    return True
+    changed = False
+    token = os.environ.get("TUSHARE_TOKEN", "").strip()
+
+    if created_from_example:
+        # 全新环境：去掉 akshare，确保 baostock + tushare
+        new_enabled = [s for s in enabled if str(s.get("name", "")).lower() != "akshare"]
+        if len(new_enabled) != len(enabled):
+            enabled[:] = new_enabled
+            changed = True
+
+    names = {str(s.get("name", "")).lower() for s in enabled}
+    if "baostock" not in names:
+        enabled.append({"name": "baostock", "priority": 2})
+        changed = True
+        names.add("baostock")
+
+    tushare_entry = next(
+        (s for s in enabled if str(s.get("name", "")).lower() == "tushare"),
+        None,
+    )
+    if token:
+        if tushare_entry is None:
+            enabled.append({"name": "tushare", "priority": 1})
+            changed = True
+        elif tushare_entry.get("priority") != 1:
+            tushare_entry["priority"] = 1
+            changed = True
+    elif tushare_entry is None and created_from_example:
+        # 无 Token 时仍写入 tushare 条目（priority=1），便于用户稍后填 token / 环境变量
+        enabled.insert(0, {"name": "tushare", "priority": 1, "token": ""})
+        changed = True
+
+    # baostock 保持 priority=2（若未显式设置）
+    for s in enabled:
+        if str(s.get("name", "")).lower() == "baostock" and s.get("priority") is None:
+            s["priority"] = 2
+            changed = True
+
+    if changed:
+        _write_app_yaml(config)
+    return bool(token)
+
+
+def _enable_tushare_if_token() -> bool:
+    """兼容旧调用名：规范化默认源，并在有 Token 时启用 tushare。"""
+    return _normalize_default_sources(created_from_example=False)
 
 
 def _db_row_count(db_path: Path) -> int:
@@ -152,7 +195,8 @@ def _tushare_available() -> bool:
 def run_bootstrap(*, check_only: bool = False) -> dict:
     _ensure_dirs()
     config_status = _ensure_app_yaml()
-    tushare_enabled = _enable_tushare_if_token()
+    created = config_status == "created_from_example"
+    tushare_enabled = _normalize_default_sources(created_from_example=created)
     db_status = _ensure_live_db()
     ref_status = {} if check_only else _clone_ref_repos()
 
@@ -161,8 +205,10 @@ def run_bootstrap(*, check_only: bool = False) -> dict:
         "repo_root": str(_REPO_ROOT),
         "config_app_yaml": config_status,
         "tushare_token_present": bool(os.environ.get("TUSHARE_TOKEN", "").strip()),
-        "tushare_enabled_in_yaml": tushare_enabled,
-        "tushare_access_ok": _tushare_available() if tushare_enabled else False,
+        "tushare_enabled_in_yaml": tushare_enabled or created,
+        "tushare_access_ok": _tushare_available()
+        if (tushare_enabled or bool(os.environ.get("TUSHARE_TOKEN", "").strip()))
+        else False,
         "database": {
             "live_path": str(_LIVE_DB),
             "status": db_status,

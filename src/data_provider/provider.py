@@ -27,7 +27,7 @@ from dao.stock_snapshot_repo import StockSnapshotRepo
 
 logger = logging.getLogger(__name__)
 
-# Tushare 财报字段：后运行的 Tushare 应覆盖 Baostock 估算值
+# 财报字段集合：离线年报覆写等同 source 季报时使用；合并阶段不再按 source 名强制 override
 FINANCIAL_STATEMENT_FIELDS = frozenset({
     "revenue", "fcf", "capex", "net_debt", "ebit", "depreciation",
     "total_assets", "total_liabilities", "bvps", "roic", "net_income",
@@ -85,6 +85,11 @@ class StockDataProvider:
             raise UnsupportedMarketError(
                 f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
             )
+
+        from common.exceptions import DataProviderError
+
+        if not self._manager.fetchers:
+            raise DataProviderError("配置中没有启用任何数据源，请检查 config/app.yaml")
 
         code, exchange = normalize_stock_code(raw_code)
         stock = StockData(code=code, exchange=exchange)
@@ -295,10 +300,8 @@ class StockDataProvider:
         for field_name in _STOCK_DATA_FIELDS - {"name", "exchange"}:
             v = data.get(field_name)
             if v is not None and isinstance(v, (int, float)):
-                if source == "tushare" and field_name in FINANCIAL_STATEMENT_FIELDS:
-                    stock.override_field(field_name, float(v), source)
-                else:
-                    stock.set_field(field_name, float(v), source)
+                # 严格按 fetcher priority：高优先级先写，低优先级不覆盖（无 Tushare 特例）
+                stock.set_field(field_name, float(v), source)
 
     def _derive_ttm_eps(self, stock: StockData) -> None:
         """用年报净利润 / 总股本推导 TTM EPS，覆写 fina_indicator 单季 EPS。"""
@@ -341,8 +344,11 @@ class StockDataProvider:
                 stock.missing_fields.remove("net_income")
 
     def _derive_fcf_fields(self, stock: StockData) -> None:
-        """net_income TTM 修正后，用同一推导链刷新 FCF。"""
-        if stock.fcf is not None and stock.field_sources.get("fcf") == "tushare":
+        """仅在缺失 FCF 且 net_income 为派生值时，用推导链补齐 FCF。
+
+        已由任一数据源写入的 fcf 不再覆盖（对齐去 override 后的 priority 合并语义）。
+        """
+        if stock.fcf is not None:
             return
         if stock.field_sources.get("net_income") != "derived":
             return

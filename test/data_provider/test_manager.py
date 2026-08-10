@@ -71,33 +71,36 @@ def test_from_config_builds_fetchers():
     config = {
         "data_sources": {
             "enabled": [
-                {"name": "akshare", "priority": 1},
-                {"name": "baostock", "priority": 2},
+                {"name": "baostock", "priority": 1},
             ]
         }
     }
     mgr = SourceManager.from_config(config)
     names = [f.source_name for f in mgr.fetchers]
-    assert "akshare" in names
-    assert "baostock" in names
+    assert names == ["baostock"]
 
 
 def test_from_config_unknown_source_skipped():
     config = {
         "data_sources": {
             "enabled": [
-                {"name": "akshare", "priority": 1},
+                {"name": "baostock", "priority": 1},
                 {"name": "unknown_xyz", "priority": 99},
             ]
         }
     }
     mgr = SourceManager.from_config(config)
     assert len(mgr.fetchers) == 1
+    assert mgr.fetchers[0].source_name == "baostock"
 
 
-def test_from_config_empty_raises():
-    with pytest.raises(DataProviderError):
-        SourceManager.from_config({"data_sources": {"enabled": []}})
+def test_from_config_empty_allows_offline_manager():
+    """空 enabled 允许构造（离线工具/baseline）；在线 get_stock_data 再报错。"""
+    mgr = SourceManager.from_config({"data_sources": {"enabled": []}})
+    assert mgr.fetchers == []
+    provider = StockDataProvider(mgr)
+    with pytest.raises(DataProviderError, match="没有启用任何数据源"):
+        provider.get_stock_data("600519")
 
 
 # ── StockDataProvider 测试 ────────────────────────────────────────────────────

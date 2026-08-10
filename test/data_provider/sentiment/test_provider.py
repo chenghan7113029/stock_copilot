@@ -36,11 +36,36 @@ def test_get_latest_offline_never_calls_fetcher() -> None:
     fetcher.fetch_market_breadth.assert_not_called()
 
 
-def test_fetch_raises_when_akshare_disabled() -> None:
+def test_fetch_raises_when_no_sentiment_source() -> None:
+    repo = MagicMock()
+    empty = MarketSentimentProvider(repo, None, use_akshare=False)
+    with pytest.raises(DataProviderError, match="data_sources.enabled"):
+        empty.fetch_and_persist_today()
+
+
+def test_fetch_via_tushare_fetcher_writes_warnings() -> None:
     repo = MagicMock()
     fetcher = MagicMock()
+    fetcher.source_name = "tushare"
+    fetcher.fetch_market_breadth.return_value = FetchResult(
+        data={
+            "limit_up_count": 40,
+            "limit_down_count": 8,
+            "up_count": 2000,
+            "down_count": 1500,
+            "_breadth_approximation": True,
+        }
+    )
+    fetcher.fetch_margin_change.return_value = FetchResult(data={"margin_balance_change_pct": 0.5})
+    fetcher.fetch_turnover_percentile.return_value = FetchResult(
+        error="missing turnover", missing_fields=["turnover_percentile"]
+    )
 
-    with pytest.raises(DataProviderError, match="data_sources.enabled"):
-        MarketSentimentProvider(repo, fetcher, use_akshare=False).fetch_and_persist_today()
+    snapshot = MarketSentimentProvider(repo, fetcher, use_akshare=False).fetch_and_persist_today()
 
-    fetcher.fetch_market_breadth.assert_not_called()
+    assert snapshot["limit_up_count"] == 40
+    assert snapshot["source"] == "tushare"
+    assert snapshot["turnover_percentile"] is None
+    assert any("近似" in w for w in snapshot["warnings"])
+    assert "_breadth_approximation" not in snapshot
+    repo.upsert.assert_called_once()

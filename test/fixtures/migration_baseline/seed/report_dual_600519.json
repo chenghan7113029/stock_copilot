@@ -1,0 +1,22 @@
+{
+  "analysis_summary": "股票代码: 600519 | 价值面: 公允价区间 [1058.53, 1403.78, 1823.34] | 安全边际: 14.9% | 技术面: 弱势多头, 评分 68 | 情绪面数据缺失，本次报告仅基于价值+技术双维 | 综合信号: 买入 | 价值评级: 合理",
+  "bear_evidence": [
+    "[估值-EPV (Zero Growth)] Overvalued",
+    "[估值-Graham Formula] Overvalued",
+    "[价值陷阱] Value Trap Detector: overall_risk=Medium, Medium Value Trap Risk"
+  ],
+  "bull_evidence": [
+    "[估值-DCF (10-Year)] Undervalued",
+    "[估值-Owner Earnings] Undervalued",
+    "[估值-PE Relative] Undervalued (bottom quartile historically)",
+    "[技术信号] ✅ 价格贴近MA5(0.0%)，介入好时机",
+    "[技术信号] ✅ 缩量回调，主力洗盘",
+    "[技术信号] ✅ MA5支撑有效",
+    "[技术信号] ✅ MA10支撑有效",
+    "[技术信号] 空头排列，持续下跌",
+    "[技术信号] RSI中性(42.5)，震荡整理中",
+    "[技术信号] KDJ中性"
+  ],
+  "code": "600519",
+  "sentiment_result": null
+}

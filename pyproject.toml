@@ -35,9 +35,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["test"]
 pythonpath = ["src"]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m \"not akshare_legacy\""
 markers = [
     "network: 需要网络访问（交付前运行，CI 可选）",
+    "akshare_legacy: 依赖 AKShare 默认启用或遗留 fetcher 的用例；默认 CI / pytest 排除",
 ]
 
 [tool.ruff]

@@ -161,8 +161,9 @@ def test_fetch_fundamentals_profit(fetcher):
     assert result.ok
     assert result.data["roe"] == pytest.approx(33.5)
     assert result.data["eps"] == pytest.approx(47.76)
-    # 无 shares_outstanding 时退化为单季 netProfit
-    assert result.data["net_income"] == pytest.approx(6e10)
+    # 阶段 B：财报特例字段不向外产出
+    assert "net_income" not in result.data
+    assert "net_income" in result.missing_fields
 
 
 def test_fetch_fundamentals_growth_rate(fetcher, mock_bs):
@@ -172,9 +173,23 @@ def test_fetch_fundamentals_growth_rate(fetcher, mock_bs):
     assert result.data["growth_rate"] == pytest.approx(0.0)
 
 
-def test_fetch_fundamentals_fcf(fetcher):
+def test_fetch_fundamentals_fcf_not_emitted(fetcher):
+    """Baostock 可内部推导 FCF，但不得写入 FetchResult.data。"""
     result = fetcher.fetch_fundamentals("600519", "SH")
-    assert result.data["fcf"] == pytest.approx(4.7e10)
+    assert "fcf" not in result.data
+    assert "fcf" in result.missing_fields
+
+
+def test_fetch_fundamentals_strips_financial_statement_fields(fetcher):
+    from data_provider.provider import FINANCIAL_STATEMENT_FIELDS
+
+    result = fetcher.fetch_fundamentals("600519", "SH")
+    assert result.ok
+    for field in FINANCIAL_STATEMENT_FIELDS:
+        value = result.data.get(field)
+        assert value is None or not isinstance(value, (int, float))
+        assert field not in result.data or result.data[field] is None
+        assert field in result.missing_fields
 
 
 def test_fetch_fundamentals_bj_returns_error():

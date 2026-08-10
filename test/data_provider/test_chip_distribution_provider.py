@@ -89,5 +89,5 @@ def test_get_latest_skips_akshare_when_disabled() -> None:
     ).get_latest("600519")
 
     assert result == cached
-    assert any("未在 data_sources.enabled 中启用" in w for w in warnings)
+    assert any("无可用数据源" in w or "跳过联网" in w for w in warnings)
     fetcher.fetch_chip_distribution.assert_not_called()

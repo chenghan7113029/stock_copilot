@@ -23,7 +23,7 @@ pytest -q
 
 | 路径 | 来源 | 说明 |
 |------|------|------|
-| `config/app.yaml` | bootstrap 从 `app.example.yaml` 复制 | 若存在 `TUSHARE_TOKEN` env，会自动启用 tushare（priority 3），**不写 token 进 yaml** |
+| `config/app.yaml` | bootstrap 从 `app.example.yaml` 复制 | 默认 **tushare(1)+baostock(2)**（无 akshare）；若存在 `TUSHARE_TOKEN` env，保持 tushare priority=1，**不写 token 进 yaml** |
 | `data/stock_copilot.db` | seed fixture 复制或空库 | 默认仅含 **600519 / 601398 / 601939** 最小快照+K线，**非用户全量库** |
 | `data/fixtures/stock_copilot_seed.db` | Git 提交 | 离线 report 的数据源 |
 | `ref/*` | bootstrap 浅 clone | 只读参考，**禁止 import** |

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.akshare_legacy
+
 from common.exceptions import DataProviderError
 from data_provider.akshare.fetcher import AKShareFetcher, _parse_value
 

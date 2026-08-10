@@ -29,41 +29,31 @@ A 股价值面数据接入层：统一数据模型、多源 fetcher 管理与配
 
 ### Requirement: 多数据源独立管理与配置驱动选源
 
-系统 SHALL 以独立 fetcher 管理多个 A 股数据源，V1 至少接入 AKShare 与 Baostock（均免 token），并 MAY 接入 Tushare Pro（需 Token，有 token 但免费档）。系统 SHALL 通过配置（`config/app.yaml` 的 `data_sources`）指定启用哪些数据源及其优先级。选源优先级遵循：**无需 token > 有 token 但免费 > 有 token 且收费**；系统 SHALL 默认仅启用免 token 源，需 token 的源 MUST 显式配置且提供有效 Token 后才实例化。取数时 SHALL 按优先级选源并在某源失败时自动 failover 到下一源。
+系统 SHALL 以独立 fetcher 管理多个 A 股数据源，并通过配置（`config/app.yaml` 的 `data_sources`）指定启用哪些数据源及其优先级。运行态选源顺序 MUST 完全来自配置 `priority`（及 Router），MUST NOT 依赖 fetcher 类硬编码默认 priority 决定合并顺序。取数时价值面 SHALL 对已启用源并行/全量拉取后按 priority 做字段级合并；K 线等旁路 SHALL 使用 Failover（见 `data-fetcher-router`）。需 token 的源 MUST 显式配置且提供有效 Token 后才实例化。
 
-所有 fetcher 的 `fetch_all` 方法 SHALL 使用统一签名 `(code: str, exchange: str) -> FetchResult`，与 `fetch_quote` / `fetch_fundamentals` 一致；SourceManager 与 StockDataProvider MUST NOT 因签名不一致导致取数异常。
+所有 fetcher 的 `fetch_all` 方法 SHALL 使用统一签名 `(code: str, exchange: str) -> FetchResult`。Provider 对每个已实例化的 fetcher SHALL 分别调用并独立落库（来源维度），不因优先级而跳过低位源的持久化。
 
-Provider 对每个已实例化的 fetcher SHALL 分别调用并独立落库（来源维度），不因优先级而跳过低位源的持久化。
-
-#### Scenario: 默认仅用免 token 源
-
-- **WHEN** 未配置任何 token 且请求某 A 股股票数据
-- **THEN** 系统 SHALL 使用免 token 源（AKShare/Baostock）完成取数，不因缺少 token 而失败
+合并阶段 MUST NOT 对财报字段集合执行「来源为 tushare 则 `override_field` 无视已合并高优先级值」的特例；字段冲突一律以 priority 为准。
 
 #### Scenario: 按配置启用数据源
 
 - **WHEN** 配置中仅启用部分数据源
 - **THEN** 系统 SHALL 只从已启用的数据源采集，未启用的源不被调用
 
-#### Scenario: 按优先级选源并记录命中源
+#### Scenario: 按优先级合并字段并记录命中源
 
 - **WHEN** 同一字段可由多个已启用数据源提供
 - **THEN** 系统 SHALL 优先采用优先级更高的数据源，高优先级已提供的字段不被低优先级覆盖，并在元数据中记录每字段实际命中的源
 
-#### Scenario: 高优先级源失败时自动 failover
+#### Scenario: 不再 Tushare 强制覆盖已合并财报字段
 
-- **WHEN** 优先级最高的数据源对某股票取数失败
-- **THEN** 系统 SHALL 自动尝试下一优先级数据源，直至成功或全部耗尽
+- **WHEN** 高优先级非 Tushare 源已写入某 `FINANCIAL_STATEMENT_FIELDS` 字段，随后 Tushare 亦提供该字段
+- **THEN** 合并结果保留高优先级已有值，不调用 `override_field` 覆盖
 
 #### Scenario: fetch_all 接口一致
 
 - **WHEN** SourceManager 或 StockDataProvider 调用任一 fetcher 的 `fetch_all`
-- **THEN** 调用 SHALL 使用 `(code, exchange)` 且不得因参数个数错误而中断整条取数链路
-
-#### Scenario: Tushare 无 Token 时不实例化
-
-- **WHEN** 配置启用 `tushare` 但 token 为空且环境变量 `TUSHARE_TOKEN` 未设置
-- **THEN** 系统 SHALL 跳过 TushareFetcher 实例化并记录 warning，AKShare/Baostock 仍正常工作
+- **THEN** 调用签名与返回类型在各源间一致，不因源而分支异常
 
 ### Requirement: 仅支持国内 A 股市场（V1）
 
@@ -294,4 +284,22 @@ Tushare Token SHALL 从以下来源读取（优先级从高到低）：`data_sou
 #### Scenario: sync 后 industry 非空
 - **WHEN** Tushare 启用且 `stock_basic` 返回 `industry="银行"`
 - **THEN** `StockData.industry = "银行"`，`field_sources["industry"] = "tushare"`
+
+### Requirement: Baostock 不产出低可信财报字段
+`BaostockFetcher` 在 fundamentals / `fetch_all` 结果中 MUST NOT 写入下列字段的有效数值（可省略键或显式 missing）：`revenue`、`fcf`、`capex`、`net_debt`、`ebit`、`depreciation`、`total_assets`、`total_liabilities`、`bvps`、`roic`、`net_income`（与代码中 `FINANCIAL_STATEMENT_FIELDS` 保持同步）。在 `tushare` priority 高于 `baostock` 的配置下，这些字段 SHALL 由 Tushare（若提供）主导。
+
+#### Scenario: Baostock 输出不含财报特例字段
+- **WHEN** 仅解析 Baostock `FetchResult.data`
+- **THEN** 上述字段集合不出现有效 float 值
+
+#### Scenario: tushare 优先时行业等来自 tushare
+- **WHEN** 配置 tushare(1)+baostock(2) 且 Tushare 提供 `industry`
+- **THEN** 合并后 `field_sources`（或等价元数据）显示 `industry` 来自 tushare
+
+### Requirement: 默认选源叙述对齐 Tushare + Baostock
+规范层对「默认启用哪些源」的描述 SHALL 与产品目标态一致：默认启用 `tushare`（有 token 时）与 `baostock`；AKShare 为可选遗留源，MUST 显式配置才启用。免 token 优先的历史默认叙述（默认仅 AKShare/Baostock）在本 change 后不再作为运行默认。
+
+#### Scenario: 文档与 example 一致
+- **WHEN** 阅读 `app.example.yaml` 与 value-data-provider 相关说明
+- **THEN** 默认示例为 tushare priority=1、baostock priority=2，akshare 不在默认 enabled 中
 

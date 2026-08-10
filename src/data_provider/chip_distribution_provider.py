@@ -1,21 +1,20 @@
-"""筹码分布数据提供者：AKShare 单源 + SQLite 缓存。"""
+"""筹码分布数据提供者：Router 能力链 + SQLite 缓存。"""
 
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, Sequence
 
 import pandas as pd
 
-from common.config_loader import is_data_source_enabled
 from common.exceptions import DataProviderError
 from dao.chip_distribution_repo import ChipDistributionRepo
+from data_provider.router import DataFetcherRouter
+from data_provider.strategies import FailoverStrategy
 
 # AKShare stock_cyq_em 偶发长时间无响应；超时后降级，避免拖死整次 sync 事务
 _CHIP_FETCH_TIMEOUT_SEC = 45
-_AKSHARE_DISABLED_MSG = (
-    "筹码分布依赖 AKShare，当前未在 data_sources.enabled 中启用，已跳过联网拉取"
-)
+_NO_SOURCE_MSG = "筹码分布无可用数据源（当前配置未提供 fetch_chip_distribution），已跳过联网拉取"
 
 
 class _ChipDistributionFetcher(Protocol):
@@ -23,7 +22,7 @@ class _ChipDistributionFetcher(Protocol):
 
 
 class ChipDistributionProvider:
-    """获取并缓存 AKShare 服务端计算的日度筹码分布。"""
+    """获取并缓存日度筹码分布。"""
 
     def __init__(
         self,
@@ -31,24 +30,25 @@ class ChipDistributionProvider:
         akshare_fetcher: _ChipDistributionFetcher | None = None,
         *,
         use_akshare: bool = True,
+        chip_fetchers: Sequence[_ChipDistributionFetcher] | None = None,
     ) -> None:
         self._repo = repo
-        self._use_akshare = use_akshare
-        self._akshare_fetcher: _ChipDistributionFetcher | None = None
-        if use_akshare:
-            if akshare_fetcher is not None:
-                self._akshare_fetcher = akshare_fetcher
-            else:
-                from data_provider.akshare.fetcher import AKShareFetcher
-
-                self._akshare_fetcher = AKShareFetcher()
+        if chip_fetchers is not None:
+            self._fetchers: list[_ChipDistributionFetcher] = list(chip_fetchers)
+        elif use_akshare and akshare_fetcher is not None:
+            # 显式注入可用；阶段 C 禁止无参 AKShareFetcher()
+            self._fetchers = [akshare_fetcher]
+        else:
+            self._fetchers = []
 
     @classmethod
     def from_config(
         cls, config: dict[str, Any], repo: ChipDistributionRepo
     ) -> "ChipDistributionProvider":
-        """按 data_sources.enabled 决定是否联网拉取筹码（仅 AKShare 支持）。"""
-        return cls(repo, use_akshare=is_data_source_enabled(config, "akshare"))
+        """按 Router 收集支持筹码的 fetcher；未启用则不实例化 AKShare。"""
+        router = DataFetcherRouter.from_config(config)
+        fetchers = router.fetchers_with_method("fetch_chip_distribution")
+        return cls(repo, chip_fetchers=fetchers)
 
     def get_latest(
         self,
@@ -61,34 +61,45 @@ class ChipDistributionProvider:
         if offline:
             return (cached, []) if cached is not None else (None, ["无筹码分布缓存"])
 
-        if not self._use_akshare or self._akshare_fetcher is None:
-            warnings = [_AKSHARE_DISABLED_MSG]
+        if not self._fetchers:
+            warnings = [_NO_SOURCE_MSG]
             if on_progress:
-                on_progress("筹码分布 AKShare 未启用，跳过联网拉取")
+                on_progress("筹码分布 无可用源，跳过联网拉取")
             if cached is not None:
                 warnings.append("已使用缓存数据")
                 return cached, warnings
             return None, warnings
 
         if on_progress:
-            on_progress("筹码分布 正在从 AKShare 拉取…")
+            on_progress("筹码分布 正在按配置源拉取…")
         try:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(self._akshare_fetcher.fetch_chip_distribution, code)
-                try:
-                    df = future.result(timeout=_CHIP_FETCH_TIMEOUT_SEC)
-                except FuturesTimeout as exc:
-                    future.cancel()
-                    raise DataProviderError(
-                        f"AKShare 筹码分布超时（>{_CHIP_FETCH_TIMEOUT_SEC}s）"
-                    ) from exc
+
+            def _call(fetcher: _ChipDistributionFetcher) -> pd.DataFrame:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(fetcher.fetch_chip_distribution, code)
+                    try:
+                        return future.result(timeout=_CHIP_FETCH_TIMEOUT_SEC)
+                    except FuturesTimeout as exc:
+                        future.cancel()
+                        raise DataProviderError(
+                            f"筹码分布超时（>{_CHIP_FETCH_TIMEOUT_SEC}s）"
+                        ) from exc
+
+            result = FailoverStrategy.try_each(
+                self._fetchers,
+                _call,
+                source_name=lambda f: getattr(f, "source_name", type(f).__name__),
+            )
+            df = result.value
             records = self._to_records(code, df)
             self._repo.upsert_batch(records)
             latest = self._repo.query_latest(code)
             if on_progress:
-                on_progress(f"筹码分布 拉取完成，共 {len(records)} 行")
+                on_progress(
+                    f"筹码分布 拉取完成，共 {len(records)} 行（source={result.source_name}）"
+                )
             return latest, []
-        except DataProviderError as exc:
+        except (DataProviderError, RuntimeError) as exc:
             warnings = [f"筹码分布数据不可用: {exc}"]
             if cached is not None:
                 warnings.append("筹码分布拉取失败，已使用缓存数据")

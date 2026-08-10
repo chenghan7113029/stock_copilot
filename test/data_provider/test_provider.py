@@ -65,8 +65,8 @@ def test_get_stock_data_offline_no_repo():
     assert provider.get_stock_data_offline("600519") is None
 
 
-def test_tushare_financials_override_baostock_estimates():
-    """Tushare 财报字段应覆盖 Baostock 估算值。"""
+def test_priority_merge_keeps_higher_priority_financials():
+    """高优先级源先写的财报字段不被低优先级 Tushare 覆盖（无 override 特例）。"""
     bs = MagicMock()
     bs.source_name = "baostock"
     bs.priority = 1
@@ -101,12 +101,41 @@ def test_tushare_financials_override_baostock_estimates():
     provider = StockDataProvider(manager)
     stock = provider.get_stock_data("600519")
 
-    assert stock.revenue == 168_800_000_000.0
-    assert stock.fcf == 59_000_000_000.0
-    assert stock.field_sources["revenue"] == "tushare"
-    assert stock.field_sources["fcf"] == "tushare"
+    assert stock.revenue == 100_000_000_000.0
+    assert stock.fcf == 50_000_000_000.0
+    assert stock.field_sources["revenue"] == "baostock"
+    assert stock.field_sources["fcf"] == "baostock"
+    assert stock.total_assets == 303_800_000_000.0
+    assert stock.field_sources["total_assets"] == "tushare"
     assert stock.current_price == 1400.0
     assert stock.field_sources["current_price"] == "baostock"
+
+
+def test_higher_priority_tushare_wins_financials():
+    """Tushare priority 更高时主导财报字段。"""
+    ts = MagicMock()
+    ts.source_name = "tushare"
+    ts.priority = 1
+    ts.fetch_all.return_value = MagicMock(
+        ok=True,
+        error=None,
+        data={"revenue": 168_800_000_000.0, "fcf": 59_000_000_000.0},
+        missing_fields=[],
+    )
+    bs = MagicMock()
+    bs.source_name = "baostock"
+    bs.priority = 2
+    bs.fetch_all.return_value = MagicMock(
+        ok=True,
+        error=None,
+        data={"revenue": 100_000_000_000.0, "fcf": 50_000_000_000.0, "current_price": 1400.0},
+        missing_fields=[],
+    )
+    provider = StockDataProvider(SourceManager([ts, bs]))
+    stock = provider.get_stock_data("600519")
+    assert stock.revenue == 168_800_000_000.0
+    assert stock.field_sources["revenue"] == "tushare"
+    assert stock.current_price == 1400.0
 
 
 def test_get_stock_data_offline_picks_latest_fetched_per_source():

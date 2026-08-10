@@ -186,10 +186,14 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
     cfg = config or load_app_config()
     _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
     progress = CliProgress("sync", enabled=cli_progress_enabled(cfg))
-    if not is_data_source_enabled(cfg, "akshare"):
+    # 情绪能力源：tushare / akshare（遗留）；不硬编码「必须 AKShare」
+    has_sentiment_source = is_data_source_enabled(cfg, "tushare") or is_data_source_enabled(
+        cfg, "akshare"
+    )
+    if not has_sentiment_source:
         print(
-            "[error] 市场情绪同步依赖 AKShare，请在 config/app.yaml 的 "
-            "data_sources.enabled 中启用 akshare",
+            "[error] 市场情绪同步依赖已配置的数据源，请在 config/app.yaml 的 "
+            "data_sources.enabled 中启用 tushare（推荐）或 akshare（遗留）",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -209,9 +213,13 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
             f"跌停 {snapshot.get('limit_down_count', 'N/A')} | "
             f"指数 {_format_optional(snapshot.get('fear_greed_index'))}"
         )
+        if snapshot.get("source"):
+            message += f" | 源 {snapshot['source']}"
         progress.emit(message)
         if not progress.enabled:
             print(message)
+        for warning in snapshot.get("warnings") or []:
+            print(f"[warn] {warning}", file=sys.stderr)
     except Exception as exc:
         session.rollback()
         print(f"[error] 市场情绪同步失败：{exc}", file=sys.stderr)

@@ -11,6 +11,7 @@
 | 2026-06-13 | merge-arch | 合并原 architecture.md 与工程约定；确立 ref/、flat src/、reports/、三层防御 LLM 规范 |
 | 2026-06-13 | add-value-data-provider-v1 | 新增 dao 持久化层（SQLAlchemy + SQLite）；data_sources/db 配置节；importlib pytest 模式 |
 | 2026-06-14 | fix-value-data-pipeline-e2e | fetch_all 签名统一；Baostock 季频参数修复；Provider 持久化解耦（防 SQLite 锁）；config_loader bootstrap；E2E 验收脚本与字段覆盖报告 |
+| 2026-08-09 | unify-data-source-router | 新增 `data_provider/router.py` + `strategies.py`（ValueMerge / Failover）；K 线/实时/筹码/情绪经 Router；去 Tushare `override_field` 特例；迁移 baseline 门禁 |
 | 2026-07-18 | add-llm-narrative-core | 新增 `src/common/llm/`（LLMClient + narrate 三层防御）；`llm:` 配置段；`llm_narrate_cache` 表 |
 
 ---
@@ -72,7 +73,11 @@ stock_copilot/                    # 本 git 仓库根
 │   ├── service/                  # 领域编排
 │   │   ├── dual_track/           # 双轨 Facade、证据分桶（红蓝对抗 Level 0）
 │   │   └── value/valuation/      # 估值方法论（BaseValuation、Graham/DDM/EPV 等）
-│   ├── data_provider/            # 外部数据适配
+│   ├── data_provider/            # 外部数据适配（Router + Merge/Failover 策略）
+│   │   ├── router.py             # DataFetcherRouter：enabled+priority 唯一选源
+│   │   ├── strategies.py         # ValueMergeStrategy / FailoverStrategy
+│   │   ├── manager.py            # SourceManager（委托 Router）
+│   │   └── …/fetcher.py          # akshare / baostock / tushare 等价 Fetcher
 │   ├── dao/                      # 持久化
 │   └── common/                   # 共享类型/工具/异常
 │       └── llm/                  # LLM 叙事基建（client / narrate / grounded；已冻结，待 Web 消费）

@@ -1,19 +1,19 @@
-"""K 线数据提供者：Baostock 主 +（可选）AKShare 备 + SQLite 缓存与空洞回填。"""
+"""K 线数据提供者：Router failover + SQLite 缓存与空洞回填。"""
 
 from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, Sequence
 
 import pandas as pd
 
-from common.config_loader import is_data_source_enabled
-from common.exceptions import DataProviderError, KlineUnavailableError
+from common.exceptions import KlineUnavailableError
 from dao.kline_repo import KlineRepo
-from data_provider.baostock.fetcher import BaostockFetcher
 from data_provider.base import normalize_stock_code
 from data_provider.realtime_overlay_provider import RealtimeOverlayProvider
+from data_provider.router import DataFetcherRouter
+from data_provider.strategies import FailoverStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -37,36 +37,56 @@ class KlineProvider:
         realtime_overlay: RealtimeOverlayProvider | None = None,
         *,
         use_akshare: bool = True,
+        kline_fetchers: Sequence[tuple[_KlineFetcher, str]] | None = None,
     ) -> None:
         self._repo = repo
-        self._baostock = baostock_fetcher or BaostockFetcher()
-        self._use_akshare = use_akshare
-        self._akshare: _KlineFetcher | None = None
         self._realtime_overlay: RealtimeOverlayProvider | None = realtime_overlay
+        self._last_kline_source: str | None = None
 
-        if use_akshare:
-            if akshare_fetcher is not None:
-                self._akshare = akshare_fetcher
-            else:
-                from data_provider.akshare.fetcher import AKShareFetcher
+        if kline_fetchers is not None:
+            self._kline_sources: list[tuple[_KlineFetcher, str]] = list(kline_fetchers)
+            self._use_akshare = any(name == "akshare" for _, name in self._kline_sources)
+        else:
+            # 单测兼容路径：可注入 mock；未注入时仍可构造 Baostock（仅测试/遗留）
+            from data_provider.baostock.fetcher import BaostockFetcher
 
-                self._akshare = AKShareFetcher()
-            if self._realtime_overlay is None:
-                quote_fetcher = (
-                    self._akshare
-                    if hasattr(self._akshare, "fetch_realtime_quote")
-                    else None
+            baostock = baostock_fetcher or BaostockFetcher()
+            sources: list[tuple[_KlineFetcher, str]] = [
+                (baostock, getattr(baostock, "source_name", "baostock") or "baostock")
+            ]
+            self._use_akshare = use_akshare
+            # 阶段 C：禁止无参 AKShareFetcher()；仅接受显式注入或 from_config/Router
+            if use_akshare and akshare_fetcher is not None:
+                sources.append(
+                    (
+                        akshare_fetcher,
+                        getattr(akshare_fetcher, "source_name", "akshare") or "akshare",
+                    )
                 )
-                if quote_fetcher is None:
-                    from data_provider.akshare.fetcher import AKShareFetcher
-
-                    quote_fetcher = AKShareFetcher()
-                self._realtime_overlay = RealtimeOverlayProvider(quote_fetcher)
+                if self._realtime_overlay is None:
+                    quote_fetcher = sources[-1][0]
+                    if hasattr(quote_fetcher, "fetch_realtime_quote"):
+                        self._realtime_overlay = RealtimeOverlayProvider(quote_fetcher)
+            self._kline_sources = sources
 
     @classmethod
     def from_config(cls, config: dict[str, Any], repo: KlineRepo) -> "KlineProvider":
-        """按 data_sources.enabled 决定是否启用 AKShare 备源 / 实时叠加。"""
-        return cls(repo, use_akshare=is_data_source_enabled(config, "akshare"))
+        """按 Router 的 enabled+priority 构建 K 线 failover 链与实时叠加链。"""
+        router = DataFetcherRouter.from_config(config)
+        kline_sources: list[tuple[_KlineFetcher, str]] = []
+        for fetcher in router.fetchers_with_method("fetch_kline"):
+            kline_sources.append((fetcher, fetcher.source_name))
+
+        quote_fetchers = router.fetchers_with_method("fetch_realtime_quote")
+        overlay = (
+            RealtimeOverlayProvider.from_fetchers(quote_fetchers) if quote_fetchers else None
+        )
+        return cls(
+            repo,
+            kline_fetchers=kline_sources,
+            realtime_overlay=overlay,
+            use_akshare=any(n == "akshare" for _, n in kline_sources),
+        )
 
     def get_kline(
         self,
@@ -147,7 +167,8 @@ class KlineProvider:
 
             df = df.sort_values("date").reset_index(drop=True)
             if on_progress:
-                on_progress(f"K线 拉取完成，共 {len(df)} 行")
+                src = self._last_kline_source or "?"
+                on_progress(f"K线 拉取完成，共 {len(df)} 行（kline_source={src}）")
             return self._finalize(df, warnings, norm_code, use_realtime, persist_today)
 
         if cached_rows:
@@ -192,7 +213,7 @@ class KlineProvider:
         quote_mode = "eod"
         if use_realtime:
             if self._realtime_overlay is None:
-                warnings.append("实时报价依赖 AKShare，当前未启用，已使用 EOD")
+                warnings.append("无可用实时报价数据源，已使用 EOD")
                 quote_mode = "eod_fallback"
             else:
                 df, quote_mode, overlay_warnings = self._realtime_overlay.overlay(df, code)
@@ -230,28 +251,30 @@ class KlineProvider:
         *,
         on_progress: Callable[[str], None] | None = None,
     ) -> pd.DataFrame:
-        errors: list[str] = []
-        sources: list[tuple[_KlineFetcher, str]] = [(self._baostock, "Baostock")]
-        if self._akshare is not None:
-            sources.append((self._akshare, "AKShare"))
-        elif on_progress and not self._use_akshare:
-            on_progress("K线 AKShare 未启用，跳过备源")
+        if not self._kline_sources:
+            raise KlineUnavailableError("无可用 K 线数据源（请检查 data_sources.enabled）")
 
-        for fetcher, name in sources:
+        def _call(pair: tuple[_KlineFetcher, str]) -> pd.DataFrame:
+            fetcher, name = pair
             if on_progress:
                 on_progress(f"K线 正在从 {name} 拉取…")
-            try:
-                df = fetcher.fetch_kline(code, exchange, start_date, end_date)
-                logger.debug("%s K线获取成功 %s: %d 行", name, code, len(df))
-                if on_progress:
-                    on_progress(f"K线 {name} 完成（{len(df)} 行）")
-                return df
-            except (DataProviderError, Exception) as exc:
-                logger.warning("%s K线获取失败 %s: %s", name, code, exc)
-                if on_progress:
-                    on_progress(f"K线 {name} 失败：{exc}")
-                errors.append(f"{name}: {exc}")
-        raise KlineUnavailableError("; ".join(errors))
+            df = fetcher.fetch_kline(code, exchange, start_date, end_date)
+            if on_progress:
+                on_progress(f"K线 {name} 完成（{len(df)} 行）")
+            return df
+
+        try:
+            result = FailoverStrategy.try_each(
+                self._kline_sources,
+                _call,
+                source_name=lambda pair: pair[1],
+            )
+        except RuntimeError as exc:
+            raise KlineUnavailableError(str(exc)) from exc
+
+        self._last_kline_source = result.source_name
+        logger.debug("K线命中源 kline_source=%s code=%s", result.source_name, code)
+        return result.value
 
     @staticmethod
     def _estimate_gap_count(rows: list[dict[str, Any]], start_date: str, end_date: str) -> int:
