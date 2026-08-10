@@ -94,8 +94,9 @@ class EvidenceBucketer:
         bull: list[str],
         bear: list[str],
     ) -> None:
-        for key, result in value_result.method_results.items():
-            self._bucket_method(key, result, bull, bear)
+        if value_result.methodology_applicable:
+            for key, result in value_result.method_results.items():
+                self._bucket_method(key, result, bull, bear)
 
         for warning in value_result.warnings:
             text = warning.strip()

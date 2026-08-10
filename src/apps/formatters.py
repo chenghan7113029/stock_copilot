@@ -170,10 +170,37 @@ def format_value_report(
         "",
         f"[离线模式] 价值快照: {ts}",
         "",
-        f"- **名称:** {result.name or 'N/A'}",
-        f"- **原型:** {result.prototype}",
-        f"- **现价:** {_fmt_num(result.current_price)}",
     ]
+    if not result.methodology_applicable:
+        honesty_warnings = [
+            w for w in result.warnings if "不能作为买卖依据" in w or "不应用于买卖决策" in w
+        ]
+        if honesty_warnings:
+            lines.extend(
+                [
+                    "> **诚实降级（方法暂不适用）**",
+                    ">",
+                    f"> {honesty_warnings[0]}",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "> **诚实降级（方法暂不适用）**",
+                    ">",
+                    "> 专用估值方法暂缺，当前数字仅供对照，不能作为买卖依据",
+                    "",
+                ]
+            )
+
+    lines.extend(
+        [
+            f"- **名称:** {result.name or 'N/A'}",
+            f"- **原型:** {result.prototype}",
+            f"- **现价:** {_fmt_num(result.current_price)}",
+        ]
+    )
     if result.value_trap_alert:
         lines.extend(
             [
@@ -190,6 +217,8 @@ def format_value_report(
         ]
     )
 
+    contrast_note = "（对照用）" if not result.methodology_applicable else ""
+
     if result.fair_value_range:
         r = result.fair_value_range
         lines.extend(
@@ -197,12 +226,14 @@ def format_value_report(
                 "",
                 "## 估值",
                 "",
-                f"- 公允价区间: {_fmt_num(r.low)} ~ {_fmt_num(r.base)} ~ {_fmt_num(r.high)}",
+                f"- 公允价区间{contrast_note}: {_fmt_num(r.low)} ~ {_fmt_num(r.base)} ~ {_fmt_num(r.high)}",
             ]
         )
 
     if result.margin_of_safety is not None:
-        lines.append(f"- 安全边际: {format_mos_percent_points(result.margin_of_safety)}")
+        lines.append(
+            f"- 安全边际{contrast_note}: {format_mos_percent_points(result.margin_of_safety)}"
+        )
 
     if result.price_percentile is not None:
         band = percentile_band(result.price_percentile)

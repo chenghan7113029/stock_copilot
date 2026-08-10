@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from common.models.stock_data import StockData
 
 _CODE_OVERRIDE: dict[str, str] = {
@@ -11,6 +13,18 @@ _CODE_OVERRIDE: dict[str, str] = {
     "600036": "bank",
     "600900": "high_dividend",
     "600519": "value_growth",
+}
+
+# code → (标签, 方法论/偏差说明基句)；命中后短路为 unknown（诚实层）
+_CODE_V2_HONESTY: dict[str, tuple[str, str]] = {
+    "002594": (
+        "成长+制造周期",
+        "单点 DCF/盈利能力价值会把产能与销量波动当成稳定成长，景气高时容易偏乐观、景气低时容易偏悲观。专用情景估值暂缺",
+    ),
+    "002027": (
+        "现金流+广告周期",
+        "轻资产高现金流在广告景气期会被静态外推得过高，在下行期会被看得过低。缺周期位置时专用方法暂缺",
+    ),
 }
 
 _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
@@ -32,6 +46,10 @@ _INDUSTRY_METHODOLOGY_GAP: dict[str, str] = {
     "保险": "专用估值方法论（内含价值 EV/NBV 模型）暂缺",
     "军工": "专用估值方法论（在手订单驱动 + 资产重估模型）暂缺",
 }
+
+_DECISION_BAN = "通用方法得出的低估/高估不应用于买卖决策"
+
+_IMPLEMENTED_PROTOTYPES = frozenset({"bank", "high_dividend", "value_growth"})
 
 _PROTOTYPE_METHODS: dict[str, list[str]] = {
     "bank": [
@@ -74,16 +92,49 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
 }
 
 
+@dataclass(frozen=True)
+class HonestyGap:
+    """已识别但专用方法暂缺时的诚实缺口（用于警告与压制）。"""
+
+    label: str
+    methodology_gap: str
+
+
+def _compose_methodology_gap(base: str) -> str:
+    if _DECISION_BAN in base:
+        return base
+    return f"{base}；{_DECISION_BAN}"
+
+
 def describe_unimplemented_industry(industry: str | None) -> tuple[str, str] | None:
-    """返回已识别但尚无专用估值方法论的行业及其缺口说明。"""
+    """返回已识别但尚无专用估值方法论的行业及其缺口说明（含决策禁止语义）。"""
     if not industry:
         return None
 
     for industry_substring, label in _INDUSTRY_V2_UNIMPLEMENTED.items():
         if industry_substring in industry:
-            return label, _INDUSTRY_METHODOLOGY_GAP.get(label, "专用估值方法论暂缺")
+            base = _INDUSTRY_METHODOLOGY_GAP.get(label, "专用估值方法论暂缺")
+            return label, _compose_methodology_gap(base)
 
     return None
+
+
+def describe_honesty_gap(code: str, industry: str | None) -> HonestyGap | None:
+    """code 优先于行业：返回诚实缺口；未命中返回 None。"""
+    code_entry = _CODE_V2_HONESTY.get(code)
+    if code_entry is not None:
+        label, base = code_entry
+        return HonestyGap(label=label, methodology_gap=_compose_methodology_gap(base))
+
+    industry_detail = describe_unimplemented_industry(industry)
+    if industry_detail is None:
+        return None
+    label, gap = industry_detail
+    return HonestyGap(label=label, methodology_gap=gap)
+
+
+def is_implemented_prototype(prototype: str) -> bool:
+    return prototype in _IMPLEMENTED_PROTOTYPES
 
 
 class PrototypeRouter:
@@ -99,6 +150,9 @@ class PrototypeRouter:
         return prototype, list(_PROTOTYPE_METHODS[prototype])
 
     def _classify(self, stock: StockData) -> str:
+        if stock.code in _CODE_V2_HONESTY:
+            return "unknown"
+
         if stock.code in _CODE_OVERRIDE:
             return _CODE_OVERRIDE[stock.code]
 

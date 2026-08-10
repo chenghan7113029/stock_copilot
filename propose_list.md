@@ -9,7 +9,7 @@
 ## 当前结论（一句话）
 
 **数据源迁移三阶段（A/B/C）已合入 `main` 并归档；原 P0–P2 已落地 change 已于 2026-08-10 批量归档。**  
-**真正还没 apply 的**，目前是：V2 诚实降级、飞书常看推送、K 线形态、布林带；另有若干需先 explore / 待规划项。
+**真正还没 apply 的**，目前是：飞书常看推送、K 线形态、布林带；另有若干需先 explore / 待规划项。`add-v2-honesty-degrade` 已在 feature 分支实现完成，待 PR/归档。
 
 ---
 
@@ -31,14 +31,14 @@
 
 | Change | roadmap / 来源 | 简介 | 状态 |
 |---|---|---|---|
-| `add-v2-honesty-degrade` | value V2 · 第 0 刀诚实层 | 比亚迪/分众 code + 保险军工：三层压制（警告、主评估「方法暂不适用」、双轨 UNKNOWN）；不实现专用估值 | proposal ✅ · tasks 0/N |
+| `add-v2-honesty-degrade` | value V2 · 第 0 刀诚实层 | 比亚迪/分众 code + 保险军工：三层压制（警告、主评估「方法暂不适用」、双轨 UNKNOWN）；不实现专用估值 | **实现完成** · 待 PR/归档 |
 | `add-feishu-watchlist-push` | 交付通道（通勤） | 家里 PC 交易日定时：`watchlist` → 本地 MD → 飞书新建文档 + 一票一消息；CLI `feishu push`（含 dry-run） | proposal ✅ · tasks 0/21 |
 | `add-pattern-recognition` | F-18 · V2 | 十字星/锤头/吊颈/吞没等规则识别；独立字段展示，**不进** `signal_score` | proposal ✅ · tasks 0/24 |
 | `add-bollinger-bands` | F-19 · V2 | 布林带 + `BollingerStatus`；V1 只做指标与单状态，不做跨指标组合 | proposal ✅ · tasks 0/23 |
 
 ### 建议下一棒顺序
 
-1. **`add-v2-honesty-degrade`** — 持仓防误导；专用估值之前的诚实层，范围已拍板  
+1. **`add-v2-honesty-degrade`** — 实现完成于 `feature/add-v2-honesty-degrade`，待 PR 合入后 archive  
 2. **`add-feishu-watchlist-push`** — 已有 watchlist + MD 报告形态，通勤交付缺口大  
 3. `add-pattern-recognition` / `add-bollinger-bands` — 技术面 V2，彼此独立，可穿插
 

@@ -77,9 +77,12 @@ class SignalFusion:
             assert tech_result is not None
             return _buy_signal_to_combined(tech_result.buy_signal), None
 
-        value_rating = derive_value_rating(
-            value_result.margin_of_safety, self._config
-        )
+        if not value_result.methodology_applicable:
+            value_rating = ValueRating.UNKNOWN
+        else:
+            value_rating = derive_value_rating(
+                value_result.margin_of_safety, self._config
+            )
 
         if tech_result is None:
             return _VALUE_ONLY_SIGNAL[value_rating], value_rating

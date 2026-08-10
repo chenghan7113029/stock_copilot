@@ -23,6 +23,7 @@
 | 2026-07-05 | add-prior-period-financials | Tushare 拉取 prior 年度（1231-1 年）财报，写入 6 个 prior_* 字段；600519 Piotroski F=6/9、Beneish M=-2.63 |
 | 2026-08-01 | add-industry-prototype-router | 复用 Tushare 简化行业名称优先路由；保险、军工短路为 unknown，避免高杠杆误判为银行 |
 | 2026-08-01 | add-prototype-fallback-message | 已识别但暂缺专用估值方法的保险/军工原型输出精确降级警告 |
+| 2026-08-10 | add-v2-honesty-degrade | V2 第 0 刀诚实层：比亚迪/分众 code + 保险军工三层压制（警告、主评估「方法暂不适用」、双轨 UNKNOWN） |
 | 2026-08-01 | add-value-trap-high-alert | value_trap High 生成独立高危警示并将 confidence 降一级；不改变 assessment 语义 |
 | 2026-08-01 | add-prototype-override-persistence | 人工原型覆盖持久化：`prototype_overrides` + `value override` CLI；人工覆盖优先于行业与启发式判定 |
 | 2026-07-05 | value-bank-e2e | `stock_basic` 写入 `industry`；Router 行业「银行」分类；Tushare 银行指标字段映射（NIM/NPL/拨备）；601398 offline report 银行原型 E2E |
@@ -360,11 +361,16 @@ pytest -m network test/e2e/ -v -s
 - **When** 用户手动覆盖为原型 B 并填写原因
 - **Then** 系统按原型 B 重新路由方法论并重算，覆盖记录可持久化追溯
 
-### 场景 5：V2 暂缺原型降级
+### 场景 5：V2 暂缺原型降级（三层诚实压制）
 
-- **Given** 用户请求分析 `中国平安 601318`（保险，V2）
-- **When** 调用价值面分析
-- **Then** 系统输出“检测到保险行业，专用估值方法论（内含价值 EV/NBV 模型）暂缺，当前使用通用方法，结果参考性有限”的精确警告，**不静默套用 PB/PE 误判**（已由 `add-prototype-fallback-message` 实现）
+- **Given** 用户请求分析 `中国平安 601318`（保险）或 `比亚迪 002594`（成长+制造周期 code 白名单）或 `分众传媒 002027`
+- **When** 调用价值面分析 / 双轨融合 / `report value`
+- **Then** 系统同时满足：
+  1. **精确警告**：说明缺什么专用方法、V1 通用方法为何易偏，并明示**不能作为买卖依据**（保险/军工与持仓 code 同标准）
+  2. **主评估改写**：`assessment = "方法暂不适用"`，`methodology_applicable = false`；公允区间/MOS 可保留但仅对照用
+  3. **双轨**：`value_rating` 强制 `UNKNOWN`，不得因假「价值低估」推买入
+- **And** 人工 override 为已实现原型（bank / high_dividend / value_growth）时豁免压制
+- **Note**：精确警告文案与三层压制由 `add-prototype-fallback-message`（T-15 半诚实）升级为 `add-v2-honesty-degrade`（第 0 刀诚实层）；专用模型（EV/NBV、情景 DCF、Cyclical）仍属后续 V2 任务
 
 ### 场景 6：输出反锚定
 
@@ -392,7 +398,7 @@ pytest -m network test/e2e/ -v -s
 | T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | 未开始 |
 | T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
 | T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
-| T-15 | V2 原型显式降级提示（§10 场景 5；平安→「保险暂缺」） | V1.x | ✅ `add-prototype-fallback-message`：复用 `add-industry-prototype-router` 的行业识别字典，为保险/军工输出具体方法论缺口；未识别行业保留通用 unknown 警告 |
+| T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ `add-prototype-fallback-message` 精确警告；✅ `add-v2-honesty-degrade` 补完三层压制（主评估 + 双轨 UNKNOWN；code：002594/002027） |
 
 ---
 

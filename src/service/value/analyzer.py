@@ -8,7 +8,11 @@ from dao.prototype_override_repo import PrototypeOverrideRepo
 from data_provider.provider import StockDataProvider
 from service.value.aggregator import ValuationAggregator
 from service.value.models.analysis_result import ValueAnalysisResult
-from service.value.router import PrototypeRouter, describe_unimplemented_industry
+from service.value.router import (
+    describe_honesty_gap,
+    is_implemented_prototype,
+    PrototypeRouter,
+)
 from service.value.valuation.assumptions import AssumptionProvider
 from service.value.valuation.engine import ValuationEngine, default_engine
 
@@ -67,17 +71,36 @@ class ValueAnalyzer:
         else:
             prototype, method_keys = self._router.route(stock)
 
-        if prototype == "unknown":
-            industry_detail = describe_unimplemented_industry(stock.industry)
-            if industry_detail is not None:
-                label, gap_note = industry_detail
-                warnings.append(f"检测到{label}行业，{gap_note}，当前使用通用方法，结果参考性有限")
-            else:
-                warnings.append("原型未识别，使用通用方法集，置信度低")
+        honesty = describe_honesty_gap(stock.code, stock.industry)
+        override_exempt = (
+            override_record is not None and is_implemented_prototype(override_record.prototype)
+        )
+        apply_honesty = honesty is not None and not override_exempt
+
+        if apply_honesty:
+            assert honesty is not None
+            warnings.insert(
+                0,
+                (
+                    f"检测到「{honesty.label}」特征，{honesty.methodology_gap}，"
+                    "当前使用通用方法，结果参考性有限，不能作为买卖依据"
+                ),
+            )
+        elif prototype == "unknown":
+            warnings.append("原型未识别，使用通用方法集，置信度低")
 
         results = self._engine.run_selected(method_keys, stock)
         agg = self._aggregator.aggregate(results, stock.current_price)
         warnings.extend(agg.warnings)
+
+        assessment = agg.assessment
+        confidence = agg.confidence
+        methodology_applicable = True
+        if apply_honesty:
+            methodology_applicable = False
+            assessment = "方法暂不适用"
+            if confidence != "不可信":
+                confidence = "Low"
 
         return ValueAnalysisResult(
             code=stock.code,
@@ -88,12 +111,13 @@ class ValueAnalyzer:
             fair_value_range=agg.fair_value_range,
             margin_of_safety=agg.margin_of_safety,
             price_percentile=agg.price_percentile,
-            assessment=agg.assessment,
-            confidence=agg.confidence,
+            assessment=assessment,
+            confidence=confidence,
             method_results=results,
             warnings=warnings,
             data_timestamp=stock.data_timestamp,
             fundamental_report_date=stock.fundamental_report_date,
             value_score=None,
             value_trap_alert=agg.value_trap_alert,
+            methodology_applicable=methodology_applicable,
         )

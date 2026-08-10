@@ -150,3 +150,34 @@ def test_custom_mos_thresholds():
     assert derive_value_rating(25.0, config) == ValueRating.FAIR
     assert derive_value_rating(31.0, config) == ValueRating.UNDERVALUED
     assert derive_value_rating(-6.0, config) == ValueRating.OVERVALUED
+
+
+def test_honesty_degrade_forces_unknown_rating_despite_high_mos():
+    fusion = SignalFusion()
+    value = _value_result(25.0)
+    value.methodology_applicable = False
+    value.assessment = "方法暂不适用"
+
+    combined, rating = fusion.fuse(value, _tech_result(BuySignal.BUY))
+    assert rating == ValueRating.UNKNOWN
+    assert combined == CombinedSignal.BUY
+
+
+def test_honesty_degrade_value_only_is_wait():
+    fusion = SignalFusion()
+    value = _value_result(25.0)
+    value.methodology_applicable = False
+
+    combined, rating = fusion.fuse(value, None)
+    assert rating == ValueRating.UNKNOWN
+    assert combined == CombinedSignal.WAIT
+
+
+def test_honesty_degrade_ignores_undervalued_matrix_with_strong_buy():
+    fusion = SignalFusion()
+    value = _value_result(25.0)
+    value.methodology_applicable = False
+
+    combined, rating = fusion.fuse(value, _tech_result(BuySignal.STRONG_BUY))
+    assert rating == ValueRating.UNKNOWN
+    assert combined == CombinedSignal.STRONG_BUY

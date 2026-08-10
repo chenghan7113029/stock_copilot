@@ -118,8 +118,109 @@ def test_known_insurance_industry_uses_specific_methodology_gap_warning():
     result = analyzer.analyze("601318")
 
     assert result.prototype == "unknown"
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert result.confidence == "Low"
     assert any("保险" in warning and "EV/NBV" in warning for warning in result.warnings)
+    assert any("不应用于买卖决策" in warning or "不能作为买卖依据" in warning for warning in result.warnings)
     assert not any("原型未识别" in warning for warning in result.warnings)
+
+
+def test_byd_honesty_degrade_suppresses_actionable_assessment():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002594",
+        name="比亚迪",
+        industry="汽车整车",
+        current_price=100.0,
+        eps=5.0,
+        bvps=40.0,
+        growth_rate=20.0,
+        total_assets=1e11,
+        total_liabilities=4e10,
+        net_income=1e10,
+        fcf=5e9,
+        shares_outstanding=1e9,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("002594")
+
+    assert result.prototype == "unknown"
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert any("成长+制造周期" in w for w in result.warnings)
+    assert "dcf" not in result.method_keys_used
+
+
+def test_focus_media_honesty_degrade():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002027",
+        name="分众传媒",
+        industry="广告营销",
+        current_price=10.0,
+        growth_rate=8.0,
+        total_assets=1e10,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("002027")
+
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert any("广告周期" in w for w in result.warnings)
+
+
+def test_moutai_methodology_still_applicable():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = _rich_value_growth_stock()
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("600519")
+
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+
+
+def test_byd_override_to_value_growth_exempts_honesty_suppress():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002594",
+        name="比亚迪",
+        industry="汽车整车",
+        current_price=100.0,
+        eps=5.0,
+        bvps=40.0,
+        growth_rate=20.0,
+        total_assets=1e11,
+        total_liabilities=4e10,
+        net_income=1e10,
+        fcf=5e9,
+        shares_outstanding=1e9,
+        revenue=50e9,
+        ebit=8e9,
+        ebitda=10e9,
+        shareholder_equity=6e10,
+        roe=15.0,
+        tax_rate=25.0,
+    )
+    override_repo = MagicMock()
+    override_repo.get_by_code.return_value = MagicMock(
+        prototype="value_growth",
+        reason="人工验证情景假设",
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        override_repo=override_repo,
+    )
+
+    result = analyzer.analyze("002594")
+
+    assert result.prototype == "value_growth"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
 
 
 def test_unknown_prototype_with_blank_industry_keeps_generic_warning():

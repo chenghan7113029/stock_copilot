@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from common.models.stock_data import StockData
 from service.value import router as router_module
-from service.value.router import PrototypeRouter, describe_unimplemented_industry
+from service.value.router import (
+    PrototypeRouter,
+    describe_honesty_gap,
+    describe_unimplemented_industry,
+)
 
 
 def test_icbc_hardcoded_bank():
@@ -84,14 +88,17 @@ def test_military_industries_short_circuit_financial_heuristics():
 
 
 def test_describe_unimplemented_industry_returns_specific_methodology_gaps():
-    assert describe_unimplemented_industry("保险") == (
-        "保险",
-        "专用估值方法论（内含价值 EV/NBV 模型）暂缺",
-    )
-    assert describe_unimplemented_industry("国防军工") == (
-        "军工",
-        "专用估值方法论（在手订单驱动 + 资产重估模型）暂缺",
-    )
+    insurance = describe_unimplemented_industry("保险")
+    assert insurance is not None
+    assert insurance[0] == "保险"
+    assert "EV/NBV" in insurance[1]
+    assert "不应用于买卖决策" in insurance[1]
+
+    military = describe_unimplemented_industry("国防军工")
+    assert military is not None
+    assert military[0] == "军工"
+    assert "订单" in military[1]
+    assert "不应用于买卖决策" in military[1]
 
 
 def test_describe_unimplemented_industry_returns_none_for_missing_or_unlisted_industry():
@@ -102,7 +109,56 @@ def test_describe_unimplemented_industry_returns_none_for_missing_or_unlisted_in
 
 def test_describe_unimplemented_industry_uses_generic_gap_when_dictionaries_diverge(monkeypatch):
     monkeypatch.setitem(router_module._INDUSTRY_V2_UNIMPLEMENTED, "未来行业", "未来原型")
-    assert describe_unimplemented_industry("未来行业") == ("未来原型", "专用估值方法论暂缺")
+    result = describe_unimplemented_industry("未来行业")
+    assert result is not None
+    assert result[0] == "未来原型"
+    assert "专用估值方法论暂缺" in result[1]
+    assert "不应用于买卖决策" in result[1]
+
+
+def test_byd_and_focus_media_code_honesty_short_circuit_to_unknown():
+    router = PrototypeRouter()
+    byd = StockData(code="002594", industry="汽车整车", growth_rate=20.0, total_assets=1e11)
+    focus = StockData(code="002027", industry="广告营销", growth_rate=12.0, total_assets=1e10)
+
+    byd_proto, byd_keys = router.route(byd)
+    focus_proto, focus_keys = router.route(focus)
+
+    assert byd_proto == "unknown"
+    assert focus_proto == "unknown"
+    assert "dcf" not in byd_keys
+    assert "graham_number" in byd_keys
+    assert "graham_number" in focus_keys
+
+
+def test_moutai_unaffected_by_honesty_list():
+    router = PrototypeRouter()
+    stock = StockData(code="600519", name="贵州茅台", growth_rate=15.0, total_assets=1e11)
+    prototype, keys = router.route(stock)
+    assert prototype == "value_growth"
+    assert "dcf" in keys
+
+
+def test_honesty_code_override_to_value_growth_still_works():
+    router = PrototypeRouter()
+    stock = StockData(code="002594", industry="汽车整车", growth_rate=20.0)
+    prototype, keys = router.route(stock, override="value_growth")
+    assert prototype == "value_growth"
+    assert "dcf" in keys
+
+
+def test_describe_honesty_gap_code_priority_and_industry():
+    byd = describe_honesty_gap("002594", "汽车整车")
+    assert byd is not None
+    assert "成长+制造周期" in byd.label
+    assert "不应用于买卖决策" in byd.methodology_gap
+
+    insurance = describe_honesty_gap("601318", "保险")
+    assert insurance is not None
+    assert insurance.label == "保险"
+    assert "EV/NBV" in insurance.methodology_gap
+
+    assert describe_honesty_gap("600519", "白酒") is None
 
 
 def test_power_industry_routes_to_high_dividend_before_heuristics():

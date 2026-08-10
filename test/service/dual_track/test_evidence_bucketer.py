@@ -158,3 +158,24 @@ def test_warning_with_risk_goes_to_bear():
         _report(value, _tech_result(risk_factors=["RSI 超买"]), value_rating=ValueRating.FAIR)
     )
     assert any("不可信" in e for e in buckets.bear_evidence)
+
+
+def test_honesty_degrade_skips_method_assessment_keyword_bucketing():
+    value = _value_result(
+        assessment="方法暂不适用",
+        method_results={
+            "epv": ValuationResult(
+                method="epv",
+                fair_value=2000,
+                current_price=1500,
+                premium_discount=-0.25,
+                assessment="Undervalued",
+            )
+        },
+    )
+    value.methodology_applicable = False
+    buckets = EvidenceBucketer().bucket(
+        _report(value, None, value_rating=ValueRating.UNKNOWN)
+    )
+    assert not any("Undervalued" in e for e in buckets.bull_evidence)
+    assert not any("[价值评级] 低估" in e for e in buckets.bull_evidence)

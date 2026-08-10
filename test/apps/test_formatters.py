@@ -153,6 +153,36 @@ def test_format_value_report_value_trap_alert_text_and_json():
     assert payload["value_trap_alert"] == alert
 
 
+def test_format_value_report_honesty_degrade_text_and_json():
+    result = ValueAnalysisResult(
+        code="002594",
+        name="比亚迪",
+        current_price=100.0,
+        prototype="unknown",
+        method_keys_used=["epv"],
+        fair_value_range=ValuationRange(low=80, base=100, high=120),
+        margin_of_safety=25.0,
+        price_percentile=40.0,
+        assessment="方法暂不适用",
+        confidence="Low",
+        warnings=[
+            "检测到「成长+制造周期」特征，专用情景估值暂缺；通用方法得出的低估/高估不应用于买卖决策，"
+            "当前使用通用方法，结果参考性有限，不能作为买卖依据"
+        ],
+        methodology_applicable=False,
+    )
+
+    text = format_value_report(result)
+    payload = json.loads(format_value_report(result, as_json=True))
+
+    assert "方法暂不适用" in text
+    assert "诚实降级" in text
+    assert "对照用" in text
+    assert "低估" not in text.split("评估")[1].split("\n")[0]
+    assert payload["methodology_applicable"] is False
+    assert payload["assessment"] == "方法暂不适用"
+
+
 def test_format_value_report_omits_empty_value_trap_alert():
     result = ValueAnalysisResult(
         code="600519",

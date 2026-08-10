@@ -24,6 +24,7 @@ etire-akshare-default |
 | 2026-08-01 | PO-06 情绪面 V1：`sync market` 市场快照、涨跌停家数比、恐慌贪婪代理指数与 `report dual` 三维联合解读已实现 |
 | 2026-08-01 | PO-09 复盘归因：`trade record`、`TradeRecord`、FIFO 胜率与严格离线 `report trade-review` 已实现；Badcase 归因通过 PO-04 Checklist 软引用提供，缺关联数据时显式降级 |
 | 2026-08-01 | F-17 筹码分布：`stock_cyq_em` 独立缓存管道、获利/套牢比例与集中度分档已实现；V1 仅展示与风险文案增强，不纳入技术面评分 |
+| 2026-08-10 | add-v2-honesty-degrade：V2 第 0 刀诚实层（比亚迪/分众 code + 保险军工三层压制） |
 | 2026-08-01 | T-15 V2 原型精确降级提示：保险/军工已识别行业显示具体暂缺方法论，其他 unknown 原型保留通用提示 |
 | 2026-08-01 | T-8 人工覆盖原型持久化：`prototype_overrides`、`PrototypeOverrideRepo` 与 `value override` CLI；人工覆盖优先于自动路由 |
 | 2026-08-01 | PO-05 无仓位视角入场检查：最小持仓表、`position set` 与严格离线 `entry-check` 已实现（`add-fresh-entry-check`） |
@@ -140,7 +141,7 @@ etire-akshare-default |
 | T-3 | 银行指标 E2E 验证 | 净息差/不良率等完整度 | value-bank-e2e | [x] 路由+聚合 ✅；专项指标 🔧 常 missing |
 | T-7 | 行业→原型映射 Router | Tushare `stock_basic.industry` 简化行业 → 原型；非 SW/CS 多级代码 | `add-industry-prototype-router` | [x] 已实现；保险高杠杆不再误判 bank |
 | T-8 | 人工覆盖持久化 | VA-CLS-2，`prototype_overrides` + `value override` CLI | `add-prototype-override-persistence` | [x] 已实现 |
-| T-15 | V2 原型显式降级 | 如平安 →「保险 EV/NBV 方法论暂缺」；复用行业识别字典 | `add-prototype-fallback-message` | [x] 已实现 |
+| T-15 | V2 原型显式降级 | 警告 + 主评估压制 + 双轨 UNKNOWN；code 白名单比亚迪/分众 | `add-v2-honesty-degrade`（承 `add-prototype-fallback-message`） | [x] 诚实层已实现；专用模型仍 V2 |
 
 ### 4.2 数据与集成
 
@@ -224,9 +225,9 @@ etire-akshare-default |
 | T-4 | 保险 EV/NBV 模型 | 中国平安 | [ ] V2 |
 | T-5 | 军工·订单驱动模型 | 中船科技 | [ ] V2 |
 | T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [ ] V2 |
-| — | 成长 + 制造周期情景 DCF | 比亚迪 | [ ] V2 |
+| — | 成长 + 制造周期情景 DCF | 比亚迪 | [ ] V2（诚实层已覆盖 code 压制） |
 | — | 周期 + 资产重估 | 北大荒 | [ ] V2 |
-| — | 现金流 + 广告周期 | 分众传媒 | [ ] V2 |
+| — | 现金流 + 广告周期 | 分众传媒 | [ ] V2（诚实层已覆盖 code 压制） |
 | T-12 | Cyclical 4 方法 + `CyclicalStock` | `cyclical_pb/pe/fcf/dividend` | [ ] V2 |
 
 ---
