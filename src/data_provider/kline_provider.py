@@ -55,19 +55,14 @@ class KlineProvider:
                 (baostock, getattr(baostock, "source_name", "baostock") or "baostock")
             ]
             self._use_akshare = use_akshare
-            if use_akshare:
-                if akshare_fetcher is not None:
-                    sources.append(
-                        (
-                            akshare_fetcher,
-                            getattr(akshare_fetcher, "source_name", "akshare") or "akshare",
-                        )
+            # 阶段 C：禁止无参 AKShareFetcher()；仅接受显式注入或 from_config/Router
+            if use_akshare and akshare_fetcher is not None:
+                sources.append(
+                    (
+                        akshare_fetcher,
+                        getattr(akshare_fetcher, "source_name", "akshare") or "akshare",
                     )
-                else:
-                    from data_provider.akshare.fetcher import AKShareFetcher
-
-                    ak = AKShareFetcher()
-                    sources.append((ak, "akshare"))
+                )
                 if self._realtime_overlay is None:
                     quote_fetcher = sources[-1][0]
                     if hasattr(quote_fetcher, "fetch_realtime_quote"):

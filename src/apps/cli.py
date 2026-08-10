@@ -186,12 +186,14 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
     cfg = config or load_app_config()
     _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
     progress = CliProgress("sync", enabled=cli_progress_enabled(cfg))
-    has_akshare = is_data_source_enabled(cfg, "akshare")
-    has_tushare = is_data_source_enabled(cfg, "tushare")
-    if not has_akshare and not has_tushare:
+    # 情绪能力源：tushare / akshare（遗留）；不硬编码「必须 AKShare」
+    has_sentiment_source = is_data_source_enabled(cfg, "tushare") or is_data_source_enabled(
+        cfg, "akshare"
+    )
+    if not has_sentiment_source:
         print(
-            "[error] 市场情绪同步需要启用 akshare 或 tushare，请在 config/app.yaml 的 "
-            "data_sources.enabled 中配置",
+            "[error] 市场情绪同步依赖已配置的数据源，请在 config/app.yaml 的 "
+            "data_sources.enabled 中启用 tushare（推荐）或 akshare（遗留）",
             file=sys.stderr,
         )
         raise SystemExit(1)

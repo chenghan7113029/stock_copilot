@@ -35,13 +35,9 @@ class ChipDistributionProvider:
         self._repo = repo
         if chip_fetchers is not None:
             self._fetchers: list[_ChipDistributionFetcher] = list(chip_fetchers)
-        elif use_akshare:
-            if akshare_fetcher is not None:
-                self._fetchers = [akshare_fetcher]
-            else:
-                from data_provider.akshare.fetcher import AKShareFetcher
-
-                self._fetchers = [AKShareFetcher()]
+        elif use_akshare and akshare_fetcher is not None:
+            # 显式注入可用；阶段 C 禁止无参 AKShareFetcher()
+            self._fetchers = [akshare_fetcher]
         else:
             self._fetchers = []
 

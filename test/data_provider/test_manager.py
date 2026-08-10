@@ -71,28 +71,27 @@ def test_from_config_builds_fetchers():
     config = {
         "data_sources": {
             "enabled": [
-                {"name": "akshare", "priority": 1},
-                {"name": "baostock", "priority": 2},
+                {"name": "baostock", "priority": 1},
             ]
         }
     }
     mgr = SourceManager.from_config(config)
     names = [f.source_name for f in mgr.fetchers]
-    assert "akshare" in names
-    assert "baostock" in names
+    assert names == ["baostock"]
 
 
 def test_from_config_unknown_source_skipped():
     config = {
         "data_sources": {
             "enabled": [
-                {"name": "akshare", "priority": 1},
+                {"name": "baostock", "priority": 1},
                 {"name": "unknown_xyz", "priority": 99},
             ]
         }
     }
     mgr = SourceManager.from_config(config)
     assert len(mgr.fetchers) == 1
+    assert mgr.fetchers[0].source_name == "baostock"
 
 
 def test_from_config_empty_allows_offline_manager():

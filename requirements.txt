@@ -1,4 +1,6 @@
 # 运行时依赖
+# 阶段 C：默认产品路径为 tushare + baostock；akshare 保留在默认安装中以便紧急回滚
+# （OQ-4：移至 optional extra 延期，避免破坏既有 pip install / Cloud 镜像）
 akshare>=1.18.54
 baostock>=0.9.2
 tushare>=1.4.0

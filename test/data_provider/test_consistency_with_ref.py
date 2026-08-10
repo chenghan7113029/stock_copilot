@@ -21,6 +21,8 @@ from typing import Optional
 import pytest
 
 # ── 待比较的样本股票（code → 原型）─────────────────────────────────────────────
+pytestmark = [pytest.mark.network, pytest.mark.akshare_legacy]
+
 SAMPLE_STOCKS = {
     "600519": "value_growth",   # 贵州茅台
     "601398": "bank",           # 工商银行

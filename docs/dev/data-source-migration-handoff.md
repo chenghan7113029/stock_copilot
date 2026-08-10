@@ -166,7 +166,7 @@ python scripts/compare_migration_baseline.py   # 待实现，阶段 A 开工前�
 | 情绪 | `src/data_provider/sentiment/` | `AkshareSentimentFetcher` 独占 |
 | Tushare | `src/data_provider/tushare/fetcher.py` | 无 `fetch_kline` / `fetch_realtime_quote` |
 | CLI | `src/apps/cli.py` | `sync market` 硬依赖 akshare（L189-195） |
-| 配置 | `config/app.example.yaml` | 仍默认 akshare(1)+baostock(2) |
+| 配置 | `config/app.example.yaml` | 默认 **tushare(1)+baostock(2)**；akshare 仅注释回滚 |
 
 ### 现有测试可复用
 

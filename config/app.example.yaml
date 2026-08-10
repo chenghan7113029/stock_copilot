@@ -30,23 +30,19 @@ db:
   echo: false  # true 时打印 SQL（仅用于调试）
 
 # 数据源配置
-# 优先级规则：无需 token > 有 token 但免费 > 有 token 且收费
 # 数字越小越优先；未出现在 enabled 列表的源不会被实例化/调用
-# akshare 同时门控：价值面、K 线备源、实时报价、筹码分布、市场情绪（未启用则旁路跳过）
+# 默认目标态（阶段 C）：tushare(1) + baostock(2)；AKShare 仅作紧急回滚可选源
 data_sources:
   enabled:
-    # AKShare 不稳定时可整段注释；筹码/情绪/实时报价将随之不可用
-    - name: akshare
-      priority: 1         # 主源，字段最全
+    # Tushare Pro：需 Token（https://tushare.pro）；也可用环境变量 TUSHARE_TOKEN（勿把 token 提交 Git）
+    - name: tushare
+      priority: 1
+      token: ""
     - name: baostock
-      priority: 2         # 第二源，行情/财务交叉校验
-    # Tushare Pro：需 Token（免费注册 https://tushare.pro ）
-    # Token 仅写入本地 config/app.yaml（已 gitignore），或使用环境变量 TUSHARE_TOKEN
-    # 阶段 B/C 目标默认序预览：tushare(1) + baostock(2)；正式去 akshare 见阶段 C
-    # cloud_bootstrap 在检测到 TUSHARE_TOKEN 时会写入/提升 tushare priority=1
-    # - name: tushare
-    #   priority: 1
-    #   token: ""          # 从 tushare.pro 个人中心复制，勿提交到 Git
+      priority: 2
+    # 紧急回滚：取消注释以临时启用 AKShare（不稳定，非默认路径）
+    # - name: akshare
+    #   priority: 3
 
 # 价值面分析假设（Baostock FCF 推导 fallback 等）
 value_analysis:

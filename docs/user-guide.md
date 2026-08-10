@@ -91,8 +91,8 @@ pip install -e ".[dev]"
 
 | 配置项 | 作用 | 建议 |
 |--------|------|------|
-| `data_sources.enabled` | 用哪些数据源 | 默认 akshare + baostock 即可 |
-| Tushare（可选） | 财报更全、历史 PE/PB、银行指标更准 | 注册 [tushare.pro](https://tushare.pro)，见 §2.4 |
+| `data_sources.enabled` | 用哪些数据源 | 默认 **tushare(1) + baostock(2)**；AKShare 仅紧急回滚时手动加回 |
+| Tushare（推荐） | 财报更全、K 线/实时/情绪主路径 | 注册 [tushare.pro](https://tushare.pro)，见 §2.4 |
 | `llm:`（可选） | `report summary --narrate` 综合叙事 | OpenAI 兼容 API；见 §2.5 |
 | `db.url` | 本地数据库路径 | 默认 `data/stock_copilot.db`，一般不用改 |
 | `logging.cli_progress` | CLI 是否打印进度 | `true` 方便观察 sync |
@@ -101,15 +101,15 @@ pip install -e ".[dev]"
 
 ### 2.4 启用 Tushare（强烈推荐）
 
-没有 Tushare 也能跑（akshare + baostock），但价值面质量会差一截（尤其 FCF、净负债、历史估值分位、银行专项指标）。
+没有 Tushare 时仅 Baostock 也能跑离线报告，但联网 sync / 价值面质量会差一截（尤其 FCF、净负债、历史估值分位、银行专项指标）；实时与情绪也依赖 Tushare。
 
 **方式 A — 写进配置（二选一即可）：**
 
-在 `config/app.yaml` 的 `data_sources.enabled` 中取消注释并填写：
+在 `config/app.yaml` 的 `data_sources.enabled` 中确认（默认已包含）：
 
 ```yaml
     - name: tushare
-      priority: 3
+      priority: 1
       token: "你的token"
 ```
 
@@ -132,6 +132,17 @@ export TUSHARE_TOKEN=你的token
 ```
 
 同时需在 `enabled` 列表里启用 `tushare` 这一项（可只写 `name` + `priority`，token 走环境变量）。
+
+### 2.4.1 紧急回滚：手动加回 AKShare
+
+默认配置已不含 AKShare。若 Tushare 全站故障、需临时回退，在 `config/app.yaml` 的 `data_sources.enabled` 中追加：
+
+```yaml
+    - name: akshare
+      priority: 3
+```
+
+然后重跑 `sync` / `sync market`。稳定后建议删回该条目，继续以 tushare + baostock 为主。
 
 ### 2.5 启用 LLM 综合叙事（可选）
 

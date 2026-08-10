@@ -1,8 +1,11 @@
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from data_provider.sentiment.akshare_sentiment_fetcher import AkshareSentimentFetcher
+
+pytestmark = pytest.mark.akshare_legacy
 
 
 def _activity_df() -> pd.DataFrame:

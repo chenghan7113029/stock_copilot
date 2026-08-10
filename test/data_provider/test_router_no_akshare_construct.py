@@ -95,3 +95,24 @@ def test_sentiment_from_config_tushare_only(monkeypatch):
     assert created == ["tok"]
     assert provider._use_akshare is False
     assert isinstance(provider._fetcher, _FakeTS)
+
+
+def test_src_has_no_akshare_fetcher_noarg_outside_router():
+    """阶段 C：生产路径禁止 AKShareFetcher() 无参默认构造（Router 显式选源除外）。"""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "src"
+    hits: list[str] = []
+    for path in src.rglob("*.py"):
+        if path.name == "fetcher.py" and "akshare" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "AKShareFetcher()" not in text:
+            continue
+        rel = path.relative_to(src).as_posix()
+        if rel == "data_provider/router.py":
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if "AKShareFetcher()" in line and not line.strip().startswith("#"):
+                hits.append(f"{rel}:{i}:{line.strip()}")
+    assert hits == [], "unexpected AKShareFetcher() no-arg:\n" + "\n".join(hits)

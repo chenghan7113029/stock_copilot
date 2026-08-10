@@ -12,7 +12,8 @@
 
 | 日期 | 摘要 |
 |------|------|
-| 2026-08-09 | 阶段 A 实现：unify-data-source-router（Router + baseline 门禁）；下一步 apply lign-tushare-coverage |
+| 2026-08-10 | 阶段 C 实现：retire-akshare-default（默认 tushare+baostock、去硬门控、akshare_legacy） |
+| 2026-08-09 | 阶段 A 实现：unify-data-source-router（Router + baseline 门禁）；下一步 apply align-tushare-coverage |
 | 2026-08-09 | 数据源迁移三阶段 OpenSpec 已立项：unify-data-source-router / lign-tushare-coverage / 
 etire-akshare-default |
 | 2026-08-09 | 数据源迁移测试口径 Owner 确认：结构可改、离线报告零漂移；写入 data-source-migration.md §12.0 |

@@ -1,8 +1,8 @@
 # 数据源架构迁移与 AKShare 退役
 
-> 最后更新：2026-08-09  
-> 状态：**阶段 A 已归档**；**阶段 B 已实现**（`align-tushare-coverage`）；C 待 apply  
-> 关联 Issue：[#1 KlineProvider 不支持 Tushare](https://github.com/chenghan7113029/stock_copilot/issues/1)（阶段 B 关闭）  
+> 最后更新：2026-08-10  
+> 状态：**阶段 A/B 已归档**；**阶段 C 已实现**（`retire-akshare-default`）  
+> 关联 Issue：[#1 KlineProvider 不支持 Tushare](https://github.com/chenghan7113029/stock_copilot/issues/1)（阶段 B 已关闭）  
 > **本地接手**：[data-source-migration-handoff.md](../../dev/data-source-migration-handoff.md)  
 > 读者：产品 Owner、实现 Agent、Reviewer
 
@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-10 | 阶段 C retire-akshare-default：默认仅 tushare+baostock；去硬门控；akshare_legacy 隔离；OQ-4 packaging 延期 |
 | 2026-08-09 | 阶段 B align-tushare-coverage：Tushare K 线/rt_k、Baostock 财报收敛、情绪 Tushare 替代、字段矩阵、bootstrap priority=1；S2 baseline 绿；关闭 Issue #1 |
 | 2026-08-09 | 阶段 A unify-data-source-router 已实现：Router/Failover/去 override、migration baseline 门禁；§5.A.3 验收勾选 |
 | 2026-08-09 | OpenSpec 立项三 change：unify-data-source-router / lign-tushare-coverage / 
@@ -286,11 +287,11 @@ flowchart TB
 
 > 测试与 legacy 隔离见 **§12.4 阶段 C**、**§12.5 PR 检查清单**。
 
-- [ ] 全新 bootstrap 后 `config/app.yaml` 无 akshare 条目
-- [ ] 全量 `pytest -q -m "not network"` 无 AKShare 实例化
-- [ ] `trial_cli_workflow.py`（或等价全流程）在 `tushare+baostock` 下跑通
-- [ ] grep 生产路径 `AKShareFetcher()` 无参构造 = 0
-- [ ] Owner 验收：Cloud/本地在无 AKShare 环境下 `sync` / `report tech` / `report dual` / `sync market` 可用（允许筹码/部分情绪降级）
+- [x] 全新 bootstrap 后 `config/app.yaml` 无 akshare 条目
+- [x] 全量 `pytest -q -m "not network"` 无 AKShare 实例化
+- [x] `trial_cli_workflow.py`（或等价全流程）在 `tushare+baostock` 下跑通
+- [x] grep 生产路径 `AKShareFetcher()` 无参构造 = 0（仅 Router 显式选源）
+- [x] Owner 验收：Cloud/本地在无 AKShare 环境下 `sync` / `report tech` / `report dual` / `sync market` 可用（允许筹码/部分情绪降级）
 
 #### 5.C.4 风险
 
