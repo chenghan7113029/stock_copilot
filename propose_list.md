@@ -9,7 +9,7 @@
 ## 当前结论（一句话）
 
 **数据源迁移三阶段（A/B/C）已合入 `main` 并归档；原 P0–P2 已落地 change 已于 2026-08-10 批量归档。**  
-**真正还没 apply 的**，目前是：飞书常看推送、K 线形态、布林带；另有若干需先 explore / 待规划项。`add-v2-honesty-degrade` 已在 feature 分支实现完成，待 PR/归档。
+**真正还没 apply 的**，目前是：T-1 MOS 按原型阈值、价值 V2 专用方法（分 Phase）、飞书常看推送、K 线形态、布林带。`add-v2-honesty-degrade` 已在 feature 分支实现完成，待 PR/归档。
 
 ---
 
@@ -31,16 +31,20 @@
 
 | Change | roadmap / 来源 | 简介 | 状态 |
 |---|---|---|---|
-| `add-v2-honesty-degrade` | value V2 · 第 0 刀诚实层 | 比亚迪/分众 code + 保险军工：三层压制（警告、主评估「方法暂不适用」、双轨 UNKNOWN）；不实现专用估值 | **实现完成** · 待 PR/归档 |
+| `add-v2-honesty-degrade` | value V2 · 第 0 刀诚实层 | 比亚迪/分众 code + 保险军工：三层压制；不实现专用估值 | **实现完成** · 待 PR/归档 |
+| `add-mos-thresholds-by-prototype` | T-1 / VA-OUT-3 | 银行/高股息/价值成长 MOS 评估与双轨阈值按原型差异化 | proposal ✅ · 未 apply |
+| `add-value-v2-prototype-methods` | value V2 · T-4～T-12 | 专用方法总立项：P1 比亚迪情景 → P2 分众/Cyclical → P3 军工 → P4 保险 → P5 华测 | proposal ✅ · 未 apply（分 Phase） |
 | `add-feishu-watchlist-push` | 交付通道（通勤） | 家里 PC 交易日定时：`watchlist` → 本地 MD → 飞书新建文档 + 一票一消息；CLI `feishu push`（含 dry-run） | proposal ✅ · tasks 0/21 |
 | `add-pattern-recognition` | F-18 · V2 | 十字星/锤头/吊颈/吞没等规则识别；独立字段展示，**不进** `signal_score` | proposal ✅ · tasks 0/24 |
 | `add-bollinger-bands` | F-19 · V2 | 布林带 + `BollingerStatus`；V1 只做指标与单状态，不做跨指标组合 | proposal ✅ · tasks 0/23 |
 
 ### 建议下一棒顺序
 
-1. **`add-v2-honesty-degrade`** — 实现完成于 `feature/add-v2-honesty-degrade`，待 PR 合入后 archive  
-2. **`add-feishu-watchlist-push`** — 已有 watchlist + MD 报告形态，通勤交付缺口大  
-3. `add-pattern-recognition` / `add-bollinger-bands` — 技术面 V2，彼此独立，可穿插
+1. **合入 / archive `add-v2-honesty-degrade`**  
+2. **`add-mos-thresholds-by-prototype`（T-1）** — 小而独立，可先做  
+3. **`add-value-v2-prototype-methods` P1** — 比亚迪浅情景（持仓优先）  
+4. **`add-feishu-watchlist-push`** — 通勤交付  
+5. 形态 / 布林带 — 可穿插
 
 ---
 
@@ -81,13 +85,13 @@
 
 | Change | 来源 | 简介 |
 |---|---|---|
-| T-1 | 安全边际按原型差异化 | 「待设计」，先 `openspec-explore` |
 | PO-11 | 宏观/政策/治理事件层 | 「待规划」，范围未定 |
 | PO-12 | 个股融资融券余额 | 情绪面 V1 之后的扩展；未立 change |
 | PO-13 | 龙虎榜情绪信号 | 同上 |
 | PO-14 | 社媒/新闻文本情绪 | 需单独评估 NLP/LLM 管线 |
 | E | REST API / Web 看板 | change 名待定；依赖 Web 层整体决策 |
-| T-4～T-6 / T-12 等 | 价值面 V2 原型方法 | 保险 EV/NBV、军工订单、成长 PEG 等，明确后置 |
+
+> T-1 与价值 V2 专用方法已立项：见 B 区 `add-mos-thresholds-by-prototype`、`add-value-v2-prototype-methods`。
 
 ---
 
