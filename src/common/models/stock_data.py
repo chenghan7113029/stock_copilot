@@ -132,6 +132,11 @@ class StockData:
     order_margin: Optional[float] = None           # 订单利润率（%，税前）
     revaluation_assets: Optional[float] = None     # 资产重估增量（元，可选）
 
+    # ── 保险 EV/NBV 扩展（V2 insurance；缺内含价值则不毕业）────────────────
+    embedded_value: Optional[float] = None         # 内含价值 EV 总额（元）
+    nbv: Optional[float] = None                    # 一年新业务价值 NBV（元，可选）
+    p_ev_fair: Optional[float] = None              # 公允 P/EV 倍数（缺省 1.0）
+
     # ── 元数据 ────────────────────────────────────────────────────────────────
     # 估值原型（由 PrototypeRouter.route() 写入，供 AssumptionProvider 查 β/floor）
     proto: str = ""

@@ -109,13 +109,13 @@ def test_unknown_prototype_warning():
 def test_known_insurance_industry_uses_specific_methodology_gap_warning():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(
-        code="601318",
-        name="中国平安",
+        code="601601",
+        name="中国太保",
         industry="保险",
     )
     analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
 
-    result = analyzer.analyze("601318")
+    result = analyzer.analyze("601601")
 
     assert result.prototype == "unknown"
     assert result.methodology_applicable is False
@@ -124,6 +124,62 @@ def test_known_insurance_industry_uses_specific_methodology_gap_warning():
     assert any("保险" in warning and "EV/NBV" in warning for warning in result.warnings)
     assert any("不应用于买卖决策" in warning or "不能作为买卖依据" in warning for warning in result.warnings)
     assert not any("原型未识别" in warning for warning in result.warnings)
+
+
+def test_ping_an_keeps_honesty_without_ev_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="601318",
+        name="中国平安",
+        industry="保险",
+        current_price=50.0,
+        shares_outstanding=18e9,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("601318")
+
+    assert result.prototype == "insurance"
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert any("EV" in w or "NBV" in w or "保险" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
+
+
+def test_ping_an_graduates_with_ev_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="601318",
+        name="中国平安",
+        industry="保险",
+        current_price=50.0,
+        shares_outstanding=18e9,
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        config={
+            "value_analysis": {
+                "insurance": {
+                    "by_code": {
+                        "601318": {
+                            "embedded_value": 1200e9,
+                            "nbv": 50e9,
+                            "p_ev_fair": 1.0,
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    result = analyzer.analyze("601318")
+
+    assert result.prototype == "insurance"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "P/EV" in result.assessment
+    assert result.method_results["insurance_ev"].details.get("output_type") == "insurance_ev"
 
 
 def test_byd_graduates_with_scenario_dcf_when_fcf_available():

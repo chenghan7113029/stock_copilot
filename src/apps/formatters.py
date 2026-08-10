@@ -156,6 +156,11 @@ def _method_semantic_hint(key: str, mr: Any) -> str:
         if years is not None:
             return f"(订单驱动；消化≈{years}年)"
         return "(订单驱动)"
+    if key == "insurance_ev":
+        pev = details.get("p_ev_actual")
+        if pev is not None:
+            return f"(EV/NBV；P/EV={pev:.2f}x)"
+        return "(EV/NBV)"
     if key == "dcf":
         g1 = details.get("growth_1_5")
         if g1 is not None:
@@ -252,6 +257,34 @@ def _append_defense_section(lines: list[str], result: ValueAnalysisResult) -> No
     if defense.assessment:
         lines.append(f"- **评估:** {defense.assessment}")
     lines.append("- 说明: 订单多为配置/手工输入；缺输入时保持诚实降级，勿用通用 DCF 替代")
+
+
+def _append_insurance_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    insurance = (result.method_results or {}).get("insurance_ev")
+    if insurance is None:
+        return
+    details = getattr(insurance, "details", None) or {}
+    if details.get("output_type") != "insurance_ev":
+        return
+
+    lines.extend(["", "## 保险 EV/NBV 估值", ""])
+    ev = details.get("embedded_value")
+    if isinstance(ev, (int, float)):
+        lines.append(f"- **内含价值 EV:** {ev / 1e8:.2f} 亿元")
+    ev_ps = details.get("ev_per_share")
+    if ev_ps is not None:
+        lines.append(f"- **每股 EV:** {_fmt_num(ev_ps)}")
+    pev = details.get("p_ev_actual")
+    pev_fair = details.get("p_ev_fair")
+    if pev is not None:
+        lines.append(f"- **当前 P/EV:** {pev:.2f}x（公允假设 {pev_fair}x）")
+    nbv = details.get("nbv")
+    if isinstance(nbv, (int, float)) and nbv > 0:
+        lines.append(f"- **一年新业务价值 NBV:** {nbv / 1e8:.2f} 亿元")
+    lines.append(f"- **EV 对照公允价:** {_fmt_num(insurance.fair_value)}")
+    if insurance.assessment:
+        lines.append(f"- **评估:** {insurance.assessment}")
+    lines.append("- 说明: EV/NBV 依赖年报或配置手工输入；缺 EV 时保持诚实降级")
 
 
 def format_value_report(
@@ -354,6 +387,7 @@ def format_value_report(
     _append_scenario_section(lines, result)
     _append_cyclical_section(lines, result)
     _append_defense_section(lines, result)
+    _append_insurance_section(lines, result)
 
     if result.method_results:
         lines.extend(["", "## 估值方法", ""])

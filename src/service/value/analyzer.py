@@ -17,6 +17,7 @@ from service.value.valuation.assumptions import AssumptionProvider
 from service.value.valuation.base import ValuationResult
 from service.value.valuation.cycle_config import apply_cycle_inputs
 from service.value.valuation.defense_config import apply_defense_order_inputs
+from service.value.valuation.insurance_config import apply_insurance_inputs
 from service.value.valuation.engine import ValuationEngine, default_engine
 
 _GROWTH_MFG_SCENARIO_FAIL = (
@@ -33,6 +34,12 @@ _CASHFLOW_AD_CYCLE_FAIL = (
 _DEFENSE_ORDERS_FAIL = (
     "检测到「军工·订单驱动」特征，在手订单输入不足或无法计算；"
     "专用估值方法论（在手订单驱动 + 资产重估模型）暂缺或输入不足，"
+    "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
+)
+
+_INSURANCE_EV_FAIL = (
+    "检测到「保险」特征，内含价值 EV/NBV 输入不足或无法计算；"
+    "专用估值方法论（内含价值 EV/NBV 模型）暂缺或输入不足，"
     "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
 )
 
@@ -68,6 +75,17 @@ def _defense_orders_usable(result: ValuationResult | None) -> bool:
         return False
     details = result.details or {}
     return details.get("output_type") == "defense_orders"
+
+
+def _insurance_ev_usable(result: ValuationResult | None) -> bool:
+    if result is None:
+        return False
+    if result.error is not None or result.applicability == "Not Applicable":
+        return False
+    if result.fair_value <= 0:
+        return False
+    details = result.details or {}
+    return details.get("output_type") == "insurance_ev"
 
 
 def _pick_cyclical_primary(
@@ -166,6 +184,9 @@ class ValueAnalyzer:
         elif prototype == "defense_orders":
             for note in apply_defense_order_inputs(stock, self._config):
                 warnings.append(note)
+        elif prototype == "insurance":
+            for note in apply_insurance_inputs(stock, self._config):
+                warnings.append(note)
 
         results = self._engine.run_selected(method_keys, stock)
         agg = self._aggregator.aggregate(results, stock.current_price, prototype=prototype)
@@ -224,6 +245,20 @@ class ValueAnalyzer:
                 if confidence != "不可信":
                     confidence = "Low"
                 warnings.insert(0, _DEFENSE_ORDERS_FAIL)
+        elif prototype == "insurance":
+            insurance = results.get("insurance_ev")
+            if _insurance_ev_usable(insurance):
+                assert insurance is not None
+                methodology_applicable = True
+                assessment = insurance.assessment
+                if insurance.fair_value_range is not None:
+                    fair_value_range = insurance.fair_value_range
+            else:
+                methodology_applicable = False
+                assessment = "方法暂不适用"
+                if confidence != "不可信":
+                    confidence = "Low"
+                warnings.insert(0, _INSURANCE_EV_FAIL)
 
         return ValueAnalysisResult(
             code=stock.code,

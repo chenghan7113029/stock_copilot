@@ -16,10 +16,11 @@ _CODE_OVERRIDE: dict[str, str] = {
     "002594": "growth_manufacturing",
     "002027": "cashflow_ad_cycle",
     "600072": "defense_orders",
+    "601318": "insurance",
 }
 
 # code → (标签, 方法论/偏差说明基句)；命中后短路为 unknown（诚实层）
-# P1–P3：比亚迪/分众/中船已毕业；其他军工与保险仍走行业诚实层
+# P1–P4：比亚迪/分众/中船/平安已毕业；其他军工与其他保险仍走行业诚实层
 _CODE_V2_HONESTY: dict[str, tuple[str, str]] = {}
 
 _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
@@ -52,6 +53,7 @@ _IMPLEMENTED_PROTOTYPES = frozenset(
         "growth_manufacturing",
         "cashflow_ad_cycle",
         "defense_orders",
+        "insurance",
     }
 )
 
@@ -100,6 +102,11 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
     ],
     "defense_orders": [
         "defense_orders",
+        "altman_z",
+        "value_trap",
+    ],
+    "insurance": [
+        "insurance_ev",
         "altman_z",
         "value_trap",
     ],

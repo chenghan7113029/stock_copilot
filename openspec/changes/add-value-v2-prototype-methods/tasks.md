@@ -27,10 +27,10 @@
 
 ## 4. Phase P4 — 保险 EV/NBV
 
-- [ ] 4.1 Define EV/NBV 输入字段与入口
-- [ ] 4.2 Implement `insurance` 方法 + 路由（`601318`）
-- [ ] 4.3 无输入保持降级；有输入毕业
-- [ ] 4.4 Test 双向路径
+- [x] 4.1 Define EV/NBV 输入字段与入口
+- [x] 4.2 Implement `insurance` 方法 + 路由（`601318`）
+- [x] 4.3 无输入保持降级；有输入毕业
+- [x] 4.4 Test 双向路径
 
 ## 5. Phase P5 — 华测成长路由
 

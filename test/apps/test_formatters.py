@@ -232,7 +232,43 @@ def test_format_value_report_cyclical_section():
     assert "方法暂不适用" not in text
 
 
-def test_format_value_report_defense_orders_section():
+def test_format_value_report_insurance_ev_section():
+    insurance = ValuationResult(
+        method="Insurance EV/NBV",
+        fair_value=55.0,
+        current_price=50.0,
+        premium_discount=10.0,
+        assessment="当前 P/EV 0.91x（公允假设 1.00x）；相对 EV 公允略便宜",
+        details={
+            "output_type": "insurance_ev",
+            "embedded_value": 1000e9,
+            "nbv": 40e9,
+            "ev_per_share": 55.0,
+            "p_ev_actual": 0.91,
+            "p_ev_fair": 1.0,
+        },
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="601318",
+        name="中国平安",
+        current_price=50.0,
+        prototype="insurance",
+        method_keys_used=["insurance_ev"],
+        fair_value_range=ValuationRange(low=45, base=55, high=60),
+        margin_of_safety=9.0,
+        price_percentile=40.0,
+        assessment="当前 P/EV 0.91x（公允假设 1.00x）；相对 EV 公允略便宜",
+        confidence="Low",
+        method_results={"insurance_ev": insurance},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 保险 EV/NBV 估值" in text
+    assert "内含价值" in text
+    assert "方法暂不适用" not in text
+
     defense = ValuationResult(
         method="Defense Orders",
         fair_value=22.0,

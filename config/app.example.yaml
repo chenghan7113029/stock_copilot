@@ -83,6 +83,14 @@ value_analysis:
   #       order_execution_years: 3.0
   #       order_margin: 12.0
   #       revaluation_assets: 500000000
+  # 保险 EV/NBV（P4）；金额单位为元；缺 embedded_value 则诚实降级
+  # insurance:
+  #   p_ev_fair: 1.0
+  #   by_code:
+  #     "601318":
+  #       embedded_value: 1200000000000
+  #       nbv: 50000000000
+  #       p_ev_fair: 0.9
   # MOS 阈值（按原型）：
   # - undervalued / mildly_undervalued / fair_low / mildly_overvalued 用于价值面五档 assessment
   # - overvalued 仅用于双轨 ValueRating（UNDERVALUED/FAIR/OVERVALUED）阈值

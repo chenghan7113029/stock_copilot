@@ -65,7 +65,7 @@ def test_bank_classification_by_industry():
 def test_insurance_industry_short_circuits_high_leverage_bank_heuristic():
     router = PrototypeRouter()
     stock = StockData(
-        code="601318",
+        code="601601",
         industry="保险",
         total_assets=10e12,
         total_liabilities=9e12,
@@ -178,13 +178,28 @@ def test_honesty_code_override_to_value_growth_still_works():
 def test_describe_honesty_gap_code_priority_and_industry():
     assert describe_honesty_gap("002594", "汽车整车") is None
     assert describe_honesty_gap("002027", "广告营销") is None
+    assert describe_honesty_gap("601318", "保险") is None
 
-    insurance = describe_honesty_gap("601318", "保险")
+    insurance = describe_honesty_gap("601601", "保险")
     assert insurance is not None
     assert insurance.label == "保险"
     assert "EV/NBV" in insurance.methodology_gap
 
     assert describe_honesty_gap("600519", "白酒") is None
+
+
+def test_ping_an_routes_to_insurance():
+    router = PrototypeRouter()
+    stock = StockData(
+        code="601318",
+        name="中国平安",
+        industry="保险",
+        total_assets=10e12,
+        total_liabilities=9e12,
+    )
+    prototype, keys = router.route(stock)
+    assert prototype == "insurance"
+    assert "insurance_ev" in keys
 
 
 def test_power_industry_routes_to_high_dividend_before_heuristics():
