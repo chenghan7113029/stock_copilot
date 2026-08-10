@@ -15,10 +15,17 @@ from service.value.router import (
 )
 from service.value.valuation.assumptions import AssumptionProvider
 from service.value.valuation.base import ValuationResult
+from service.value.valuation.cycle_config import apply_cycle_inputs
 from service.value.valuation.engine import ValuationEngine, default_engine
 
 _GROWTH_MFG_SCENARIO_FAIL = (
     "检测到「成长+制造周期」特征，浅情景 DCF 假设不足或无法计算；"
+    "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
+)
+
+_CASHFLOW_AD_CYCLE_FAIL = (
+    "检测到「现金流+广告周期」特征，缺周期位置或周期调整估值无法计算；"
+    "轻资产高现金流在景气期易被静态外推过高、下行期过低，"
     "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
 )
 
@@ -34,6 +41,28 @@ def _scenario_dcf_usable(result: ValuationResult | None) -> bool:
     return details.get("output_type") == "scenario" and bool(details.get("scenarios"))
 
 
+def _cyclical_method_usable(result: ValuationResult | None) -> bool:
+    if result is None:
+        return False
+    if result.error is not None or result.applicability == "Not Applicable":
+        return False
+    if result.fair_value <= 0:
+        return False
+    details = result.details or {}
+    return details.get("output_type") == "cyclical" and bool(details.get("cycle_position"))
+
+
+def _pick_cyclical_primary(
+    results: dict[str, ValuationResult],
+) -> ValuationResult | None:
+    """分众轻资产优先 FCF，其次 PE。"""
+    for key in ("cyclical_fcf", "cyclical_pe"):
+        result = results.get(key)
+        if _cyclical_method_usable(result):
+            return result
+    return None
+
+
 class ValueAnalyzer:
     """价值面分析单一入口。"""
 
@@ -44,12 +73,14 @@ class ValueAnalyzer:
         router: PrototypeRouter | None = None,
         aggregator: ValuationAggregator | None = None,
         override_repo: PrototypeOverrideRepo | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
         self._provider = provider
         self._engine = engine or default_engine()
         self._router = router or PrototypeRouter()
         self._aggregator = aggregator or ValuationAggregator()
         self._override_repo = override_repo
+        self._config = config or {}
 
     @classmethod
     def from_config(
@@ -61,7 +92,12 @@ class ValueAnalyzer:
         provider = StockDataProvider.from_config(config, repo=repo)
         assumptions = AssumptionProvider(config)
         engine = default_engine(assumptions=assumptions)
-        return cls(provider, engine=engine, override_repo=override_repo)
+        return cls(
+            provider,
+            engine=engine,
+            override_repo=override_repo,
+            config=config,
+        )
 
     def analyze(self, code: str) -> ValueAnalysisResult:
         stock = self._provider.get_stock_data(code)
@@ -106,6 +142,10 @@ class ValueAnalyzer:
         elif prototype == "unknown":
             warnings.append("原型未识别，使用通用方法集，置信度低")
 
+        if prototype == "cashflow_ad_cycle":
+            for note in apply_cycle_inputs(stock, self._config):
+                warnings.append(note)
+
         results = self._engine.run_selected(method_keys, stock)
         agg = self._aggregator.aggregate(results, stock.current_price, prototype=prototype)
         warnings.extend(agg.warnings)
@@ -136,6 +176,19 @@ class ValueAnalyzer:
                 if confidence != "不可信":
                     confidence = "Low"
                 warnings.insert(0, _GROWTH_MFG_SCENARIO_FAIL)
+        elif prototype == "cashflow_ad_cycle":
+            primary = _pick_cyclical_primary(results)
+            if primary is not None:
+                methodology_applicable = True
+                assessment = primary.assessment
+                if primary.fair_value_range is not None:
+                    fair_value_range = primary.fair_value_range
+            else:
+                methodology_applicable = False
+                assessment = "方法暂不适用"
+                if confidence != "不可信":
+                    confidence = "Low"
+                warnings.insert(0, _CASHFLOW_AD_CYCLE_FAIL)
 
         return ValueAnalysisResult(
             code=stock.code,

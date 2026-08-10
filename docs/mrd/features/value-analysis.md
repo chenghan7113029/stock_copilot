@@ -64,7 +64,7 @@
 | 成长（科技） | 华测导航 | 🔜 V2 | PEG/PS/Rule of 40，valueinvest 已有方法，待接入 |
 | 成长 + 制造周期 | 比亚迪 | ✅ P1（`growth_manufacturing` + 浅情景 DCF） | 三档情景；FCF≤0 时回退 OCF/净利润×fcf_rate；失败则诚实降级 |
 | 周期 + 资产 | 北大荒 | 🔜 V2 | 大宗周期 + 土地重估 |
-| 现金流 + 广告周期 | 分众传媒 | 🔜 V2 | 轻资产高 FCF 但顺周期 |
+| 现金流 + 广告周期 | 分众传媒 | ✅ P2（`cashflow_ad_cycle` + cyclical_fcf/pe） | 需 `cycle_position`（配置或历史 PE 启发式）；缺则诚实降级 |
 
 > V1 未覆盖的原型，分类时应**显式标注"该原型方法论暂缺，降级为相对估值并提示置信度低"**，不得静默套用错误方法。
 
@@ -366,15 +366,15 @@ pytest -m network test/e2e/ -v -s
 
 ### 场景 5：V2 暂缺原型降级（三层诚实压制）
 
-- **Given** 用户请求分析 `中国平安 601318`（保险）或 `分众传媒 002027`（广告周期，P2 前）或情景 DCF 失败的制造成长股
+- **Given** 用户请求分析 `中国平安 601318`（保险）或周期输入不足的广告周期股，或情景 DCF 失败的制造成长股
 - **When** 调用价值面分析 / 双轨融合 / `report value`
 - **Then** 系统同时满足：
   1. **精确警告**：说明缺什么专用方法、V1 通用方法为何易偏，并明示**不能作为买卖依据**（保险/军工与持仓 code 同标准）
   2. **主评估改写**：`assessment = "方法暂不适用"`，`methodology_applicable = false`；公允区间/MOS 可保留但仅对照用
   3. **双轨**：`value_rating` 强制 `UNKNOWN`，不得因假「价值低估」推买入
-- **And** 人工 override 为已实现原型（含 `growth_manufacturing`）时豁免压制
-- **And** `002594` 在浅情景 DCF 可用时毕业：`prototype=growth_manufacturing`，主评估为现价相对三档落位（非「方法暂不适用」）
-- **Note**：诚实层由 `add-v2-honesty-degrade` 落地；P1 情景 DCF 见 `add-value-v2-prototype-methods`；EV/NBV、Cyclical 等仍属后续 Phase
+- **And** 人工 override 为已实现原型（含 `growth_manufacturing` / `cashflow_ad_cycle`）时豁免压制
+- **And** `002594` 在浅情景 DCF 可用时毕业；`002027` 在 `cycle_position` + 周期方法可用时毕业
+- **Note**：诚实层由 `add-v2-honesty-degrade` 落地；P1/P2 见 `add-value-v2-prototype-methods`；EV/NBV、军工订单仍属后续 Phase
 
 ### 场景 6：输出反锚定
 
@@ -399,7 +399,7 @@ pytest -m network test/e2e/ -v -s
 | T-9 | ValueAnalyzer Facade | P0 | ✅ `src/service/value/analyzer.py` |
 | T-10 | 区间聚合 Aggregator | P0 | ✅ `src/service/value/aggregator.py` |
 | T-11 | ValueScore 综合评分（估值40+质量30+护城河20+风险10） | P1 | 字段预留，算法未实现 |
-| T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | 未开始 |
+| T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | [~] P2：`cyclical_pe`/`cyclical_fcf` + StockData 周期字段；pb/dividend 待增量 |
 | T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
 | T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
 | T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ 诚实层；P1 起 `002594` 可毕业，`002027`/保险/军工仍压制 |

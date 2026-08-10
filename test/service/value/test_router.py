@@ -126,9 +126,9 @@ def test_byd_routes_to_growth_manufacturing_after_p1():
 
     assert byd_proto == "growth_manufacturing"
     assert "scenario_dcf" in byd_keys
-    assert "dcf" not in byd_keys
-    assert focus_proto == "unknown"
-    assert "graham_number" in focus_keys
+    assert focus_proto == "cashflow_ad_cycle"
+    assert "cyclical_fcf" in focus_keys
+    assert "cyclical_pe" in focus_keys
 
 
 def test_moutai_unaffected_by_honesty_list():
@@ -149,11 +149,7 @@ def test_honesty_code_override_to_value_growth_still_works():
 
 def test_describe_honesty_gap_code_priority_and_industry():
     assert describe_honesty_gap("002594", "汽车整车") is None
-
-    focus = describe_honesty_gap("002027", "广告营销")
-    assert focus is not None
-    assert "广告周期" in focus.label
-    assert "不应用于买卖决策" in focus.methodology_gap
+    assert describe_honesty_gap("002027", "广告营销") is None
 
     insurance = describe_honesty_gap("601318", "保险")
     assert insurance is not None

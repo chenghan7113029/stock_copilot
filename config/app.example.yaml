@@ -66,6 +66,14 @@ value_analysis:
   #   by_code:
   #     "002594":
   #       base: { growth_rate_1_5: 14.0 }
+  # 周期位置（P2）；缺省时可依赖 historical_pe 启发式；也可手工指定
+  # cycle_position: bottom | early_up | mid | late | top | early_down
+  # cyclical:
+  #   by_code:
+  #     "002027":
+  #       cycle_position: mid
+  #       normalized_eps: 0.45
+  #       normalized_fcf: 4500000000
   # MOS 阈值（按原型）：
   # - undervalued / mildly_undervalued / fair_low / mildly_overvalued 用于价值面五档 assessment
   # - overvalued 仅用于双轨 ValueRating（UNDERVALUED/FAIR/OVERVALUED）阈值

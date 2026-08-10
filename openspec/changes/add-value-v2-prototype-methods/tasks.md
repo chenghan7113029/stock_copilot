@@ -13,10 +13,10 @@
 
 ## 2. Phase P2 — Cyclical + 分众
 
-- [ ] 2.1 Create `CyclicalStock`（或 StockData 扩展）+ port 至少 1–2 个 cyclical 方法
-- [ ] 2.2 Create `cashflow_ad_cycle` 路由（code `002027`）
-- [ ] 2.3 Analyzer/Formatter 周期语义；毕业条件
-- [ ] 2.4 Test + 目视 `report value 002027`
+- [x] 2.1 Create `CyclicalStock`（或 StockData 扩展）+ port 至少 1–2 个 cyclical 方法
+- [x] 2.2 Create `cashflow_ad_cycle` 路由（code `002027`）
+- [x] 2.3 Analyzer/Formatter 周期语义；毕业条件
+- [x] 2.4 Test + 目视 `report value 002027`
 
 ## 3. Phase P3 — 军工订单
 

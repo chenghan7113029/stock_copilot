@@ -194,21 +194,59 @@ def test_format_value_report_scenario_dcf_section():
     assert "对照用" not in text
 
 
+def test_format_value_report_cyclical_section():
+    fcf = ValuationResult(
+        method="Cyclical FCF",
+        fair_value=12.0,
+        current_price=10.0,
+        premium_discount=20.0,
+        assessment="周期位置：周期中段；相对周期调整公允略便宜",
+        details={
+            "output_type": "cyclical",
+            "cycle_position": "mid",
+            "cycle_position_label": "周期中段",
+            "fcf_yield": 8.5,
+            "fair_fcf_yield": 7.0,
+        },
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="002027",
+        name="分众传媒",
+        current_price=10.0,
+        prototype="cashflow_ad_cycle",
+        method_keys_used=["cyclical_fcf"],
+        fair_value_range=ValuationRange(low=8, base=12, high=16),
+        margin_of_safety=16.0,
+        price_percentile=40.0,
+        assessment="周期位置：周期中段；相对周期调整公允略便宜",
+        confidence="Medium",
+        method_results={"cyclical_fcf": fcf},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 周期调整估值" in text
+    assert "周期位置" in text
+    assert "Cyclical FCF" in text
+    assert "方法暂不适用" not in text
+
+
 def test_format_value_report_honesty_degrade_text_and_json():
     result = ValueAnalysisResult(
         code="002027",
         name="分众传媒",
         current_price=10.0,
-        prototype="unknown",
-        method_keys_used=["epv"],
+        prototype="cashflow_ad_cycle",
+        method_keys_used=["cyclical_fcf"],
         fair_value_range=ValuationRange(low=8, base=10, high=12),
         margin_of_safety=25.0,
         price_percentile=40.0,
         assessment="方法暂不适用",
         confidence="Low",
         warnings=[
-            "检测到「现金流+广告周期」特征，专用方法暂缺；通用方法得出的低估/高估不应用于买卖决策，"
-            "当前使用通用方法，结果参考性有限，不能作为买卖依据"
+            "检测到「现金流+广告周期」特征，缺周期位置或周期调整估值无法计算；"
+            "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
         ],
         methodology_applicable=False,
     )

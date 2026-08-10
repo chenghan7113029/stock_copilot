@@ -9,8 +9,8 @@
 ## 当前结论（一句话）
 
 **数据源迁移三阶段（A/B/C）已合入 `main` 并归档；原 P0–P2 已落地 change 已于 2026-08-10 批量归档。**  
-**真正还没 apply 的**，目前是：价值 V2 专用方法（P2+）、飞书常看推送、K 线形态、布林带。
-T-1 MOS 与 V2 P1（比亚迪浅情景）在 `feature/apply-mos-and-value-v2-methods` 推进中。
+**真正还没 apply 的**，目前是：价值 V2 专用方法（P3+）、飞书常看推送、K 线形态、布林带。
+T-1 MOS 与 V2 P1/P2（比亚迪情景、分众周期）在 `feature/apply-mos-and-value-v2-methods` 推进中。
 
 ---
 
@@ -33,7 +33,7 @@ T-1 MOS 与 V2 P1（比亚迪浅情景）在 `feature/apply-mos-and-value-v2-met
 | Change | roadmap / 来源 | 简介 | 状态 |
 |---|---|---|---|
 | `add-mos-thresholds-by-prototype` | T-1 / VA-OUT-3 | 银行/高股息/价值成长 MOS 评估与双轨阈值按原型差异化 | apply 中（feature 分支，近完成） |
-| `add-value-v2-prototype-methods` | value V2 · T-4～T-12 | 专用方法总立项：P1 比亚迪情景 → P2 分众/Cyclical → P3 军工 → P4 保险 → P5 华测 | apply 中 · P1 进行中 |
+| `add-value-v2-prototype-methods` | value V2 · T-4～T-12 | 专用方法总立项：P1 比亚迪情景 → P2 分众/Cyclical → P3 军工 → P4 保险 → P5 华测 | apply 中 · P1+P2 完成 |
 | `add-feishu-watchlist-push` | 交付通道（通勤） | 家里 PC 交易日定时：`watchlist` → 本地 MD → 飞书新建文档 + 一票一消息；CLI `feishu push`（含 dry-run） | proposal ✅ · tasks 0/21 |
 | `add-pattern-recognition` | F-18 · V2 | 十字星/锤头/吊颈/吞没等规则识别；独立字段展示，**不进** `signal_score` | proposal ✅ · tasks 0/24 |
 | `add-bollinger-bands` | F-19 · V2 | 布林带 + `BollingerStatus`；V1 只做指标与单状态，不做跨指标组合 | proposal ✅ · tasks 0/23 |

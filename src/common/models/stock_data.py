@@ -59,6 +59,7 @@ class StockData:
 
     # ── 现金流 ────────────────────────────────────────────────────────────────
     fcf: Optional[float] = None            # 自由现金流（元）
+    operating_cash_flow: Optional[float] = None  # 经营现金流（元）
     capex: Optional[float] = None          # 资本开支（元）
     depreciation: Optional[float] = None  # 折旧摊销（元）
 
@@ -116,6 +117,14 @@ class StockData:
     # ── 历史估值序列（相对估值方法用，可空）────────────────────────────────────
     historical_pe: Optional[List[float]] = None  # 历史滚动 PE 序列（降序）
     historical_pb: Optional[List[float]] = None  # 历史滚动 PB 序列（降序）
+
+    # ── 周期股扩展（V2 Cyclical / 广告周期；可空，缺 cycle_position 则不毕业）──
+    # cycle_position: bottom | early_up | mid | late | top | early_down
+    cycle_position: Optional[str] = None
+    normalized_eps: Optional[float] = None       # 周期均值化 EPS（元）
+    normalized_fcf: Optional[float] = None       # 周期均值化 FCF 总额（元）
+    historical_roe: Optional[List[float]] = None  # 历史 ROE（%）
+    historical_fcf: Optional[List[float]] = None  # 历史 FCF 总额序列（元）
 
     # ── 元数据 ────────────────────────────────────────────────────────────────
     # 估值原型（由 PrototypeRouter.route() 写入，供 AssumptionProvider 查 β/floor）

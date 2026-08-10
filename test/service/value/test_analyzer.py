@@ -180,7 +180,7 @@ def test_byd_keeps_honesty_when_scenario_dcf_cannot_run():
     assert any("不能作为买卖依据" in w for w in result.warnings)
 
 
-def test_focus_media_honesty_degrade():
+def test_focus_media_keeps_honesty_without_cycle_position():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(
         code="002027",
@@ -189,14 +189,54 @@ def test_focus_media_honesty_degrade():
         current_price=10.0,
         growth_rate=8.0,
         total_assets=1e10,
+        fcf=3e9,
+        shares_outstanding=1e9,
+        # 无 cycle_position / historical_pe → 不毕业
     )
     analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
 
     result = analyzer.analyze("002027")
 
+    assert result.prototype == "cashflow_ad_cycle"
     assert result.methodology_applicable is False
     assert result.assessment == "方法暂不适用"
-    assert any("广告周期" in w for w in result.warnings)
+    assert any("广告周期" in w or "周期位置" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
+
+
+def test_focus_media_graduates_with_cycle_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002027",
+        name="分众传媒",
+        industry="广告营销",
+        current_price=10.0,
+        growth_rate=8.0,
+        total_assets=1e10,
+        fcf=5e9,
+        shares_outstanding=1e9,
+        eps=0.5,
+        bvps=2.0,
+        historical_roe=[18.0, 20.0, 22.0, 19.0],
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        config={
+            "value_analysis": {
+                "cyclical": {"by_code": {"002027": {"cycle_position": "mid"}}}
+            }
+        },
+    )
+
+    result = analyzer.analyze("002027")
+
+    assert result.prototype == "cashflow_ad_cycle"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "周期位置" in result.assessment
+    assert "cyclical_fcf" in result.method_keys_used
+    assert result.method_results["cyclical_fcf"].details.get("output_type") == "cyclical"
 
 
 def test_moutai_methodology_still_applicable():

@@ -146,6 +146,11 @@ def _method_semantic_hint(key: str, mr: Any) -> str:
         if position:
             return f"(浅情景三档；落位={position})"
         return "(浅情景三档)"
+    if key in {"cyclical_pe", "cyclical_fcf"}:
+        label = details.get("cycle_position_label") or details.get("cycle_position")
+        if label:
+            return f"(周期调整；位置={label})"
+        return "(周期调整)"
     if key == "dcf":
         g1 = details.get("growth_1_5")
         if g1 is not None:
@@ -184,6 +189,40 @@ def _append_scenario_section(lines: list[str], result: ValueAnalysisResult) -> N
     cash_source = details.get("cash_source")
     if cash_source and cash_source != "fcf":
         lines.append(f"- 现金流底座: `{cash_source}`（制造扩张期可能非报告 FCF）")
+
+
+def _append_cyclical_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    methods = result.method_results or {}
+    primary = None
+    for key in ("cyclical_fcf", "cyclical_pe"):
+        mr = methods.get(key)
+        details = getattr(mr, "details", None) or {}
+        if mr is not None and details.get("output_type") == "cyclical":
+            primary = mr
+            break
+    if primary is None:
+        return
+    details = primary.details or {}
+    lines.extend(["", "## 周期调整估值", ""])
+    label = details.get("cycle_position_label") or details.get("cycle_position") or "未知"
+    lines.append(f"- **周期位置:** {label}")
+    fcf = methods.get("cyclical_fcf")
+    if fcf is not None and (fcf.details or {}).get("output_type") == "cyclical":
+        fd = fcf.details or {}
+        lines.append(
+            f"- **Cyclical FCF:** 公允价 {_fmt_num(fcf.fair_value)}"
+            f"（FCF Yield {fd.get('fcf_yield', 'N/A')}% / 公允 {fd.get('fair_fcf_yield', 'N/A')}%）"
+        )
+    pe = methods.get("cyclical_pe")
+    if pe is not None and (pe.details or {}).get("output_type") == "cyclical":
+        pd = pe.details or {}
+        lines.append(
+            f"- **Cyclical PE:** 公允价 {_fmt_num(pe.fair_value)}"
+            f"（均值化 EPS {_fmt_num(pd.get('cyclical_adjusted_eps'), 3)} × {pd.get('fair_pe', 'N/A')}x）"
+        )
+    if primary.assessment:
+        lines.append(f"- **综合落位:** {primary.assessment}")
+    lines.append("- 说明: 无可靠周期位置时不会毕业；勿把景气高峰的低 PE/高 FCF Yield 当便宜")
 
 
 def format_value_report(
@@ -284,6 +323,7 @@ def format_value_report(
         )
 
     _append_scenario_section(lines, result)
+    _append_cyclical_section(lines, result)
 
     if result.method_results:
         lines.extend(["", "## 估值方法", ""])

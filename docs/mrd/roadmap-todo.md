@@ -227,8 +227,8 @@ etire-akshare-default |
 | T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [ ] V2 |
 | — | 成长 + 制造周期情景 DCF | 比亚迪 | [x] V2 P1（`growth_manufacturing` + 浅情景 DCF；本分支） |
 | — | 周期 + 资产重估 | 北大荒 | [ ] V2 |
-| — | 现金流 + 广告周期 | 分众传媒 | [ ] V2（诚实层已覆盖 code 压制） |
-| T-12 | Cyclical 4 方法 + `CyclicalStock` | `cyclical_pb/pe/fcf/dividend` | [ ] V2 |
+| — | 现金流 + 广告周期 | 分众传媒 | [x] V2 P2（`cashflow_ad_cycle` + cyclical 子集；本分支） |
+| T-12 | Cyclical 4 方法 + `CyclicalStock` 数据模型 | — | [~] P2 已落地 pe/fcf + 字段扩展；pb/dividend 待增量 |
 
 ---
 

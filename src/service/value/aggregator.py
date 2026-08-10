@@ -15,6 +15,7 @@ PRIMARY_METHODS_BY_PROTOTYPE: dict[str, frozenset[str]] = {
     "bank": frozenset({"pb_relative", "residual_income"}),
     "high_dividend": frozenset({"ddm", "two_stage_ddm"}),
     "growth_manufacturing": frozenset({"scenario_dcf"}),
+    "cashflow_ad_cycle": frozenset({"cyclical_fcf", "cyclical_pe"}),
 }
 
 _UNRELIABLE_WARNING = (
@@ -214,6 +215,8 @@ class ValuationAggregator:
         keys = set(results.keys())
         if "scenario_dcf" in keys:
             return "growth_manufacturing"
+        if "cyclical_fcf" in keys or "cyclical_pe" in keys:
+            return "cashflow_ad_cycle"
         if "dcf" in keys or "pe_relative" in keys:
             return "value_growth"
         if "pb_relative" in keys or "residual_income" in keys:

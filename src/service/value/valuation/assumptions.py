@@ -12,12 +12,14 @@ _DEFAULT_BETA_BY_PROTO: dict[str, float] = {
     "high_dividend": 0.5,
     "bank": 0.9,
     "growth_manufacturing": 0.8,
+    "cashflow_ad_cycle": 0.85,
 }
 _DEFAULT_GROWTH_RATE_FLOOR_BY_PROTO: dict[str, float] = {
     "value_growth": 8.0,
     "high_dividend": 3.0,
     "bank": 5.0,
     "growth_manufacturing": 6.0,
+    "cashflow_ad_cycle": 4.0,
 }
 
 
