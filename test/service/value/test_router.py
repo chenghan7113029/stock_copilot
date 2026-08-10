@@ -116,7 +116,7 @@ def test_describe_unimplemented_industry_uses_generic_gap_when_dictionaries_dive
     assert "不应用于买卖决策" in result[1]
 
 
-def test_byd_and_focus_media_code_honesty_short_circuit_to_unknown():
+def test_byd_routes_to_growth_manufacturing_after_p1():
     router = PrototypeRouter()
     byd = StockData(code="002594", industry="汽车整车", growth_rate=20.0, total_assets=1e11)
     focus = StockData(code="002027", industry="广告营销", growth_rate=12.0, total_assets=1e10)
@@ -124,10 +124,10 @@ def test_byd_and_focus_media_code_honesty_short_circuit_to_unknown():
     byd_proto, byd_keys = router.route(byd)
     focus_proto, focus_keys = router.route(focus)
 
-    assert byd_proto == "unknown"
-    assert focus_proto == "unknown"
+    assert byd_proto == "growth_manufacturing"
+    assert "scenario_dcf" in byd_keys
     assert "dcf" not in byd_keys
-    assert "graham_number" in byd_keys
+    assert focus_proto == "unknown"
     assert "graham_number" in focus_keys
 
 
@@ -148,10 +148,12 @@ def test_honesty_code_override_to_value_growth_still_works():
 
 
 def test_describe_honesty_gap_code_priority_and_industry():
-    byd = describe_honesty_gap("002594", "汽车整车")
-    assert byd is not None
-    assert "成长+制造周期" in byd.label
-    assert "不应用于买卖决策" in byd.methodology_gap
+    assert describe_honesty_gap("002594", "汽车整车") is None
+
+    focus = describe_honesty_gap("002027", "广告营销")
+    assert focus is not None
+    assert "广告周期" in focus.label
+    assert "不应用于买卖决策" in focus.methodology_gap
 
     insurance = describe_honesty_gap("601318", "保险")
     assert insurance is not None

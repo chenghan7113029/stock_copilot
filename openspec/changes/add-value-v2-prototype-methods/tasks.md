@@ -1,15 +1,15 @@
 ## 0. 前置
 
-- [ ] 0.1 确认 `add-v2-honesty-degrade` 已合入目标分支（或本分支可依赖其行为）
-- [ ] 0.2 Update `propose_list.md` / roadmap：本 change 为 V2 方法总立项，按 P1–P5 推进
+- [x] 0.1 确认 `add-v2-honesty-degrade` 已合入目标分支（或本分支可依赖其行为）
+- [x] 0.2 Update `propose_list.md` / roadmap：本 change 为 V2 方法总立项，按 P1–P5 推进
 
 ## 1. Phase P1 — 比亚迪浅情景 DCF
 
-- [ ] 1.1 Design 定稿最小情景假设键；Create 配置/模型字段
-- [ ] 1.2 Create `growth_manufacturing` 原型路由（code `002594`）+ method_keys
-- [ ] 1.3 Implement 情景 DCF 运行与结果结构
-- [ ] 1.4 Modify Analyzer/Formatter：三档展示；情景可用则毕业诚实层
-- [ ] 1.5 Test + 目视 `report value 002594`
+- [x] 1.1 Design 定稿最小情景假设键；Create 配置/模型字段
+- [x] 1.2 Create `growth_manufacturing` 原型路由（code `002594`）+ method_keys
+- [x] 1.3 Implement 情景 DCF 运行与结果结构
+- [x] 1.4 Modify Analyzer/Formatter：三档展示；情景可用则毕业诚实层
+- [x] 1.5 Test + 目视 `report value 002594`
 
 ## 2. Phase P2 — Cyclical + 分众
 

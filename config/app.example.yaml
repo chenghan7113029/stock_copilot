@@ -47,14 +47,47 @@ data_sources:
 # 价值面分析假设（Baostock FCF 推导 fallback 等）
 value_analysis:
   fcf_rate: 0.85  # FCF/净利润比率 fallback（白酒等轻资产行业参考值）
-  beta_by_proto:
-    value_growth: 0.6
-    high_dividend: 0.5
-    bank: 0.9
   growth_rate_floor_by_proto:
     value_growth: 8.0
     high_dividend: 3.0
     bank: 5.0
+    growth_manufacturing: 6.0
+  beta_by_proto:
+    value_growth: 0.6
+    high_dividend: 0.5
+    bank: 0.9
+    growth_manufacturing: 0.8
+  # 浅情景 DCF（P1 成长+制造）；百分数为增速点（12.0 = 12%）
+  # scenario_dcf:
+  #   defaults:
+  #     bear: { growth_rate_1_5: 6.0, growth_rate_6_10: 3.0, terminal_growth: 1.5 }
+  #     base: { growth_rate_1_5: 12.0, growth_rate_6_10: 5.0, terminal_growth: 2.0 }
+  #     bull: { growth_rate_1_5: 18.0, growth_rate_6_10: 7.0, terminal_growth: 2.5 }
+  #   by_code:
+  #     "002594":
+  #       base: { growth_rate_1_5: 14.0 }
+  # MOS 阈值（按原型）：
+  # - undervalued / mildly_undervalued / fair_low / mildly_overvalued 用于价值面五档 assessment
+  # - overvalued 仅用于双轨 ValueRating（UNDERVALUED/FAIR/OVERVALUED）阈值
+  mos_thresholds_by_proto:
+    bank:
+      undervalued: 12
+      mildly_undervalued: 3
+      fair_low: -3
+      mildly_overvalued: -12
+      overvalued: -12
+    high_dividend:
+      undervalued: 12
+      mildly_undervalued: 3
+      fair_low: -3
+      mildly_overvalued: -12
+      overvalued: -12
+    value_growth:
+      undervalued: 20
+      mildly_undervalued: 5
+      fair_low: -5
+      mildly_overvalued: -20
+      overvalued: -10
 
 # LLM 叙事（OpenAI 兼容协议；api_key 勿提交到 Git）
 # 优先级：llm.api_key > 环境变量 LLM_API_KEY；均未配置时 narrate() 返回 ok=False

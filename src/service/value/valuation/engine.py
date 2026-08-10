@@ -18,6 +18,7 @@ from .mscore import BeneishMScore
 from .quality import AltmanZScore, OwnerEarnings, PiotroskiFScore
 from .relative import PBRelativeValuation, PERelativeValuation
 from .sbc import SBCAnalysis
+from .scenario_dcf import ScenarioDCF
 from .value_trap import ValueTrapDetector
 
 
@@ -66,6 +67,7 @@ class ValuationEngine:
 
 
 def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEngine:
+    assumptions = assumptions or AssumptionProvider()
     engine = ValuationEngine(assumptions=assumptions)
     engine.register("graham_number", GrahamNumber())
     engine.register("graham_formula", GrahamFormula())
@@ -77,6 +79,7 @@ def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEn
     engine.register("epv", EPV())
     engine.register("owner_earnings", OwnerEarnings())
     engine.register("dcf", DCF())
+    engine.register("scenario_dcf", ScenarioDCF(config=assumptions.config))
     engine.register("reverse_dcf", ReverseDCF())
     engine.register("altman_z", AltmanZScore())
     engine.register("piotroski_f", PiotroskiFScore())

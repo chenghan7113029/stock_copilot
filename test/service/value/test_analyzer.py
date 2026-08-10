@@ -126,7 +126,7 @@ def test_known_insurance_industry_uses_specific_methodology_gap_warning():
     assert not any("原型未识别" in warning for warning in result.warnings)
 
 
-def test_byd_honesty_degrade_suppresses_actionable_assessment():
+def test_byd_graduates_with_scenario_dcf_when_fcf_available():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(
         code="002594",
@@ -141,16 +141,43 @@ def test_byd_honesty_degrade_suppresses_actionable_assessment():
         net_income=1e10,
         fcf=5e9,
         shares_outstanding=1e9,
+        proto="growth_manufacturing",
     )
     analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
 
     result = analyzer.analyze("002594")
 
-    assert result.prototype == "unknown"
+    assert result.prototype == "growth_manufacturing"
+    assert "scenario_dcf" in result.method_keys_used
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "情景" in result.assessment or "介于" in result.assessment or "高于" in result.assessment or "低于" in result.assessment
+    scenario = result.method_results["scenario_dcf"]
+    assert scenario.details.get("output_type") == "scenario"
+    assert set(scenario.details["scenarios"]) == {"bear", "base", "bull"}
+
+
+def test_byd_keeps_honesty_when_scenario_dcf_cannot_run():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002594",
+        name="比亚迪",
+        industry="汽车整车",
+        current_price=100.0,
+        growth_rate=20.0,
+        total_assets=1e11,
+        total_liabilities=4e10,
+        # 无 fcf / shares → 情景 DCF 失败
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("002594")
+
+    assert result.prototype == "growth_manufacturing"
     assert result.methodology_applicable is False
     assert result.assessment == "方法暂不适用"
-    assert any("成长+制造周期" in w for w in result.warnings)
-    assert "dcf" not in result.method_keys_used
+    assert any("浅情景 DCF" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
 
 
 def test_focus_media_honesty_degrade():

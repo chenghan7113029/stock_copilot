@@ -11,11 +11,13 @@ _DEFAULT_BETA_BY_PROTO: dict[str, float] = {
     "value_growth": 0.6,
     "high_dividend": 0.5,
     "bank": 0.9,
+    "growth_manufacturing": 0.8,
 }
 _DEFAULT_GROWTH_RATE_FLOOR_BY_PROTO: dict[str, float] = {
     "value_growth": 8.0,
     "high_dividend": 3.0,
     "bank": 5.0,
+    "growth_manufacturing": 6.0,
 }
 
 
@@ -45,8 +47,9 @@ class AssumptionProvider:
         config: dict[str, Any] | None = None,
         overrides: AssumptionDefaults | None = None,
     ):
+        self._config = config or {}
         self._defaults = overrides or AssumptionDefaults()
-        value_cfg = (config or {}).get("value_analysis", {})
+        value_cfg = self._config.get("value_analysis", {})
         self.china_10y_yield = float(
             value_cfg.get("china_10y_yield", self._defaults.china_10y_yield)
         )
@@ -83,6 +86,10 @@ class AssumptionProvider:
             **self._defaults.growth_rate_floor_by_proto,
             **(value_cfg.get("growth_rate_floor_by_proto") or {}),
         }
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return self._config
 
     def get_discount_rate(self, stock: StockData) -> float:
         proto = getattr(stock, "proto", "") or ""

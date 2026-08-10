@@ -62,7 +62,7 @@
 | 保险 | 中国平安 | 🔜 V2 | `valueinvest` 无内含价值（EV/NBV）模型，需新增 |
 | 军工·订单驱动 | 中船科技 | 🔜 V2 | DCF 在此类股票不稳，靠在手订单 + 资产重估 |
 | 成长（科技） | 华测导航 | 🔜 V2 | PEG/PS/Rule of 40，valueinvest 已有方法，待接入 |
-| 成长 + 制造周期 | 比亚迪 | 🔜 V2 | 成长 + 周期叠加，需情景化 DCF |
+| 成长 + 制造周期 | 比亚迪 | ✅ P1（`growth_manufacturing` + 浅情景 DCF） | 三档情景；FCF≤0 时回退 OCF/净利润×fcf_rate；失败则诚实降级 |
 | 周期 + 资产 | 北大荒 | 🔜 V2 | 大宗周期 + 土地重估 |
 | 现金流 + 广告周期 | 分众传媒 | 🔜 V2 | 轻资产高 FCF 但顺周期 |
 
@@ -197,7 +197,10 @@
 
 - **VA-OUT-1**：区间须由"该原型路由命中的多个方法"的可靠结果聚合，单一方法不得直接作为区间；
 - **VA-OUT-2**：剔除明显不适用 / 数据缺失的方法结果后再聚合；
-- **VA-OUT-3**：安全边际阈值**按原型可差异化**（如银行/高股息容忍度与成长股不同），V1 可先用统一阈值并标注为 TODO；
+- **VA-OUT-3**：安全边际阈值**按原型可差异化**（如银行/高股息容忍度与成长股不同）；T-1 进行中（`add-mos-thresholds-by-prototype`）：
+  - `bank` / `high_dividend`：`>12` 低估，`>3` 合理偏低，`>-3` 合理，`>-12` 合理偏高，否则高估；
+  - `value_growth`：`>20` 低估，`>5` 合理偏低，`>-5` 合理，`>-20` 合理偏高，否则高估；
+  - 双轨 ValueRating：`bank`/`high_dividend` 用 `12/-12`，`value_growth` 用 `20/-10`（保持现有高估侧口径）。
 - **VA-OUT-4**：分位用于反锚定展示，须避免暴露"历史最高/最低价"等易锚定数字（呼应产品总览 §5.2 锚定防御）。
 
 ### 6.3 与确定性原则一致
@@ -363,14 +366,15 @@ pytest -m network test/e2e/ -v -s
 
 ### 场景 5：V2 暂缺原型降级（三层诚实压制）
 
-- **Given** 用户请求分析 `中国平安 601318`（保险）或 `比亚迪 002594`（成长+制造周期 code 白名单）或 `分众传媒 002027`
+- **Given** 用户请求分析 `中国平安 601318`（保险）或 `分众传媒 002027`（广告周期，P2 前）或情景 DCF 失败的制造成长股
 - **When** 调用价值面分析 / 双轨融合 / `report value`
 - **Then** 系统同时满足：
   1. **精确警告**：说明缺什么专用方法、V1 通用方法为何易偏，并明示**不能作为买卖依据**（保险/军工与持仓 code 同标准）
   2. **主评估改写**：`assessment = "方法暂不适用"`，`methodology_applicable = false`；公允区间/MOS 可保留但仅对照用
   3. **双轨**：`value_rating` 强制 `UNKNOWN`，不得因假「价值低估」推买入
-- **And** 人工 override 为已实现原型（bank / high_dividend / value_growth）时豁免压制
-- **Note**：精确警告文案与三层压制由 `add-prototype-fallback-message`（T-15 半诚实）升级为 `add-v2-honesty-degrade`（第 0 刀诚实层）；专用模型（EV/NBV、情景 DCF、Cyclical）仍属后续 V2 任务
+- **And** 人工 override 为已实现原型（含 `growth_manufacturing`）时豁免压制
+- **And** `002594` 在浅情景 DCF 可用时毕业：`prototype=growth_manufacturing`，主评估为现价相对三档落位（非「方法暂不适用」）
+- **Note**：诚实层由 `add-v2-honesty-degrade` 落地；P1 情景 DCF 见 `add-value-v2-prototype-methods`；EV/NBV、Cyclical 等仍属后续 Phase
 
 ### 场景 6：输出反锚定
 
@@ -384,7 +388,7 @@ pytest -m network test/e2e/ -v -s
 
 | 编号 | 项 | 阶段 | 状态 |
 |------|----|------|------|
-| T-1 | 安全边际阈值按原型差异化（§6.2 VA-OUT-3） | V1.x | 待设计（V1 用统一阈值） |
+| T-1 | 安全边际阈值按原型差异化（§6.2 VA-OUT-3） | V1.x | 🔧 进行中：`add-mos-thresholds-by-prototype`（V1 统一阈值正在迁移） |
 | T-2 | value_trap High → 独立专项提示 + 降低 confidence | V1.x | ✅ `add-value-trap-high-alert`：独立 `value_trap_alert` + confidence 一级降级；摘要仍保留 warnings |
 | T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 🔧 路由+聚合 ✅；Tushare 专项字段常 missing |
 | T-4 | 保险内含价值（EV/NBV）模型 | V2 | 未开始 |
@@ -398,7 +402,7 @@ pytest -m network test/e2e/ -v -s
 | T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | 未开始 |
 | T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
 | T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
-| T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ `add-prototype-fallback-message` 精确警告；✅ `add-v2-honesty-degrade` 补完三层压制（主评估 + 双轨 UNKNOWN；code：002594/002027） |
+| T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ 诚实层；P1 起 `002594` 可毕业，`002027`/保险/军工仍压制 |
 
 ---
 

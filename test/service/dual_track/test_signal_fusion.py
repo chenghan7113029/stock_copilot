@@ -54,6 +54,12 @@ def _value_result(mos: float | None) -> ValueAnalysisResult:
     )
 
 
+def _value_result_with_proto(mos: float | None, prototype: str) -> ValueAnalysisResult:
+    result = _value_result(mos)
+    result.prototype = prototype
+    return result
+
+
 def _tech_result(buy_signal: BuySignal) -> TechAnalysisResult:
     return TechAnalysisResult(code="600519", buy_signal=buy_signal)
 
@@ -150,6 +156,24 @@ def test_custom_mos_thresholds():
     assert derive_value_rating(25.0, config) == ValueRating.FAIR
     assert derive_value_rating(31.0, config) == ValueRating.UNDERVALUED
     assert derive_value_rating(-6.0, config) == ValueRating.OVERVALUED
+
+
+def test_derive_value_rating_by_prototype_defaults():
+    assert derive_value_rating(15.0, prototype="bank") == ValueRating.UNDERVALUED
+    assert derive_value_rating(15.0, prototype="high_dividend") == ValueRating.UNDERVALUED
+    assert derive_value_rating(15.0, prototype="value_growth") == ValueRating.FAIR
+
+
+def test_fusion_uses_prototype_thresholds():
+    fusion = SignalFusion()
+    bank = _value_result_with_proto(15.0, "bank")
+    growth = _value_result_with_proto(15.0, "value_growth")
+    combined_bank, rating_bank = fusion.fuse(bank, _tech_result(BuySignal.BUY))
+    combined_growth, rating_growth = fusion.fuse(growth, _tech_result(BuySignal.BUY))
+    assert rating_bank == ValueRating.UNDERVALUED
+    assert combined_bank == CombinedSignal.BUY
+    assert rating_growth == ValueRating.FAIR
+    assert combined_growth == CombinedSignal.BUY
 
 
 def test_honesty_degrade_forces_unknown_rating_despite_high_mos():

@@ -153,20 +153,61 @@ def test_format_value_report_value_trap_alert_text_and_json():
     assert payload["value_trap_alert"] == alert
 
 
-def test_format_value_report_honesty_degrade_text_and_json():
+def test_format_value_report_scenario_dcf_section():
+    scenario = ValuationResult(
+        method="Scenario DCF",
+        fair_value=110.0,
+        current_price=100.0,
+        premium_discount=10.0,
+        assessment="现价介于悲观与基准情景之间",
+        details={
+            "output_type": "scenario",
+            "price_position": "between_bear_base",
+            "scenarios": {
+                "bear": {"label": "悲观", "fair_value": 80.0, "growth_rate_1_5": 6.0},
+                "base": {"label": "基准", "fair_value": 110.0, "growth_rate_1_5": 12.0},
+                "bull": {"label": "乐观", "fair_value": 150.0, "growth_rate_1_5": 18.0},
+            },
+        },
+        applicability="Applicable",
+    )
     result = ValueAnalysisResult(
         code="002594",
         name="比亚迪",
         current_price=100.0,
+        prototype="growth_manufacturing",
+        method_keys_used=["scenario_dcf"],
+        fair_value_range=ValuationRange(low=80, base=110, high=150),
+        margin_of_safety=9.0,
+        price_percentile=40.0,
+        assessment="现价介于悲观与基准情景之间",
+        confidence="Medium",
+        method_results={"scenario_dcf": scenario},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 浅情景 DCF" in text
+    assert "悲观" in text and "基准" in text and "乐观" in text
+    assert "现价落位" in text
+    assert "方法暂不适用" not in text
+    assert "对照用" not in text
+
+
+def test_format_value_report_honesty_degrade_text_and_json():
+    result = ValueAnalysisResult(
+        code="002027",
+        name="分众传媒",
+        current_price=10.0,
         prototype="unknown",
         method_keys_used=["epv"],
-        fair_value_range=ValuationRange(low=80, base=100, high=120),
+        fair_value_range=ValuationRange(low=8, base=10, high=12),
         margin_of_safety=25.0,
         price_percentile=40.0,
         assessment="方法暂不适用",
         confidence="Low",
         warnings=[
-            "检测到「成长+制造周期」特征，专用情景估值暂缺；通用方法得出的低估/高估不应用于买卖决策，"
+            "检测到「现金流+广告周期」特征，专用方法暂缺；通用方法得出的低估/高估不应用于买卖决策，"
             "当前使用通用方法，结果参考性有限，不能作为买卖依据"
         ],
         methodology_applicable=False,

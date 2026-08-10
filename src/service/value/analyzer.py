@@ -14,7 +14,24 @@ from service.value.router import (
     PrototypeRouter,
 )
 from service.value.valuation.assumptions import AssumptionProvider
+from service.value.valuation.base import ValuationResult
 from service.value.valuation.engine import ValuationEngine, default_engine
+
+_GROWTH_MFG_SCENARIO_FAIL = (
+    "检测到「成长+制造周期」特征，浅情景 DCF 假设不足或无法计算；"
+    "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
+)
+
+
+def _scenario_dcf_usable(result: ValuationResult | None) -> bool:
+    if result is None:
+        return False
+    if result.error is not None or result.applicability == "Not Applicable":
+        return False
+    if result.fair_value <= 0:
+        return False
+    details = result.details or {}
+    return details.get("output_type") == "scenario" and bool(details.get("scenarios"))
 
 
 class ValueAnalyzer:
@@ -90,17 +107,35 @@ class ValueAnalyzer:
             warnings.append("原型未识别，使用通用方法集，置信度低")
 
         results = self._engine.run_selected(method_keys, stock)
-        agg = self._aggregator.aggregate(results, stock.current_price)
+        agg = self._aggregator.aggregate(results, stock.current_price, prototype=prototype)
         warnings.extend(agg.warnings)
 
         assessment = agg.assessment
         confidence = agg.confidence
         methodology_applicable = True
+        fair_value_range = agg.fair_value_range
+        margin_of_safety = agg.margin_of_safety
+        price_percentile = agg.price_percentile
+
         if apply_honesty:
             methodology_applicable = False
             assessment = "方法暂不适用"
             if confidence != "不可信":
                 confidence = "Low"
+        elif prototype == "growth_manufacturing":
+            scenario = results.get("scenario_dcf")
+            if _scenario_dcf_usable(scenario):
+                assert scenario is not None
+                methodology_applicable = True
+                assessment = scenario.assessment
+                if scenario.fair_value_range is not None:
+                    fair_value_range = scenario.fair_value_range
+            else:
+                methodology_applicable = False
+                assessment = "方法暂不适用"
+                if confidence != "不可信":
+                    confidence = "Low"
+                warnings.insert(0, _GROWTH_MFG_SCENARIO_FAIL)
 
         return ValueAnalysisResult(
             code=stock.code,
@@ -108,9 +143,9 @@ class ValueAnalyzer:
             current_price=stock.current_price,
             prototype=prototype,
             method_keys_used=method_keys,
-            fair_value_range=agg.fair_value_range,
-            margin_of_safety=agg.margin_of_safety,
-            price_percentile=agg.price_percentile,
+            fair_value_range=fair_value_range,
+            margin_of_safety=margin_of_safety,
+            price_percentile=price_percentile,
             assessment=assessment,
             confidence=confidence,
             method_results=results,

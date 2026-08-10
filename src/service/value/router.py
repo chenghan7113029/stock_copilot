@@ -13,14 +13,12 @@ _CODE_OVERRIDE: dict[str, str] = {
     "600036": "bank",
     "600900": "high_dividend",
     "600519": "value_growth",
+    "002594": "growth_manufacturing",
 }
 
 # code → (标签, 方法论/偏差说明基句)；命中后短路为 unknown（诚实层）
+# P1 起比亚迪已毕业至 growth_manufacturing；分众仍待 P2
 _CODE_V2_HONESTY: dict[str, tuple[str, str]] = {
-    "002594": (
-        "成长+制造周期",
-        "单点 DCF/盈利能力价值会把产能与销量波动当成稳定成长，景气高时容易偏乐观、景气低时容易偏悲观。专用情景估值暂缺",
-    ),
     "002027": (
         "现金流+广告周期",
         "轻资产高现金流在广告景气期会被静态外推得过高，在下行期会被看得过低。缺周期位置时专用方法暂缺",
@@ -49,7 +47,9 @@ _INDUSTRY_METHODOLOGY_GAP: dict[str, str] = {
 
 _DECISION_BAN = "通用方法得出的低估/高估不应用于买卖决策"
 
-_IMPLEMENTED_PROTOTYPES = frozenset({"bank", "high_dividend", "value_growth"})
+_IMPLEMENTED_PROTOTYPES = frozenset(
+    {"bank", "high_dividend", "value_growth", "growth_manufacturing"}
+)
 
 _PROTOTYPE_METHODS: dict[str, list[str]] = {
     "bank": [
@@ -80,6 +80,12 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
         "pe_relative",
         "piotroski_f",
         "beneish_m",
+        "value_trap",
+    ],
+    "growth_manufacturing": [
+        "scenario_dcf",
+        "altman_z",
+        "piotroski_f",
         "value_trap",
     ],
     "unknown": [

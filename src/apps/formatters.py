@@ -141,6 +141,11 @@ def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str
 def _method_semantic_hint(key: str, mr: Any) -> str:
     """DCF/EPV 方法行的语义提示（EPV=地板价，DCF=含增长假设）。"""
     details = getattr(mr, "details", None) or {}
+    if key == "scenario_dcf":
+        position = details.get("price_position")
+        if position:
+            return f"(浅情景三档；落位={position})"
+        return "(浅情景三档)"
     if key == "dcf":
         g1 = details.get("growth_1_5")
         if g1 is not None:
@@ -149,6 +154,36 @@ def _method_semantic_hint(key: str, mr: Any) -> str:
     if key == "epv":
         return "(零增长地板价)"
     return ""
+
+
+def _append_scenario_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    scenario = (result.method_results or {}).get("scenario_dcf")
+    if scenario is None:
+        return
+    details = getattr(scenario, "details", None) or {}
+    if details.get("output_type") != "scenario":
+        return
+    scenarios = details.get("scenarios") or {}
+    if not scenarios:
+        return
+
+    lines.extend(["", "## 浅情景 DCF（悲观 / 基准 / 乐观）", ""])
+    for key in ("bear", "base", "bull"):
+        row = scenarios.get(key) or {}
+        label = row.get("label") or key
+        fv = row.get("fair_value")
+        g1 = row.get("growth_rate_1_5")
+        g1_text = f"{g1:.1f}%" if isinstance(g1, (int, float)) else "N/A"
+        lines.append(
+            f"- **{label}**: 公允价 {_fmt_num(fv if isinstance(fv, (int, float)) else None)}"
+            f"（1-5年增速 {g1_text}）"
+        )
+    if scenario.assessment:
+        lines.append(f"- **现价落位:** {scenario.assessment}")
+    lines.append("- 说明: 主结论看三档相对位置，勿把基准情景当成唯一公允价")
+    cash_source = details.get("cash_source")
+    if cash_source and cash_source != "fcf":
+        lines.append(f"- 现金流底座: `{cash_source}`（制造扩张期可能非报告 FCF）")
 
 
 def format_value_report(
@@ -247,6 +282,8 @@ def format_value_report(
                 "- ⚠ 历史最高价仅供参考，不建议作为决策心理锚点",
             ]
         )
+
+    _append_scenario_section(lines, result)
 
     if result.method_results:
         lines.extend(["", "## 估值方法", ""])
