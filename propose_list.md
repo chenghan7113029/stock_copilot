@@ -8,8 +8,7 @@
 
 ## 当前结论（一句话）
 
-**数据源迁移三阶段（A/B/C）已合入 `main` 并归档。**  
-原 P0–P2 能力大多已落地，多数 change 只差 `/opsx-archive`。  
+**数据源迁移三阶段（A/B/C）已合入 `main` 并归档；原 P0–P2 已落地 change 已于 2026-08-10 批量归档。**  
 **真正还没 apply 的**，目前是：飞书常看推送、K 线形态、布林带；另有若干需先 explore / 待规划项。
 
 ---
@@ -43,28 +42,23 @@
 
 ---
 
-## C. 已实现，待归档（housekeeping）
+## C. 已实现并已归档（2026-08-10 housekeeping）
 
-> 实现任务基本打满，残留多为「运行 `/opsx-archive`」。  
-> `add-llm-comprehensive-report` 已归档（`archive/2026-08-01-…`）。
-
-| Change | roadmap | 备注 |
+| Change | roadmap | 归档路径 |
 |---|---|---|
-| `add-stock-dashboard` | PO-01 / PO-08 CLI | `report dashboard` |
-| `add-decision-checklist` | PO-04 | `checklist submit/show` |
-| `add-fresh-entry-check` | PO-05 | `position set` + `entry-check` |
-| `add-sentiment-module` | PO-06 | `sync market` + dual 三维解读；个股融资/龙虎榜/社媒见 §E |
-| `add-anchor-defense` | PO-07 | 分位定性分档 + 历史最高价默认隐藏（`--show-anchor-price`）※ |
-| `add-value-trap-high-alert` | T-2 | `value_trap_alert` + confidence 降级 |
-| `add-industry-prototype-router` | T-7 | 行业→原型短路；保险不再误判 bank |
-| `add-prototype-override-persistence` | T-8 | `value override` + `prototype_overrides` |
-| `add-prototype-fallback-message` | T-15 | 保险/军工等精确降级文案 |
-| `add-trade-review-attribution` | PO-09 | `trade record` / `report trade-review` |
-| `add-portfolio-correlation` | PO-10 | `report portfolio`（复用 `TradeRecord`） |
-| `add-chip-distribution` | F-17 | 筹码管道；不进 `signal_score` |
-| `add-llm-narrative-core` | LLM 基建 | 已被 summary `--narrate` 消费；建议随归档一并收口 |
-
-※ `docs/mrd/roadmap-todo.md` 里 PO-07 仍标「待建」，与代码 / `product-overview` 不一致，归档时请改成已实现。
+| `add-stock-dashboard` | PO-01 / PO-08 CLI | `archive/2026-08-10-add-stock-dashboard` |
+| `add-decision-checklist` | PO-04 | `archive/2026-08-10-add-decision-checklist` |
+| `add-fresh-entry-check` | PO-05 | `archive/2026-08-10-add-fresh-entry-check` |
+| `add-sentiment-module` | PO-06 | `archive/2026-08-10-add-sentiment-module` |
+| `add-anchor-defense` | PO-07 | `archive/2026-08-10-add-anchor-defense` |
+| `add-value-trap-high-alert` | T-2 | `archive/2026-08-10-add-value-trap-high-alert` |
+| `add-industry-prototype-router` | T-7 | `archive/2026-08-10-add-industry-prototype-router` |
+| `add-prototype-override-persistence` | T-8 | `archive/2026-08-10-add-prototype-override-persistence` |
+| `add-prototype-fallback-message` | T-15 | `archive/2026-08-10-add-prototype-fallback-message` |
+| `add-trade-review-attribution` | PO-09 | `archive/2026-08-10-add-trade-review-attribution` |
+| `add-portfolio-correlation` | PO-10 | `archive/2026-08-10-add-portfolio-correlation` |
+| `add-chip-distribution` | F-17 | `archive/2026-08-10-add-chip-distribution` |
+| `add-llm-narrative-core` | LLM 基建 | `archive/2026-08-10-add-llm-narrative-core` |
 
 ---
 
@@ -98,19 +92,7 @@
 ## F. 依赖关系（仍有效）
 
 - **持仓两套表勿混**：`TradeRecord`（复盘/组合）≠ `PositionRecord`（入场检查最小成本表）；组合相关性只复用前者。  
-- **行业路由链**：Router（已落地）→ Override（已落地）→ Fallback 文案（已落地）；归档顺序随意。  
+- **行业路由链**：Router（已落地）→ Override（已落地）→ Fallback 文案（已落地）。  
 - **飞书推送**：只消费既有 sync/report/watchlist/summary；**不**把 Cursor Skill 红蓝互驳塞进定时管道。  
 - **形态 / 布林带**：独立于飞书与决策护航，可随时穿插，但勿污染 `signal_score`（proposal 已写死）。  
 - **S2 真源**：同一份 seed DB → tech/value/dual 零漂移（迁移后仍适用）。
-
----
-
-## G. 归档小抄
-
-对 §C 中任一 change：
-
-```text
-/opsx-archive <change-name>
-```
-
-建议一次归档一批已打满 tasks 的 change，并顺手把 `roadmap-todo.md` 的 PO-07 / §8 统计摘要更新到与代码一致。

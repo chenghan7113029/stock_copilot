@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-10 | housekeeping：批量归档 13 个已落地 OpenSpec change（dashboard/checklist/sentiment/anchor/chip 等）；PO-07 标为已实现 |
 | 2026-08-10 | 阶段 C 实现：retire-akshare-default（默认 tushare+baostock、去硬门控、akshare_legacy） |
 | 2026-08-09 | 阶段 A 实现：unify-data-source-router（Router + baseline 门禁）；下一步 apply align-tushare-coverage |
 | 2026-08-09 | 数据源迁移三阶段 OpenSpec 已立项：unify-data-source-router / lign-tushare-coverage / 
@@ -90,7 +91,7 @@ etire-akshare-default |
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
 | PO-06 | **情绪面量化（V1）** | 涨跌停家数比、恐慌贪婪代理指数；须与技术+价值联合解读 | [x] 已实现；个股融资余额、龙虎榜、社媒文本挖掘见 PO-12～14 |
-| PO-07 | 锚定防御 | 模糊区间概率估值，减少盯成本/历史高点 | [ ] 待建 |
+| PO-07 | 锚定防御 | 模糊区间概率估值，减少盯成本/历史高点 | [x] 已实现（`add-anchor-defense`，2026-08-10 归档） |
 | PO-08 | Web / CLI | 发起分析、看板、Checklist、红蓝对抗 | [x] CLI 部分（`report dashboard` 等）已实现；Web 部分待建 |
 
 ### 2.3 P2 — 复盘与扩展信息面

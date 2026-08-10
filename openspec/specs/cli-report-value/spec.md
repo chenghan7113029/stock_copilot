@@ -3,9 +3,7 @@
 ## Purpose
 
 CLI 离线价值面报告命令：读快照 → 估值计算 → 格式化输出。
-
 ## Requirements
-
 ### Requirement: report value 离线分析
 `report value <code>` SHALL 从本地 `StockSnapshotRepo` 读取价值面快照，运行 `ValueAnalyzer.analyze()` 并输出格式化结果，不触发任何网络请求。
 
@@ -79,3 +77,41 @@ CLI 离线价值面报告命令：读快照 → 估值计算 → 格式化输出
 #### Scenario: 批量 value 写 md
 - **WHEN** 用户执行 `report value --watchlist -o reports/out`（非 `--json`）
 - **THEN** 输出文件扩展名 SHALL 为 `.md`，且文本中仍含方法讲解相关要素（若存在 Applicable 方法）
+
+### Requirement: report value 报告头部渲染价值陷阱高危警示
+
+`format_value_report()` 文本渲染路径 SHALL 在 `result.value_trap_alert` 非空时，于报告头部（名称/原型之后、评估/置信度之前）插入独立于文末 `--- 警告 ---` 区块的醒目警示区块，展示 `value_trap_alert` 的完整文案。`result.value_trap_alert` 为空时 SHALL 不渲染该区块，输出与现状一致。
+
+`--json` 输出路径 SHALL 自动包含 `value_trap_alert` 字段（沿用既有 dataclass 序列化逻辑，无需额外分支）。
+
+#### Scenario: High 风险时渲染醒目区块
+
+- **WHEN** `result.value_trap_alert = "🚨 疑似价值陷阱（High Risk）：..."`
+- **THEN** `format_value_report(result)` 返回的文本在"评估:"行之前包含该警示文案
+- **THEN** 文末仍照常输出 `--- 警告 ---` 区块（包含 value_trap 的既有摘要行），两者不冲突不去重
+
+#### Scenario: 非 High 风险时不渲染
+
+- **WHEN** `result.value_trap_alert is None`
+- **THEN** `format_value_report(result)` 输出中不出现警示区块，其余内容与本 change 之前完全一致
+
+#### Scenario: JSON 输出包含新字段
+
+- **WHEN** `format_value_report(result, as_json=True)` 且 `result.value_trap_alert` 非空
+- **THEN** 输出 JSON 顶层包含键 `"value_trap_alert"`，值为对应文案
+
+### Requirement: `report value` 文本输出的价格分位呈现方式
+`format_value_report()` 文本模式输出 SHALL 以定性分档描述（`percentile_band()` 结果）作为价格分位信息的呈现主体，原始数值 SHALL 以弱化形式（如括号内标注）伴随展示，不得以精确数值作为该信息行的句首/主语。`--json` 模式 SHALL 保持 `price_percentile` 原始数值字段不变，供程序化消费方使用。
+
+#### Scenario: 文本模式呈现定性分档优先于数值
+- **WHEN** `result.price_percentile = 72.3`，执行 `report value <code>`（文本模式，默认不带 `--show-anchor-price`）
+- **THEN** 输出 SHALL 包含类似"当前价格处于历史估值区间中高位（分位 72%）"的表达，不得输出旧格式"价格分位: 72.3%"作为独立呈现
+
+#### Scenario: --json 模式数值字段不变
+- **WHEN** 执行 `report value <code> --json`
+- **THEN** JSON 输出中 `price_percentile` SHALL 为原始数值（如 `72.3`），不受文本呈现规则调整影响
+
+#### Scenario: price_percentile 为 None 时不展示分档
+- **WHEN** `result.price_percentile is None`
+- **THEN** 文本输出 SHALL 不包含分位相关行（沿用既有"字段为 None 时不展示该行"约定）
+

@@ -4,58 +4,89 @@
 TBD - created by archiving change add-value-analyzer-core. Update Purpose after archive.
 ## Requirements
 ### Requirement: 路由返回原型与 method_keys
-`PrototypeRouter.route(stock: StockData) -> tuple[str, list[str]]` SHALL 返回 `(prototype, method_keys)`，其中 prototype 为 `"bank"` / `"high_dividend"` / `"value_growth"` / `"unknown"` 之一。**route() 执行后 SHALL 将 prototype 写入 stock.proto 字段。**
 
-#### Scenario: 工行路由为银行原型
-- **WHEN** stock.code="601398"（硬编码覆盖表中的工行）
+`PrototypeRouter.route(stock: StockData, override: str | None = None) -> tuple[str, list[str]]` SHALL 返回 `(prototype, method_keys)`，其中 prototype 为 `"bank"` / `"high_dividend"` / `"value_growth"` / `"unknown"` 之一。**route() 执行后 SHALL 将 prototype 写入 stock.proto 字段。**
+
+**新增前置规则（最高优先级）**：若 `override` 参数非 `None` 且是 `_PROTOTYPE_METHODS` 的合法键，SHALL 直接返回 `(override, list(_PROTOTYPE_METHODS[override]))`，`stock.proto = override`，且**不执行**内部 `_classify()` 判定（硬编码覆盖表、行业映射、财务启发式均被跳过）。若 `override` 非法（不在 `_PROTOTYPE_METHODS` 键集合中），SHALL 忽略该参数并回退到正常 `_classify()` 判定流程，不抛异常。
+
+#### Scenario: 工行路由为银行原型（无覆盖）
+
+- **WHEN** stock.code="601398"（硬编码覆盖表中的工行），`override=None`
 - **THEN** prototype="bank"，method_keys 包含 "pb"、"residual_income"、"altman_z"，不包含 "dcf"，且 stock.proto="bank"
 
-#### Scenario: 长江电力路由为高股息原型
-- **WHEN** stock.code="600900"（硬编码覆盖表）
+#### Scenario: 长江电力路由为高股息原型（无覆盖）
+
+- **WHEN** stock.code="600900"（硬编码覆盖表），`override=None`
 - **THEN** prototype="high_dividend"，method_keys 包含 "ddm"、"two_stage_ddm"，且 stock.proto="high_dividend"
 
-#### Scenario: 茅台路由为价值成长原型
-- **WHEN** stock.code="600519"（硬编码覆盖表）
+#### Scenario: 茅台路由为价值成长原型（无覆盖）
+
+- **WHEN** stock.code="600519"（硬编码覆盖表），`override=None`
 - **THEN** prototype="value_growth"，method_keys 包含 "dcf"、"epv"、"owner_earnings"，且 stock.proto="value_growth"
 
-#### Scenario: 数据不足降级为 unknown
-- **WHEN** stock.code 不在覆盖表，且 industry 不含「银行」，且 total_assets=None、dividend_yield=None、growth_rate=None
+#### Scenario: 数据不足降级为 unknown（无覆盖）
+
+- **WHEN** stock.code 不在覆盖表，且 industry 不含「银行」，且 total_assets=None、dividend_yield=None、growth_rate=None，`override=None`
 - **THEN** prototype="unknown"，method_keys 为通用集合（含 "graham_number"、"altman_z"、"value_trap"），且 stock.proto="unknown"
 
+#### Scenario: 人工覆盖优先于硬编码覆盖表
+
+- **WHEN** stock.code="601398"（硬编码覆盖表判定为 "bank"），但 `override="high_dividend"`
+- **THEN** 返回 prototype="high_dividend"（覆盖生效，忽略硬编码表判定），`stock.proto="high_dividend"`，`_classify()` 内部逻辑不被执行
+
+#### Scenario: 非法覆盖值被忽略，回退正常判定
+
+- **WHEN** stock.code="601398"，`override="not_a_real_prototype"`（不在 `_PROTOTYPE_METHODS` 键集合中）
+- **THEN** 忽略 `override`，按 `_classify()` 正常判定返回 prototype="bank"（硬编码覆盖表命中），不抛异常
+
 ### Requirement: 银行原型分类对商业银行股票生效
-`PrototypeRouter._classify(stock)` SHALL 将 `StockData.industry` 包含「银行」（包括"商业银行"、"银行"等）的股票归类为 `bank` 原型。行业判断 SHALL 优先于「关键字段全 None → unknown」的降级规则。
+
+`PrototypeRouter._classify(stock)` SHALL 将 `StockData.industry` 命中 `_INDUSTRY_PROTOTYPE_MAP["bank"]` 子串（包括"银行"、"商业银行"等变体）的股票归类为 `bank` 原型。行业映射判断 SHALL 优先于财务特征启发式（杠杆率等）与"关键字段全 None → unknown"的降级规则。
 
 #### Scenario: 601398（工商银行）分类为 bank
+
 - **WHEN** `StockData(code="601398", industry="银行")` 传入 `route()`
 - **THEN** 返回的 prototype = `"bank"`，`stock.proto = "bank"`
 
 #### Scenario: 601288 仅含行业字段时分类为 bank
+
 - **WHEN** `StockData(code="601288", industry="商业银行")` 且无 total_assets/dividend_yield/growth_rate
 - **THEN** prototype = `"bank"`
 
 #### Scenario: 行业字段为空时不误分类为 bank
+
 - **WHEN** `StockData.industry` 为空且 code 不在银行覆盖表
 - **THEN** prototype 由其他规则（杠杆/股息率等）决定，不默认为 bank
 
 ### Requirement: 财务特征启发式路由
-在硬编码覆盖表未命中时，SHALL 按以下顺序判断：
-1. `stock.industry` 含「银行」 → `"bank"`
-2. `total_liabilities / total_assets > 0.85` → `"bank"`
-3. `dividend_yield > 4.0` 且 `growth_rate is not None` 且 `growth_rate < 10` → `"high_dividend"`
-4. 有效财务数据 → `"value_growth"`（兜底）
-5. 关键字段全为 None 且 industry 不含「银行」 → `"unknown"`
 
-#### Scenario: 高杠杆特征路由为银行
-- **WHEN** stock.code 不在覆盖表，total_liabilities=9e12，total_assets=10e12（杠杆率 0.9）
+在硬编码覆盖表与行业映射均未命中时，SHALL 按以下顺序判断：
+1. `total_liabilities / total_assets > 0.85` → `"bank"`
+2. `dividend_yield > 4.0` 且 `growth_rate is not None` 且 `growth_rate < 10` → `"high_dividend"`
+3. 有效财务数据 → `"value_growth"`（兜底）
+4. 关键字段全为 None 且行业映射未命中 → `"unknown"`
+
+**前置条件变更**：本需求仅在 `_classify_by_industry(stock.industry)` 返回 `None`（即行业字段为空，或行业名称既不在 `_INDUSTRY_PROTOTYPE_MAP` 也不在 `_INDUSTRY_V2_UNIMPLEMENTED` 中）时才被触发；若行业映射已给出判定结果（无论是已实现原型还是显式 `unknown`），本需求描述的启发式判断 SHALL 被跳过。
+
+#### Scenario: 高杠杆特征路由为银行（行业字段为空）
+
+- **WHEN** stock.code 不在覆盖表，`industry=""`，total_liabilities=9e12，total_assets=10e12（杠杆率 0.9）
 - **THEN** prototype="bank"
 
-#### Scenario: 高股息低成长路由为高股息
-- **WHEN** stock.code 不在覆盖表，dividend_yield=5.5，growth_rate=3.0
+#### Scenario: 高股息低成长路由为高股息（行业字段为空）
+
+- **WHEN** stock.code 不在覆盖表，`industry=""`，dividend_yield=5.5，growth_rate=3.0
 - **THEN** prototype="high_dividend"
 
 #### Scenario: 普通股票兜底为价值成长
-- **WHEN** stock.code 不在覆盖表，杠杆率正常（<0.85），dividend_yield=1.5，growth_rate=18.0
+
+- **WHEN** stock.code 不在覆盖表，`industry=""`，杠杆率正常（<0.85），dividend_yield=1.5，growth_rate=18.0
 - **THEN** prototype="value_growth"
+
+#### Scenario: 高杠杆但行业为保险时不再触发银行启发式
+
+- **WHEN** stock.code 不在覆盖表，`industry="保险"`，total_liabilities=9e12，total_assets=10e12（杠杆率 0.9，若无行业拦截会被判定为 bank）
+- **THEN** 行业映射先命中 `_INDUSTRY_V2_UNIMPLEMENTED`，返回 `"unknown"`，财务启发式 SHALL 不被执行，prototype = `"unknown"`（而不是 `"bank"`）
 
 ### Requirement: 各原型 method_keys 满足最小集合约束
 每个原型 SHALL 覆盖以下最小集合：
@@ -78,4 +109,59 @@ TBD - created by archiving change add-value-analyzer-core. Update Purpose after 
 #### Scenario: 价值成长方法集排除 NCAV
 - **WHEN** prototype="value_growth"
 - **THEN** "ncav" 不在 method_keys 中，"dcf" 和 "piotroski_f" 在 method_keys 中
+
+### Requirement: 行业映射优先于财务启发式（新增判定层）
+
+`PrototypeRouter._classify_by_industry(industry: str) -> str | None` SHALL 实现以下三分支判定，作为 `_classify()` 中「硬编码覆盖表」之后、「财务特征启发式」之前的判定层：
+
+1. `industry` 为空字符串 → 返回 `None`
+2. `industry` 命中 `_INDUSTRY_PROTOTYPE_MAP`（子串匹配）→ 返回对应已实现 prototype（`"bank"` 或 `"high_dividend"`）
+3. `industry` 命中 `_INDUSTRY_V2_UNIMPLEMENTED`（子串匹配，如"保险"、"国防军工"、"军工"）→ 返回 `"unknown"`
+4. 均未命中 → 返回 `None`
+
+`_classify()` SHALL 在 `_classify_by_industry()` 返回非 `None` 时直接采用该结果，不再执行后续财务启发式步骤。
+
+#### Scenario: 高股息行业直接命中，不依赖启发式阈值
+
+- **WHEN** `StockData(code="600900", industry="电力")`，且股息率/成长率数据缺失（`dividend_yield=None`, `growth_rate=None`）
+- **THEN** `_classify_by_industry("电力")` 返回 `"high_dividend"`，最终 prototype = `"high_dividend"`（即使按原有启发式因字段缺失会走向别的分支）
+
+#### Scenario: 已识别 V2 行业短路到 unknown，不进入启发式
+
+- **WHEN** `StockData(code="601318", industry="保险", total_liabilities=9e12, total_assets=10e12)`
+- **THEN** `_classify_by_industry("保险")` 返回 `"unknown"`，最终 prototype = `"unknown"`，且高杠杆特征启发式（第 4 步）SHALL 不被执行
+
+#### Scenario: 行业名称未收录时返回 None，交由启发式处理
+
+- **WHEN** `industry="某未收录的新兴行业名称"`
+- **THEN** `_classify_by_industry()` 返回 `None`，`_classify()` 继续执行原有财务启发式步骤，行为与本 change 之前一致
+
+### Requirement: 已识别 V2 行业的方法论缺口说明
+
+`describe_unimplemented_industry(industry: str | None) -> tuple[str, str] | None` SHALL 在 `industry` 命中 `_INDUSTRY_V2_UNIMPLEMENTED`（已识别但方法论未实现的行业清单，如"保险"、"军工"）时，返回 `(行业标签, 方法论缺口说明)` 二元组；缺口说明取自 `_INDUSTRY_METHODOLOGY_GAP` 字典，若该字典缺少对应标签的说明，SHALL 返回通用占位文案"专用估值方法论暂缺"，不抛异常。`industry` 为空字符串、`None`，或不命中 `_INDUSTRY_V2_UNIMPLEMENTED` 时，SHALL 返回 `None`。
+
+#### Scenario: 保险行业返回精确缺口说明
+
+- **WHEN** `describe_unimplemented_industry("保险")`
+- **THEN** 返回 `("保险", "专用估值方法论（内含价值 EV/NBV 模型）暂缺")`
+
+#### Scenario: 军工行业（子串变体）返回精确缺口说明
+
+- **WHEN** `describe_unimplemented_industry("国防军工")`
+- **THEN** 返回 `("军工", "专用估值方法论（在手订单驱动 + 资产重估模型）暂缺")`
+
+#### Scenario: 行业信息缺失返回 None
+
+- **WHEN** `describe_unimplemented_industry(None)` 或 `describe_unimplemented_industry("")`
+- **THEN** 返回 `None`
+
+#### Scenario: 行业未收录于 V2 清单返回 None
+
+- **WHEN** `describe_unimplemented_industry("某未收录的行业名称")`
+- **THEN** 返回 `None`
+
+#### Scenario: 行业标签存在但缺口说明字典缺失对应项时返回通用占位
+
+- **WHEN** `_INDUSTRY_V2_UNIMPLEMENTED` 命中某标签，但 `_INDUSTRY_METHODOLOGY_GAP` 未收录该标签（字典不同步的边界场景）
+- **THEN** 返回 `(标签, "专用估值方法论暂缺")`，不抛异常
 

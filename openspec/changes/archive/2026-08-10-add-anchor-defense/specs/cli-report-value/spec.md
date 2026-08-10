@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: `report value` 文本输出的价格分位呈现方式
 `format_value_report()` 文本模式输出 SHALL 以定性分档描述（`percentile_band()` 结果）作为价格分位信息的呈现主体，原始数值 SHALL 以弱化形式（如括号内标注）伴随展示，不得以精确数值作为该信息行的句首/主语。`--json` 模式 SHALL 保持 `price_percentile` 原始数值字段不变，供程序化消费方使用。
