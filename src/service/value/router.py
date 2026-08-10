@@ -15,10 +15,11 @@ _CODE_OVERRIDE: dict[str, str] = {
     "600519": "value_growth",
     "002594": "growth_manufacturing",
     "002027": "cashflow_ad_cycle",
+    "600072": "defense_orders",
 }
 
 # code → (标签, 方法论/偏差说明基句)；命中后短路为 unknown（诚实层）
-# P1/P2：比亚迪、分众已毕业；保险/军工仍走行业诚实层
+# P1–P3：比亚迪/分众/中船已毕业；其他军工与保险仍走行业诚实层
 _CODE_V2_HONESTY: dict[str, tuple[str, str]] = {}
 
 _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
@@ -50,6 +51,7 @@ _IMPLEMENTED_PROTOTYPES = frozenset(
         "value_growth",
         "growth_manufacturing",
         "cashflow_ad_cycle",
+        "defense_orders",
     }
 )
 
@@ -96,6 +98,11 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
         "altman_z",
         "value_trap",
     ],
+    "defense_orders": [
+        "defense_orders",
+        "altman_z",
+        "value_trap",
+    ],
     "unknown": [
         "graham_number",
         "graham_formula",
@@ -134,11 +141,19 @@ def describe_unimplemented_industry(industry: str | None) -> tuple[str, str] | N
 
 
 def describe_honesty_gap(code: str, industry: str | None) -> HonestyGap | None:
-    """code 优先于行业：返回诚实缺口；未命中返回 None。"""
+    """code 优先于行业：返回诚实缺口；未命中返回 None。
+
+    已毕业到已实现 V2/V1 原型的 code（`_CODE_OVERRIDE`）不再套行业诚实层，
+    避免中船等军工样本被「军工行业暂缺」二次压制。
+    """
     code_entry = _CODE_V2_HONESTY.get(code)
     if code_entry is not None:
         label, base = code_entry
         return HonestyGap(label=label, methodology_gap=_compose_methodology_gap(base))
+
+    override = _CODE_OVERRIDE.get(code)
+    if override is not None and override in _IMPLEMENTED_PROTOTYPES:
+        return None
 
     industry_detail = describe_unimplemented_industry(industry)
     if industry_detail is None:

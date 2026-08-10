@@ -239,6 +239,66 @@ def test_focus_media_graduates_with_cycle_inputs():
     assert result.method_results["cyclical_fcf"].details.get("output_type") == "cyclical"
 
 
+def test_cssc_keeps_honesty_without_order_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="600072",
+        name="中船科技",
+        industry="国防军工",
+        current_price=20.0,
+        shares_outstanding=1e9,
+        total_assets=1e11,
+        total_liabilities=9e10,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("600072")
+
+    assert result.prototype == "defense_orders"
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert any("订单" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
+
+
+def test_cssc_graduates_with_order_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="600072",
+        name="中船科技",
+        industry="国防军工",
+        current_price=20.0,
+        shares_outstanding=1e9,
+        tax_rate=25.0,
+        net_debt=0.0,
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        config={
+            "value_analysis": {
+                "defense_orders": {
+                    "by_code": {
+                        "600072": {
+                            "order_backlog": 12e9,
+                            "order_execution_years": 3.0,
+                            "order_margin": 12.0,
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    result = analyzer.analyze("600072")
+
+    assert result.prototype == "defense_orders"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "在手订单" in result.assessment
+    assert result.method_results["defense_orders"].details.get("output_type") == "defense_orders"
+
+
 def test_moutai_methodology_still_applicable():
     provider = MagicMock()
     provider.get_stock_data.return_value = _rich_value_growth_stock()

@@ -74,6 +74,15 @@ value_analysis:
   #       cycle_position: mid
   #       normalized_eps: 0.45
   #       normalized_fcf: 4500000000
+  # 军工订单（P3）；金额单位为元；缺 order_backlog/years 则诚实降级
+  # defense_orders:
+  #   discount_rate: 10.0
+  #   by_code:
+  #     "600072":
+  #       order_backlog: 12000000000
+  #       order_execution_years: 3.0
+  #       order_margin: 12.0
+  #       revaluation_assets: 500000000
   # MOS 阈值（按原型）：
   # - undervalued / mildly_undervalued / fair_low / mildly_overvalued 用于价值面五档 assessment
   # - overvalued 仅用于双轨 ValueRating（UNDERVALUED/FAIR/OVERVALUED）阈值

@@ -232,7 +232,41 @@ def test_format_value_report_cyclical_section():
     assert "方法暂不适用" not in text
 
 
-def test_format_value_report_honesty_degrade_text_and_json():
+def test_format_value_report_defense_orders_section():
+    defense = ValuationResult(
+        method="Defense Orders",
+        fair_value=22.0,
+        current_price=20.0,
+        premium_discount=10.0,
+        assessment="在手订单约 3.0 年消化；相对订单折现公允略便宜",
+        details={
+            "output_type": "defense_orders",
+            "order_backlog": 12e9,
+            "order_execution_years": 3.0,
+            "order_margin": 12.0,
+        },
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="600072",
+        name="中船科技",
+        current_price=20.0,
+        prototype="defense_orders",
+        method_keys_used=["defense_orders"],
+        fair_value_range=ValuationRange(low=18, base=22, high=28),
+        margin_of_safety=9.0,
+        price_percentile=40.0,
+        assessment="在手订单约 3.0 年消化；相对订单折现公允略便宜",
+        confidence="Low",
+        method_results={"defense_orders": defense},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 军工订单驱动估值" in text
+    assert "在手订单" in text
+    assert "方法暂不适用" not in text
+
     result = ValueAnalysisResult(
         code="002027",
         name="分众传媒",

@@ -131,7 +131,35 @@ def test_byd_routes_to_growth_manufacturing_after_p1():
     assert "cyclical_pe" in focus_keys
 
 
-def test_moutai_unaffected_by_honesty_list():
+def test_cssc_routes_to_defense_orders():
+    router = PrototypeRouter()
+    stock = StockData(
+        code="600072",
+        name="中船科技",
+        industry="国防军工",
+        total_assets=1e11,
+        total_liabilities=9e10,
+    )
+    prototype, keys = router.route(stock)
+    assert prototype == "defense_orders"
+    assert "defense_orders" in keys
+    assert describe_honesty_gap("600072", "国防军工") is None
+
+
+def test_other_military_stock_still_honesty_unknown():
+    router = PrototypeRouter()
+    stock = StockData(
+        code="600760",
+        industry="国防军工",
+        total_assets=1e11,
+        total_liabilities=9e10,
+    )
+    prototype, _ = router.route(stock)
+    assert prototype == "unknown"
+    gap = describe_honesty_gap("600760", "国防军工")
+    assert gap is not None
+    assert gap.label == "军工"
+
     router = PrototypeRouter()
     stock = StockData(code="600519", name="贵州茅台", growth_rate=15.0, total_assets=1e11)
     prototype, keys = router.route(stock)

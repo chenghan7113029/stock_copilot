@@ -11,6 +11,7 @@ from .base import BaseValuation, ValuationResult
 from .cyclical import CyclicalFCF, CyclicalPE
 from .dcf import DCF, ReverseDCF
 from .ddm import DDM, TwoStageDDM
+from .defense_orders import DefenseOrders
 from .epv import EPV
 from .graham import NCAV, GrahamFormula, GrahamNumber
 from .growth import EVEBITDA, GARP, PEG, RuleOf40
@@ -83,6 +84,7 @@ def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEn
     engine.register("scenario_dcf", ScenarioDCF(config=assumptions.config))
     engine.register("cyclical_pe", CyclicalPE())
     engine.register("cyclical_fcf", CyclicalFCF())
+    engine.register("defense_orders", DefenseOrders(config=assumptions.config))
     engine.register("reverse_dcf", ReverseDCF())
     engine.register("altman_z", AltmanZScore())
     engine.register("piotroski_f", PiotroskiFScore())

@@ -20,10 +20,10 @@
 
 ## 3. Phase P3 — 军工订单
 
-- [ ] 3.1 Define 订单类输入字段与 CLI/配置入口
-- [ ] 3.2 Implement `defense_orders` 方法 + 路由（`600072`）
-- [ ] 3.3 无输入保持降级；有输入毕业
-- [ ] 3.4 Test 双向路径
+- [x] 3.1 Define 订单类输入字段与 CLI/配置入口
+- [x] 3.2 Implement `defense_orders` 方法 + 路由（`600072`）
+- [x] 3.3 无输入保持降级；有输入毕业
+- [x] 3.4 Test 双向路径
 
 ## 4. Phase P4 — 保险 EV/NBV
 

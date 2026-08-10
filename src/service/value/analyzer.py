@@ -16,6 +16,7 @@ from service.value.router import (
 from service.value.valuation.assumptions import AssumptionProvider
 from service.value.valuation.base import ValuationResult
 from service.value.valuation.cycle_config import apply_cycle_inputs
+from service.value.valuation.defense_config import apply_defense_order_inputs
 from service.value.valuation.engine import ValuationEngine, default_engine
 
 _GROWTH_MFG_SCENARIO_FAIL = (
@@ -26,6 +27,12 @@ _GROWTH_MFG_SCENARIO_FAIL = (
 _CASHFLOW_AD_CYCLE_FAIL = (
     "检测到「现金流+广告周期」特征，缺周期位置或周期调整估值无法计算；"
     "轻资产高现金流在景气期易被静态外推过高、下行期过低，"
+    "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
+)
+
+_DEFENSE_ORDERS_FAIL = (
+    "检测到「军工·订单驱动」特征，在手订单输入不足或无法计算；"
+    "专用估值方法论（在手订单驱动 + 资产重估模型）暂缺或输入不足，"
     "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
 )
 
@@ -50,6 +57,17 @@ def _cyclical_method_usable(result: ValuationResult | None) -> bool:
         return False
     details = result.details or {}
     return details.get("output_type") == "cyclical" and bool(details.get("cycle_position"))
+
+
+def _defense_orders_usable(result: ValuationResult | None) -> bool:
+    if result is None:
+        return False
+    if result.error is not None or result.applicability == "Not Applicable":
+        return False
+    if result.fair_value <= 0:
+        return False
+    details = result.details or {}
+    return details.get("output_type") == "defense_orders"
 
 
 def _pick_cyclical_primary(
@@ -145,6 +163,9 @@ class ValueAnalyzer:
         if prototype == "cashflow_ad_cycle":
             for note in apply_cycle_inputs(stock, self._config):
                 warnings.append(note)
+        elif prototype == "defense_orders":
+            for note in apply_defense_order_inputs(stock, self._config):
+                warnings.append(note)
 
         results = self._engine.run_selected(method_keys, stock)
         agg = self._aggregator.aggregate(results, stock.current_price, prototype=prototype)
@@ -189,6 +210,20 @@ class ValueAnalyzer:
                 if confidence != "不可信":
                     confidence = "Low"
                 warnings.insert(0, _CASHFLOW_AD_CYCLE_FAIL)
+        elif prototype == "defense_orders":
+            defense = results.get("defense_orders")
+            if _defense_orders_usable(defense):
+                assert defense is not None
+                methodology_applicable = True
+                assessment = defense.assessment
+                if defense.fair_value_range is not None:
+                    fair_value_range = defense.fair_value_range
+            else:
+                methodology_applicable = False
+                assessment = "方法暂不适用"
+                if confidence != "不可信":
+                    confidence = "Low"
+                warnings.insert(0, _DEFENSE_ORDERS_FAIL)
 
         return ValueAnalysisResult(
             code=stock.code,

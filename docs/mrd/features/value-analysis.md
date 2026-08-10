@@ -60,7 +60,7 @@
 | 原型 | 自选样本 | 状态 | 原因 |
 |------|----------|------|------|
 | 保险 | 中国平安 | 🔜 V2 | `valueinvest` 无内含价值（EV/NBV）模型，需新增 |
-| 军工·订单驱动 | 中船科技 | 🔜 V2 | DCF 在此类股票不稳，靠在手订单 + 资产重估 |
+| 军工·订单驱动 | 中船科技 | ✅ P3（`defense_orders`） | 需配置 `order_backlog`+`order_execution_years`；缺则诚实降级 |
 | 成长（科技） | 华测导航 | 🔜 V2 | PEG/PS/Rule of 40，valueinvest 已有方法，待接入 |
 | 成长 + 制造周期 | 比亚迪 | ✅ P1（`growth_manufacturing` + 浅情景 DCF） | 三档情景；FCF≤0 时回退 OCF/净利润×fcf_rate；失败则诚实降级 |
 | 周期 + 资产 | 北大荒 | 🔜 V2 | 大宗周期 + 土地重估 |
@@ -373,8 +373,8 @@ pytest -m network test/e2e/ -v -s
   2. **主评估改写**：`assessment = "方法暂不适用"`，`methodology_applicable = false`；公允区间/MOS 可保留但仅对照用
   3. **双轨**：`value_rating` 强制 `UNKNOWN`，不得因假「价值低估」推买入
 - **And** 人工 override 为已实现原型（含 `growth_manufacturing` / `cashflow_ad_cycle`）时豁免压制
-- **And** `002594` 在浅情景 DCF 可用时毕业；`002027` 在 `cycle_position` + 周期方法可用时毕业
-- **Note**：诚实层由 `add-v2-honesty-degrade` 落地；P1/P2 见 `add-value-v2-prototype-methods`；EV/NBV、军工订单仍属后续 Phase
+- **And** `002594` 在浅情景 DCF 可用时毕业；`002027` 在 `cycle_position` + 周期方法可用时毕业；`600072` 在订单输入可用时毕业
+- **Note**：诚实层由 `add-v2-honesty-degrade` 落地；P1–P3 见 `add-value-v2-prototype-methods`；EV/NBV 仍属后续 Phase
 
 ### 场景 6：输出反锚定
 
@@ -392,7 +392,7 @@ pytest -m network test/e2e/ -v -s
 | T-2 | value_trap High → 独立专项提示 + 降低 confidence | V1.x | ✅ `add-value-trap-high-alert`：独立 `value_trap_alert` + confidence 一级降级；摘要仍保留 warnings |
 | T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 🔧 路由+聚合 ✅；Tushare 专项字段常 missing |
 | T-4 | 保险内含价值（EV/NBV）模型 | V2 | 未开始 |
-| T-5 | 军工·订单驱动估值模型 | V2 | 未开始 |
+| T-5 | 军工·订单驱动估值模型 | V2 | ✅ P3（`defense_orders`；配置/手工订单输入） |
 | T-6 | 历史 PE/PB fetcher（Tushare `daily_basic`，§13.1 D-E） | P1 | ✅ `add-historical-multiples-5yr`（5 年季末采样 20 点） |
 | T-7 | 行业→原型映射路由（PrototypeRouter V2；Tushare 简化行业） | P1 | ✅ `add-industry-prototype-router`；复用 `stock_basic.industry`，非 SW/CS 官方多级代码 |
 | T-8 | 人工覆盖原型持久化（VA-CLS-2，落 dao） | P1 | 未开始 |
@@ -402,7 +402,7 @@ pytest -m network test/e2e/ -v -s
 | T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | [~] P2：`cyclical_pe`/`cyclical_fcf` + StockData 周期字段；pb/dividend 待增量 |
 | T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
 | T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
-| T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ 诚实层；P1 起 `002594` 可毕业，`002027`/保险/军工仍压制 |
+| T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ 诚实层；P1–P3：`002594`/`002027`/`600072` 可毕业，保险及其他军工仍压制 |
 
 ---
 

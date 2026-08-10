@@ -151,6 +151,11 @@ def _method_semantic_hint(key: str, mr: Any) -> str:
         if label:
             return f"(周期调整；位置={label})"
         return "(周期调整)"
+    if key == "defense_orders":
+        years = details.get("order_execution_years")
+        if years is not None:
+            return f"(订单驱动；消化≈{years}年)"
+        return "(订单驱动)"
     if key == "dcf":
         g1 = details.get("growth_1_5")
         if g1 is not None:
@@ -223,6 +228,30 @@ def _append_cyclical_section(lines: list[str], result: ValueAnalysisResult) -> N
     if primary.assessment:
         lines.append(f"- **综合落位:** {primary.assessment}")
     lines.append("- 说明: 无可靠周期位置时不会毕业；勿把景气高峰的低 PE/高 FCF Yield 当便宜")
+
+
+def _append_defense_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    defense = (result.method_results or {}).get("defense_orders")
+    if defense is None:
+        return
+    details = getattr(defense, "details", None) or {}
+    if details.get("output_type") != "defense_orders":
+        return
+
+    lines.extend(["", "## 军工订单驱动估值", ""])
+    backlog = details.get("order_backlog")
+    years = details.get("order_execution_years")
+    margin = details.get("order_margin")
+    if isinstance(backlog, (int, float)):
+        lines.append(f"- **在手订单:** {backlog / 1e8:.2f} 亿元")
+    if years is not None:
+        lines.append(f"- **预计消化:** {years} 年")
+    if margin is not None:
+        lines.append(f"- **订单利润率:** {margin}%（税前）")
+    lines.append(f"- **订单折现公允价:** {_fmt_num(defense.fair_value)}")
+    if defense.assessment:
+        lines.append(f"- **评估:** {defense.assessment}")
+    lines.append("- 说明: 订单多为配置/手工输入；缺输入时保持诚实降级，勿用通用 DCF 替代")
 
 
 def format_value_report(
@@ -324,6 +353,7 @@ def format_value_report(
 
     _append_scenario_section(lines, result)
     _append_cyclical_section(lines, result)
+    _append_defense_section(lines, result)
 
     if result.method_results:
         lines.extend(["", "## 估值方法", ""])

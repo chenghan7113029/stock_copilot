@@ -126,6 +126,12 @@ class StockData:
     historical_roe: Optional[List[float]] = None  # 历史 ROE（%）
     historical_fcf: Optional[List[float]] = None  # 历史 FCF 总额序列（元）
 
+    # ── 军工订单扩展（V2 defense_orders；缺订单输入则不毕业）────────────────
+    order_backlog: Optional[float] = None          # 在手订单金额（元）
+    order_execution_years: Optional[float] = None  # 预计消化年数
+    order_margin: Optional[float] = None           # 订单利润率（%，税前）
+    revaluation_assets: Optional[float] = None     # 资产重估增量（元，可选）
+
     # ── 元数据 ────────────────────────────────────────────────────────────────
     # 估值原型（由 PrototypeRouter.route() 写入，供 AssumptionProvider 查 β/floor）
     proto: str = ""
