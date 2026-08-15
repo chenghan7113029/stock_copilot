@@ -1,6 +1,6 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-08-09  
+> 最后更新：2026-08-15  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
 > 数据源迁移（三阶段 + 测试基线）：[features/data-source-migration.md](features/data-source-migration.md)  
@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-15 | 飞书 dual 推送：`feishu push` + lark-cli 新建文档 / 一票一消息（`add-feishu-watchlist-push`） |
 | 2026-08-10 | housekeeping：批量归档 13 个已落地 OpenSpec change（dashboard/checklist/sentiment/anchor/chip 等）；PO-07 标为已实现 |
 | 2026-08-10 | 阶段 C 实现：retire-akshare-default（默认 tushare+baostock、去硬门控、akshare_legacy） |
 | 2026-08-09 | 阶段 A 实现：unify-data-source-router（Router + baseline 门禁）；下一步 apply align-tushare-coverage |
@@ -70,6 +71,7 @@ etire-akshare-default |
 - [x] LLM 综合报告（`report summary [--narrate]`，`add-llm-comprehensive-report`）
 - [x] 情绪面 V1（涨跌停家数比 + 恐慌贪婪代理指数 + 三维联合解读）
 - [x] 决策护航（首开仓评估、Checklist 与红蓝对抗 V1 已交付）
+- [x] 飞书 dual 推送（`feishu push`，经 lark-cli；`add-feishu-watchlist-push`）
 
 ---
 
@@ -248,6 +250,7 @@ etire-akshare-default |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股融资、龙虎榜、文本情绪待后续 change |
 | **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ✅ PO-03 V1 Skill、Checklist 与首开仓检查已交付 |
 | **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web 待立项 |
+| **G'** | 飞书 dual 推送 | watchlist dual.md → lark-cli 文档+消息 | ✅ `feishu push` |
 | **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | ⬜ 待立项 |
 
 ---

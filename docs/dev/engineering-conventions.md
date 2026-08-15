@@ -8,6 +8,7 @@
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-08-15 | add-feishu-watchlist-push | 新增 `src/service/feishu/`（lark-cli publisher + dual 管道）；CLI `feishu push` |
 | 2026-06-13 | merge-arch | 合并原 architecture.md 与工程约定；确立 ref/、flat src/、reports/、三层防御 LLM 规范 |
 | 2026-06-13 | add-value-data-provider-v1 | 新增 dao 持久化层（SQLAlchemy + SQLite）；data_sources/db 配置节；importlib pytest 模式 |
 | 2026-06-14 | fix-value-data-pipeline-e2e | fetch_all 签名统一；Baostock 季频参数修复；Provider 持久化解耦（防 SQLite 锁）；config_loader bootstrap；E2E 验收脚本与字段覆盖报告 |
@@ -72,6 +73,7 @@ stock_copilot/                    # 本 git 仓库根
 │   ├── controller/               # HTTP API
 │   ├── service/                  # 领域编排
 │   │   ├── dual_track/           # 双轨 Facade、证据分桶（红蓝对抗 Level 0）
+│   │   ├── feishu/               # dual.md → lark-cli 新建文档与消息
 │   │   └── value/valuation/      # 估值方法论（BaseValuation、Graham/DDM/EPV 等）
 │   ├── data_provider/            # 外部数据适配（Router + Merge/Failover 策略）
 │   │   ├── router.py             # DataFetcherRouter：enabled+priority 唯一选源
@@ -110,6 +112,7 @@ stock_copilot/                    # 本 git 仓库根
 | `service/guard/` | 决策护航：Checklist 等（红蓝 Level 1 叙事当前由 Cursor Skill 承接） |
 | `service/trade_review/` | 严格离线的 FIFO 交易复盘、胜率统计与 Checklist Badcase 归因 |
 | `service/portfolio/` | 严格离线的持仓集中度与行业暴露度粗估；复用 `TradeRecord` 派生当前持仓 |
+| `service/feishu/` | 常看 dual 推送：本地 dual.md + `lark-cli` 新建文档与一票一消息 |
 
 ### 3.3 硬规则
 

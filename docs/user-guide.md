@@ -2,7 +2,7 @@
 
 > 面向：**实际使用本工具分析 A 股的个人投资者**（非开发者文档）  
 > 当前入口：**命令行（CLI）**；Web 界面仍在规划中
-> 最后更新：2026-08-01
+> 最后更新：2026-08-15
 
 ---
 
@@ -21,6 +21,7 @@
 | 能力 | 怎么用 |
 |------|--------|
 | 常看股票列表 | `watchlist list/add/remove`；`sync`/`report` 支持 `--watchlist` |
+| 飞书 dual 推送 | `feishu push --watchlist`（经 `lark-cli`，见 §3.5） |
 | 同步行情与财报快照 | `python -m apps.cli sync <代码>` 或 `sync --watchlist` |
 | 技术面报告 | `python -m apps.cli report tech <代码>` |
 | 价值面报告 | `python -m apps.cli report value <代码>` |
@@ -40,7 +41,7 @@
 
 ### 1.2 尚未交付（请勿期待）
 
-Web 界面、飞书定时推送、个股融资余额/龙虎榜/社媒文本情绪、协方差组合优化等仍在路线图中。详见 [mrd/roadmap-todo.md](mrd/roadmap-todo.md)。
+Web 界面、个股融资余额/龙虎榜/社媒文本情绪、协方差组合优化等仍在路线图中。详见 [mrd/roadmap-todo.md](mrd/roadmap-todo.md)。
 
 > **说明：** CLI「多维看板 / Checklist / 情绪 / 复盘」已可用；Web 版仍待建。
 ### 1.3 免责声明
@@ -236,6 +237,40 @@ git commit -m "chore: update watchlist"
 git push
 ```
 
+### 3.5 飞书推送 dual（通勤阅读）
+
+只推红蓝证据分桶（`report dual`）。每份 `{code}_dual.md` 新建一篇飞书文档，成功后立刻发一条消息。
+
+**前置：** 安装官方 [lark-cli](https://github.com/larksuite/cli)，并在本机登录：
+
+```cmd
+npx @larksuite/cli@latest install
+lark-cli config init
+lark-cli auth login --recommend
+```
+
+在 `config/app.yaml` 填写推送目标（示例见 `config/app.example.yaml`）：自聊用 `feishu.user_id`（`lark-cli whoami` / `auth status` 的 open_id），群聊用 `feishu.chat_id`；二者同时配置时优先 `user_id`。
+
+**先本地试跑（不调 lark-cli 写命令）：**
+
+```cmd
+py -m apps.cli feishu push --watchlist --dry-run --no-sync --slot 1700
+```
+
+文件落在 `reports/feishu/{日期}/{slot}/{代码}_dual.md`。消息标题格式：`今日研报_{股票名称}_{YYYY-MM-DD}_{HHmm}`，正文只有文档链接。
+
+**Windows 计划任务（09:00 / 13:00 / 17:00，非常驻进程）：**
+
+三条触发器，起始于仓库根目录，以**已执行过 `lark-cli auth login` 的同一用户**运行：
+
+```text
+-m apps.cli feishu push --watchlist --slot 0900
+-m apps.cli feishu push --watchlist --slot 1300 --realtime
+-m apps.cli feishu push --watchlist --slot 1700
+```
+
+程序为 `py`。非交易日会 `[skip]` 并以退出码 0 结束。PC 休眠/未登录会漏推，本版本不自动补推。
+
 ### 3.3 把报告存成文件
 
 ```cmd
@@ -276,6 +311,14 @@ python -m apps.cli watchlist list
 python -m apps.cli watchlist add <代码> [--name 名称]
 python -m apps.cli watchlist remove <代码>
 ```
+
+### 4.0a `feishu push` — 飞书 dual 推送
+
+```text
+python -m apps.cli feishu push --watchlist [--dry-run] [--sync|--no-sync] [--realtime] [--slot 1700]
+```
+
+详见 §3.5。依赖本机 `lark-cli auth login`。
 
 ### 4.1 `sync` — 联网同步
 

@@ -8,6 +8,7 @@
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-08-15 | add-feishu-watchlist-push | 交付通道：`feishu push` 只推 dual.md，经 lark-cli 新建文档并立即发「今日研报_名称_日期_时段」链接 |
 | 2026-08-01 | add-trade-review-attribution | PO-09 交易记录、FIFO 胜率与严格离线复盘报告已实现；完整 Badcase 归因消费 PO-04 Checklist 软引用 |
 | 2026-08-01 | add-portfolio-correlation | PO-10 持仓集中度与行业暴露度粗估已实现；明确不包含协方差矩阵或组合优化 |
 | 2026-08-01 | add-fresh-entry-check | PO-05 无仓位视角入场检查：最小持仓表、`position set` 与严格离线 `entry-check` |
@@ -173,7 +174,7 @@
 | 双轨分析 Facade | `DualTrackAnalyzer.analyze(code) → DualTrackReport`；价值面 + 技术面 + 确定性 combined_signal | P0 | ✅ |
 | 多维立体看板 | 单票一页呈现价值 + 技术 + 情绪分项与综合摘要 | P0 | CLI 版已实现（`report dashboard`），Web 待建（依赖 REST API） |
 | LLM 综合报告 | 将确定性计算结果打包为 Context，策略 prompt 生成可读报告；**数值以确定性模块为准** | P0 | 已实现（`report summary [--narrate]`） |
-| Web / CLI | 发起分析、查看看板、完成 Checklist、查看红蓝对抗 | P1 | CLI 部分（`report tech/value/dual/dashboard`、`checklist submit/show`）已实现；Web 待建 |
+| Web / CLI | 发起分析、查看看板、完成 Checklist、查看红蓝对抗 | P1 | CLI 部分已实现；**飞书 dual 推送**见 `feishu push`（`add-feishu-watchlist-push`）；Web 待建 |
 
 ---
 
