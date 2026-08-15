@@ -42,4 +42,5 @@
 
 - [x] 6.1 Update `docs/mrd/features/value-analysis.md` §2.2/路由表/T-4～T-12 状态（随 Phase 更新）
 - [x] 6.2 Update `docs/mrd/roadmap-todo.md` §4.3
-- [ ] 6.3 全部 Phase 完成后 `/opsx-archive`（中途可先合 PR，归档可等收官或按子 change 归档）
+- [x] 6.3 全部 Phase 完成后 `/opsx-archive`（中途可先合 PR，归档可等收官或按子 change 归档）
+

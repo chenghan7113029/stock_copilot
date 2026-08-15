@@ -1,6 +1,6 @@
 # Propose List（OpenSpec change 清单）
 
-> 最后梳理：2026-08-10（`main` 已合入数据源迁移 A/B/C）  
+> 最后梳理：2026-08-15（MOS 按原型阈值 + 价值 V2 方法已同步主 specs，待移入 archive）  
 > 对照：`docs/mrd/features/data-source-migration.md`、`docs/mrd/roadmap-todo.md`、`openspec/changes/`  
 > 用法：待实现 → `/opsx-apply <change-name>`；已实现仅差归档 → `/opsx-archive <change-name>`
 
@@ -9,8 +9,8 @@
 ## 当前结论（一句话）
 
 **数据源迁移三阶段（A/B/C）已合入 `main` 并归档；原 P0–P2 已落地 change 已于 2026-08-10 批量归档。**  
-**真正还没 apply 的**，目前是：飞书常看推送、K 线形态、布林带；价值 V2 总立项已 apply 完待归档。
-T-1 MOS 与 V2 P1–P5 在 `feature/apply-mos-and-value-v2-methods`。
+**真正还没 apply 的**，目前是：飞书常看推送、K 线形态、布林带。  
+T-1 MOS 按原型阈值与价值 V2 P1–P5 已 apply，delta specs 已同步主 specs，归档路径见 C 区（`archive/2026-08-15-*`）。
 
 ---
 
@@ -32,25 +32,23 @@ T-1 MOS 与 V2 P1–P5 在 `feature/apply-mos-and-value-v2-methods`。
 
 | Change | roadmap / 来源 | 简介 | 状态 |
 |---|---|---|---|
-| `add-mos-thresholds-by-prototype` | T-1 / VA-OUT-3 | 银行/高股息/价值成长 MOS 评估与双轨阈值按原型差异化 | apply 中（feature 分支，近完成） |
-| `add-value-v2-prototype-methods` | value V2 · T-4～T-12 | 专用方法总立项：P1 比亚迪情景 → P2 分众/Cyclical → P3 军工 → P4 保险 → P5 华测 | apply 完成 · 待归档 |
 | `add-feishu-watchlist-push` | 交付通道（通勤） | 家里 PC 交易日定时：`watchlist` → 本地 MD → 飞书新建文档 + 一票一消息；CLI `feishu push`（含 dry-run） | proposal ✅ · tasks 0/21 |
 | `add-pattern-recognition` | F-18 · V2 | 十字星/锤头/吊颈/吞没等规则识别；独立字段展示，**不进** `signal_score` | proposal ✅ · tasks 0/24 |
 | `add-bollinger-bands` | F-19 · V2 | 布林带 + `BollingerStatus`；V1 只做指标与单状态，不做跨指标组合 | proposal ✅ · tasks 0/23 |
 
 ### 建议下一棒顺序
 
-1. **`add-mos-thresholds-by-prototype`（T-1）** — 近完成  
-2. **`add-value-v2-prototype-methods` P1** — 比亚迪浅情景（进行中）  
-3. **同 change P2+** 或 **`add-feishu-watchlist-push`**  
-4. 形态 / 布林带 — 可穿插
+1. **`add-feishu-watchlist-push`**  
+2. 形态 / 布林带 — 可穿插
 
 ---
 
-## C. 已实现并已归档（2026-08-10 housekeeping）
+## C. 已实现并已归档（含 2026-08-15 MOS / V2 方法）
 
 | Change | roadmap | 归档路径 |
 |---|---|---|
+| `add-mos-thresholds-by-prototype` | T-1 / VA-OUT-3 | `archive/2026-08-15-add-mos-thresholds-by-prototype` |
+| `add-value-v2-prototype-methods` | value V2 · T-4～T-12 | `archive/2026-08-15-add-value-v2-prototype-methods` |
 | `add-v2-honesty-degrade` | value V2 · 第 0 刀诚实层 | `archive/2026-08-10-add-v2-honesty-degrade` |
 | `add-stock-dashboard` | PO-01 / PO-08 CLI | `archive/2026-08-10-add-stock-dashboard` |
 | `add-decision-checklist` | PO-04 | `archive/2026-08-10-add-decision-checklist` |
@@ -91,7 +89,7 @@ T-1 MOS 与 V2 P1–P5 在 `feature/apply-mos-and-value-v2-methods`。
 | PO-14 | 社媒/新闻文本情绪 | 需单独评估 NLP/LLM 管线 |
 | E | REST API / Web 看板 | change 名待定；依赖 Web 层整体决策 |
 
-> T-1 与价值 V2 专用方法已立项：见 B 区 `add-mos-thresholds-by-prototype`、`add-value-v2-prototype-methods`。
+> T-1 与价值 V2 专用方法已归档：见 C 区 `add-mos-thresholds-by-prototype`、`add-value-v2-prototype-methods`。
 
 ---
 

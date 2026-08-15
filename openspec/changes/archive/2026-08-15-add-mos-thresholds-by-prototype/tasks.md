@@ -19,4 +19,5 @@
 - [x] 4.1 Update `config/app.example.yaml`：示例 `value.mos_thresholds_by_proto`（注释说明即可）
 - [x] 4.2 Update `docs/mrd/features/value-analysis.md` VA-OUT-3 / T-1 状态与默认表
 - [x] 4.3 Update `docs/mrd/roadmap-todo.md` T-1；`propose_list.md`
-- [ ] 4.4 归档前合并要点至 docs，再 `/opsx-archive`
+- [x] 4.4 归档前合并要点至 docs，再 `/opsx-archive`
+
