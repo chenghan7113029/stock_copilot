@@ -109,13 +109,13 @@ def test_unknown_prototype_warning():
 def test_known_insurance_industry_uses_specific_methodology_gap_warning():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(
-        code="601318",
-        name="中国平安",
+        code="601601",
+        name="中国太保",
         industry="保险",
     )
     analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
 
-    result = analyzer.analyze("601318")
+    result = analyzer.analyze("601601")
 
     assert result.prototype == "unknown"
     assert result.methodology_applicable is False
@@ -126,7 +126,92 @@ def test_known_insurance_industry_uses_specific_methodology_gap_warning():
     assert not any("原型未识别" in warning for warning in result.warnings)
 
 
-def test_byd_honesty_degrade_suppresses_actionable_assessment():
+def test_ping_an_keeps_honesty_without_ev_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="601318",
+        name="中国平安",
+        industry="保险",
+        current_price=50.0,
+        shares_outstanding=18e9,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("601318")
+
+    assert result.prototype == "insurance"
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert any("EV" in w or "NBV" in w or "保险" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
+
+
+def test_ping_an_graduates_with_ev_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="601318",
+        name="中国平安",
+        industry="保险",
+        current_price=50.0,
+        shares_outstanding=18e9,
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        config={
+            "value_analysis": {
+                "insurance": {
+                    "by_code": {
+                        "601318": {
+                            "embedded_value": 1200e9,
+                            "nbv": 50e9,
+                            "p_ev_fair": 1.0,
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    result = analyzer.analyze("601318")
+
+    assert result.prototype == "insurance"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "P/EV" in result.assessment
+    assert result.method_results["insurance_ev"].details.get("output_type") == "insurance_ev"
+
+
+def test_huace_routes_to_growth_tech_methods():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="300627",
+        name="华测导航",
+        industry="通信设备",
+        current_price=40.0,
+        eps=1.2,
+        pe_ratio=25.0,
+        growth_rate=22.0,
+        revenue=5e9,
+        fcf=8e8,
+        shares_outstanding=5e8,
+        total_assets=1e10,
+        ebitda=1e9,
+        net_debt=0.0,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("300627")
+
+    assert result.prototype == "growth_tech"
+    assert "peg" in result.method_keys_used
+    assert "rule_of_40" in result.method_keys_used
+    assert result.methodology_applicable is True
+    assert any("growth_tech" in w or "成长科技" in w for w in result.warnings)
+    assert result.assessment != "方法暂不适用"
+
+
+def test_byd_graduates_with_scenario_dcf_when_fcf_available():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(
         code="002594",
@@ -141,19 +226,46 @@ def test_byd_honesty_degrade_suppresses_actionable_assessment():
         net_income=1e10,
         fcf=5e9,
         shares_outstanding=1e9,
+        proto="growth_manufacturing",
     )
     analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
 
     result = analyzer.analyze("002594")
 
-    assert result.prototype == "unknown"
+    assert result.prototype == "growth_manufacturing"
+    assert "scenario_dcf" in result.method_keys_used
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "情景" in result.assessment or "介于" in result.assessment or "高于" in result.assessment or "低于" in result.assessment
+    scenario = result.method_results["scenario_dcf"]
+    assert scenario.details.get("output_type") == "scenario"
+    assert set(scenario.details["scenarios"]) == {"bear", "base", "bull"}
+
+
+def test_byd_keeps_honesty_when_scenario_dcf_cannot_run():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002594",
+        name="比亚迪",
+        industry="汽车整车",
+        current_price=100.0,
+        growth_rate=20.0,
+        total_assets=1e11,
+        total_liabilities=4e10,
+        # 无 fcf / shares → 情景 DCF 失败
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("002594")
+
+    assert result.prototype == "growth_manufacturing"
     assert result.methodology_applicable is False
     assert result.assessment == "方法暂不适用"
-    assert any("成长+制造周期" in w for w in result.warnings)
-    assert "dcf" not in result.method_keys_used
+    assert any("浅情景 DCF" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
 
 
-def test_focus_media_honesty_degrade():
+def test_focus_media_keeps_honesty_without_cycle_position():
     provider = MagicMock()
     provider.get_stock_data.return_value = StockData(
         code="002027",
@@ -162,14 +274,114 @@ def test_focus_media_honesty_degrade():
         current_price=10.0,
         growth_rate=8.0,
         total_assets=1e10,
+        fcf=3e9,
+        shares_outstanding=1e9,
+        # 无 cycle_position / historical_pe → 不毕业
     )
     analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
 
     result = analyzer.analyze("002027")
 
+    assert result.prototype == "cashflow_ad_cycle"
     assert result.methodology_applicable is False
     assert result.assessment == "方法暂不适用"
-    assert any("广告周期" in w for w in result.warnings)
+    assert any("广告周期" in w or "周期位置" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
+
+
+def test_focus_media_graduates_with_cycle_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="002027",
+        name="分众传媒",
+        industry="广告营销",
+        current_price=10.0,
+        growth_rate=8.0,
+        total_assets=1e10,
+        fcf=5e9,
+        shares_outstanding=1e9,
+        eps=0.5,
+        bvps=2.0,
+        historical_roe=[18.0, 20.0, 22.0, 19.0],
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        config={
+            "value_analysis": {
+                "cyclical": {"by_code": {"002027": {"cycle_position": "mid"}}}
+            }
+        },
+    )
+
+    result = analyzer.analyze("002027")
+
+    assert result.prototype == "cashflow_ad_cycle"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "周期位置" in result.assessment
+    assert "cyclical_fcf" in result.method_keys_used
+    assert result.method_results["cyclical_fcf"].details.get("output_type") == "cyclical"
+
+
+def test_cssc_keeps_honesty_without_order_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="600072",
+        name="中船科技",
+        industry="国防军工",
+        current_price=20.0,
+        shares_outstanding=1e9,
+        total_assets=1e11,
+        total_liabilities=9e10,
+    )
+    analyzer = ValueAnalyzer(provider=provider, engine=default_engine())
+
+    result = analyzer.analyze("600072")
+
+    assert result.prototype == "defense_orders"
+    assert result.methodology_applicable is False
+    assert result.assessment == "方法暂不适用"
+    assert any("订单" in w for w in result.warnings)
+    assert any("不能作为买卖依据" in w for w in result.warnings)
+
+
+def test_cssc_graduates_with_order_inputs():
+    provider = MagicMock()
+    provider.get_stock_data.return_value = StockData(
+        code="600072",
+        name="中船科技",
+        industry="国防军工",
+        current_price=20.0,
+        shares_outstanding=1e9,
+        tax_rate=25.0,
+        net_debt=0.0,
+    )
+    analyzer = ValueAnalyzer(
+        provider=provider,
+        engine=default_engine(),
+        config={
+            "value_analysis": {
+                "defense_orders": {
+                    "by_code": {
+                        "600072": {
+                            "order_backlog": 12e9,
+                            "order_execution_years": 3.0,
+                            "order_margin": 12.0,
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    result = analyzer.analyze("600072")
+
+    assert result.prototype == "defense_orders"
+    assert result.methodology_applicable is True
+    assert result.assessment != "方法暂不适用"
+    assert "在手订单" in result.assessment
+    assert result.method_results["defense_orders"].details.get("output_type") == "defense_orders"
 
 
 def test_moutai_methodology_still_applicable():

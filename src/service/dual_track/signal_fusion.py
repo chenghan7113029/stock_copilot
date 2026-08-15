@@ -6,6 +6,7 @@ from service.dual_track.config import DualTrackConfig
 from service.dual_track.models.report import CombinedSignal, ValueRating
 from service.tech.models.tech_result import BuySignal, TechAnalysisResult
 from service.value.models.analysis_result import ValueAnalysisResult
+from service.value.mos_thresholds import get_value_rating_thresholds
 
 _FUSION_MATRIX: dict[ValueRating, dict[BuySignal, CombinedSignal]] = {
     ValueRating.UNDERVALUED: {
@@ -43,14 +44,25 @@ _VALUE_ONLY_SIGNAL: dict[ValueRating, CombinedSignal] = {
 
 
 def derive_value_rating(
-    mos: float | None, config: DualTrackConfig | None = None
+    mos: float | None,
+    config: DualTrackConfig | None = None,
+    prototype: str | None = None,
 ) -> ValueRating:
     config = config or DualTrackConfig()
     if mos is None:
         return ValueRating.UNKNOWN
-    if mos > config.undervalued_mos_threshold:
+    cfg = config.to_mos_config()
+    thresholds = get_value_rating_thresholds(prototype, cfg)
+    # 兼容旧测试/用法：未提供按原型表时，保留 value_growth 全局阈值可覆盖行为。
+    if not config.mos_thresholds_by_proto and (prototype in {None, "", "value_growth"}):
+        thresholds = thresholds.__class__(
+            undervalued=float(config.undervalued_mos_threshold),
+            overvalued=float(config.overvalued_mos_threshold),
+        )
+
+    if mos > thresholds.undervalued:
         return ValueRating.UNDERVALUED
-    if mos < config.overvalued_mos_threshold:
+    if mos < thresholds.overvalued:
         return ValueRating.OVERVALUED
     return ValueRating.FAIR
 
@@ -81,7 +93,9 @@ class SignalFusion:
             value_rating = ValueRating.UNKNOWN
         else:
             value_rating = derive_value_rating(
-                value_result.margin_of_safety, self._config
+                value_result.margin_of_safety,
+                self._config,
+                prototype=value_result.prototype,
             )
 
         if tech_result is None:

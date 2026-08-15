@@ -8,16 +8,20 @@ from .adapter import StockDataAdapter
 from .assumptions import AssumptionProvider
 from .bank import PBValuation, ResidualIncome
 from .base import BaseValuation, ValuationResult
+from .cyclical import CyclicalFCF, CyclicalPE
 from .dcf import DCF, ReverseDCF
 from .ddm import DDM, TwoStageDDM
+from .defense_orders import DefenseOrders
 from .epv import EPV
 from .graham import NCAV, GrahamFormula, GrahamNumber
 from .growth import EVEBITDA, GARP, PEG, RuleOf40
+from .insurance_ev import InsuranceEV
 from .magic_formula import MagicFormula
 from .mscore import BeneishMScore
 from .quality import AltmanZScore, OwnerEarnings, PiotroskiFScore
 from .relative import PBRelativeValuation, PERelativeValuation
 from .sbc import SBCAnalysis
+from .scenario_dcf import ScenarioDCF
 from .value_trap import ValueTrapDetector
 
 
@@ -66,6 +70,7 @@ class ValuationEngine:
 
 
 def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEngine:
+    assumptions = assumptions or AssumptionProvider()
     engine = ValuationEngine(assumptions=assumptions)
     engine.register("graham_number", GrahamNumber())
     engine.register("graham_formula", GrahamFormula())
@@ -77,6 +82,11 @@ def default_engine(assumptions: AssumptionProvider | None = None) -> ValuationEn
     engine.register("epv", EPV())
     engine.register("owner_earnings", OwnerEarnings())
     engine.register("dcf", DCF())
+    engine.register("scenario_dcf", ScenarioDCF(config=assumptions.config))
+    engine.register("cyclical_pe", CyclicalPE())
+    engine.register("cyclical_fcf", CyclicalFCF())
+    engine.register("defense_orders", DefenseOrders(config=assumptions.config))
+    engine.register("insurance_ev", InsuranceEV(config=assumptions.config))
     engine.register("reverse_dcf", ReverseDCF())
     engine.register("altman_z", AltmanZScore())
     engine.register("piotroski_f", PiotroskiFScore())

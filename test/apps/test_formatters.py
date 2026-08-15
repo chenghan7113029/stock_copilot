@@ -153,21 +153,208 @@ def test_format_value_report_value_trap_alert_text_and_json():
     assert payload["value_trap_alert"] == alert
 
 
-def test_format_value_report_honesty_degrade_text_and_json():
+def test_format_value_report_scenario_dcf_section():
+    scenario = ValuationResult(
+        method="Scenario DCF",
+        fair_value=110.0,
+        current_price=100.0,
+        premium_discount=10.0,
+        assessment="现价介于悲观与基准情景之间",
+        details={
+            "output_type": "scenario",
+            "price_position": "between_bear_base",
+            "scenarios": {
+                "bear": {"label": "悲观", "fair_value": 80.0, "growth_rate_1_5": 6.0},
+                "base": {"label": "基准", "fair_value": 110.0, "growth_rate_1_5": 12.0},
+                "bull": {"label": "乐观", "fair_value": 150.0, "growth_rate_1_5": 18.0},
+            },
+        },
+        applicability="Applicable",
+    )
     result = ValueAnalysisResult(
         code="002594",
         name="比亚迪",
         current_price=100.0,
-        prototype="unknown",
-        method_keys_used=["epv"],
-        fair_value_range=ValuationRange(low=80, base=100, high=120),
+        prototype="growth_manufacturing",
+        method_keys_used=["scenario_dcf"],
+        fair_value_range=ValuationRange(low=80, base=110, high=150),
+        margin_of_safety=9.0,
+        price_percentile=40.0,
+        assessment="现价介于悲观与基准情景之间",
+        confidence="Medium",
+        method_results={"scenario_dcf": scenario},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 浅情景 DCF" in text
+    assert "悲观" in text and "基准" in text and "乐观" in text
+    assert "现价落位" in text
+    assert "方法暂不适用" not in text
+    assert "对照用" not in text
+
+
+def test_format_value_report_cyclical_section():
+    fcf = ValuationResult(
+        method="Cyclical FCF",
+        fair_value=12.0,
+        current_price=10.0,
+        premium_discount=20.0,
+        assessment="周期位置：周期中段；相对周期调整公允略便宜",
+        details={
+            "output_type": "cyclical",
+            "cycle_position": "mid",
+            "cycle_position_label": "周期中段",
+            "fcf_yield": 8.5,
+            "fair_fcf_yield": 7.0,
+        },
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="002027",
+        name="分众传媒",
+        current_price=10.0,
+        prototype="cashflow_ad_cycle",
+        method_keys_used=["cyclical_fcf"],
+        fair_value_range=ValuationRange(low=8, base=12, high=16),
+        margin_of_safety=16.0,
+        price_percentile=40.0,
+        assessment="周期位置：周期中段；相对周期调整公允略便宜",
+        confidence="Medium",
+        method_results={"cyclical_fcf": fcf},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 周期调整估值" in text
+    assert "周期位置" in text
+    assert "Cyclical FCF" in text
+    assert "方法暂不适用" not in text
+
+
+def test_format_value_report_growth_tech_section():
+    peg = ValuationResult(
+        method="PEG Ratio",
+        fair_value=45.0,
+        current_price=40.0,
+        premium_discount=12.5,
+        assessment="Fair",
+        details={"peg_ratio": 1.1, "pe_ratio": 25.0, "growth_rate": 22.0},
+        applicability="Applicable",
+    )
+    rule = ValuationResult(
+        method="Rule of 40",
+        fair_value=40.0,
+        current_price=40.0,
+        premium_discount=0,
+        assessment="Healthy",
+        details={"rule_of_40_score": 42.0, "growth": 22.0, "fcf_margin": 20.0},
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="300627",
+        name="华测导航",
+        current_price=40.0,
+        prototype="growth_tech",
+        method_keys_used=["peg", "rule_of_40"],
+        fair_value_range=ValuationRange(low=35, base=45, high=55),
+        margin_of_safety=11.0,
+        price_percentile=40.0,
+        assessment="合理",
+        confidence="Medium",
+        method_results={"peg": peg, "rule_of_40": rule},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 成长科技方法" in text
+    assert "PEG" in text
+    assert "Rule of 40" in text
+
+    insurance = ValuationResult(
+        method="Insurance EV/NBV",
+        fair_value=55.0,
+        current_price=50.0,
+        premium_discount=10.0,
+        assessment="当前 P/EV 0.91x（公允假设 1.00x）；相对 EV 公允略便宜",
+        details={
+            "output_type": "insurance_ev",
+            "embedded_value": 1000e9,
+            "nbv": 40e9,
+            "ev_per_share": 55.0,
+            "p_ev_actual": 0.91,
+            "p_ev_fair": 1.0,
+        },
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="601318",
+        name="中国平安",
+        current_price=50.0,
+        prototype="insurance",
+        method_keys_used=["insurance_ev"],
+        fair_value_range=ValuationRange(low=45, base=55, high=60),
+        margin_of_safety=9.0,
+        price_percentile=40.0,
+        assessment="当前 P/EV 0.91x（公允假设 1.00x）；相对 EV 公允略便宜",
+        confidence="Low",
+        method_results={"insurance_ev": insurance},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 保险 EV/NBV 估值" in text
+    assert "内含价值" in text
+    assert "方法暂不适用" not in text
+
+    defense = ValuationResult(
+        method="Defense Orders",
+        fair_value=22.0,
+        current_price=20.0,
+        premium_discount=10.0,
+        assessment="在手订单约 3.0 年消化；相对订单折现公允略便宜",
+        details={
+            "output_type": "defense_orders",
+            "order_backlog": 12e9,
+            "order_execution_years": 3.0,
+            "order_margin": 12.0,
+        },
+        applicability="Applicable",
+    )
+    result = ValueAnalysisResult(
+        code="600072",
+        name="中船科技",
+        current_price=20.0,
+        prototype="defense_orders",
+        method_keys_used=["defense_orders"],
+        fair_value_range=ValuationRange(low=18, base=22, high=28),
+        margin_of_safety=9.0,
+        price_percentile=40.0,
+        assessment="在手订单约 3.0 年消化；相对订单折现公允略便宜",
+        confidence="Low",
+        method_results={"defense_orders": defense},
+        methodology_applicable=True,
+    )
+
+    text = format_value_report(result)
+    assert "## 军工订单驱动估值" in text
+    assert "在手订单" in text
+    assert "方法暂不适用" not in text
+
+    result = ValueAnalysisResult(
+        code="002027",
+        name="分众传媒",
+        current_price=10.0,
+        prototype="cashflow_ad_cycle",
+        method_keys_used=["cyclical_fcf"],
+        fair_value_range=ValuationRange(low=8, base=10, high=12),
         margin_of_safety=25.0,
         price_percentile=40.0,
         assessment="方法暂不适用",
         confidence="Low",
         warnings=[
-            "检测到「成长+制造周期」特征，专用情景估值暂缺；通用方法得出的低估/高估不应用于买卖决策，"
-            "当前使用通用方法，结果参考性有限，不能作为买卖依据"
+            "检测到「现金流+广告周期」特征，缺周期位置或周期调整估值无法计算；"
+            "通用方法得出的低估/高估不应用于买卖决策，当前结果参考性有限，不能作为买卖依据"
         ],
         methodology_applicable=False,
     )

@@ -129,6 +129,20 @@ def test_overvalued_assessment():
     assert out.assessment == "高估"
 
 
+def test_same_mos_differs_by_prototype_thresholds():
+    agg = ValuationAggregator()
+    results = {
+        "a": _value_result(600.0),
+        "b": _value_result(700.0),
+        "c": _value_result(800.0),
+    }
+    # base=700, current=595 => MOS=15%
+    bank_out = agg.aggregate(results, current_price=595.0, prototype="bank")
+    growth_out = agg.aggregate(results, current_price=595.0, prototype="value_growth")
+    assert bank_out.assessment == "低估"
+    assert growth_out.assessment == "合理偏低"
+
+
 def test_confidence_high_with_three_low_dispersion():
     agg = ValuationAggregator()
     results = {

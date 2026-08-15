@@ -141,6 +141,38 @@ def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str
 def _method_semantic_hint(key: str, mr: Any) -> str:
     """DCF/EPV 方法行的语义提示（EPV=地板价，DCF=含增长假设）。"""
     details = getattr(mr, "details", None) or {}
+    if key == "scenario_dcf":
+        position = details.get("price_position")
+        if position:
+            return f"(浅情景三档；落位={position})"
+        return "(浅情景三档)"
+    if key in {"cyclical_pe", "cyclical_fcf"}:
+        label = details.get("cycle_position_label") or details.get("cycle_position")
+        if label:
+            return f"(周期调整；位置={label})"
+        return "(周期调整)"
+    if key == "defense_orders":
+        years = details.get("order_execution_years")
+        if years is not None:
+            return f"(订单驱动；消化≈{years}年)"
+        return "(订单驱动)"
+    if key == "insurance_ev":
+        pev = details.get("p_ev_actual")
+        if pev is not None:
+            return f"(EV/NBV；P/EV={pev:.2f}x)"
+        return "(EV/NBV)"
+    if key == "peg":
+        peg = details.get("peg_ratio") or details.get("peg")
+        if peg is not None:
+            return f"(成长 PEG={peg:.2f})"
+        return "(成长 PEG)"
+    if key == "garp":
+        return "(成长 GARP)"
+    if key == "rule_of_40":
+        score = details.get("rule_of_40_score") or details.get("score")
+        if score is not None:
+            return f"(Rule of 40={score:.1f})"
+        return "(Rule of 40)"
     if key == "dcf":
         g1 = details.get("growth_1_5")
         if g1 is not None:
@@ -149,6 +181,151 @@ def _method_semantic_hint(key: str, mr: Any) -> str:
     if key == "epv":
         return "(零增长地板价)"
     return ""
+
+
+def _append_scenario_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    scenario = (result.method_results or {}).get("scenario_dcf")
+    if scenario is None:
+        return
+    details = getattr(scenario, "details", None) or {}
+    if details.get("output_type") != "scenario":
+        return
+    scenarios = details.get("scenarios") or {}
+    if not scenarios:
+        return
+
+    lines.extend(["", "## 浅情景 DCF（悲观 / 基准 / 乐观）", ""])
+    for key in ("bear", "base", "bull"):
+        row = scenarios.get(key) or {}
+        label = row.get("label") or key
+        fv = row.get("fair_value")
+        g1 = row.get("growth_rate_1_5")
+        g1_text = f"{g1:.1f}%" if isinstance(g1, (int, float)) else "N/A"
+        lines.append(
+            f"- **{label}**: 公允价 {_fmt_num(fv if isinstance(fv, (int, float)) else None)}"
+            f"（1-5年增速 {g1_text}）"
+        )
+    if scenario.assessment:
+        lines.append(f"- **现价落位:** {scenario.assessment}")
+    lines.append("- 说明: 主结论看三档相对位置，勿把基准情景当成唯一公允价")
+    cash_source = details.get("cash_source")
+    if cash_source and cash_source != "fcf":
+        lines.append(f"- 现金流底座: `{cash_source}`（制造扩张期可能非报告 FCF）")
+
+
+def _append_cyclical_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    methods = result.method_results or {}
+    primary = None
+    for key in ("cyclical_fcf", "cyclical_pe"):
+        mr = methods.get(key)
+        details = getattr(mr, "details", None) or {}
+        if mr is not None and details.get("output_type") == "cyclical":
+            primary = mr
+            break
+    if primary is None:
+        return
+    details = primary.details or {}
+    lines.extend(["", "## 周期调整估值", ""])
+    label = details.get("cycle_position_label") or details.get("cycle_position") or "未知"
+    lines.append(f"- **周期位置:** {label}")
+    fcf = methods.get("cyclical_fcf")
+    if fcf is not None and (fcf.details or {}).get("output_type") == "cyclical":
+        fd = fcf.details or {}
+        lines.append(
+            f"- **Cyclical FCF:** 公允价 {_fmt_num(fcf.fair_value)}"
+            f"（FCF Yield {fd.get('fcf_yield', 'N/A')}% / 公允 {fd.get('fair_fcf_yield', 'N/A')}%）"
+        )
+    pe = methods.get("cyclical_pe")
+    if pe is not None and (pe.details or {}).get("output_type") == "cyclical":
+        pd = pe.details or {}
+        lines.append(
+            f"- **Cyclical PE:** 公允价 {_fmt_num(pe.fair_value)}"
+            f"（均值化 EPS {_fmt_num(pd.get('cyclical_adjusted_eps'), 3)} × {pd.get('fair_pe', 'N/A')}x）"
+        )
+    if primary.assessment:
+        lines.append(f"- **综合落位:** {primary.assessment}")
+    lines.append("- 说明: 无可靠周期位置时不会毕业；勿把景气高峰的低 PE/高 FCF Yield 当便宜")
+
+
+def _append_defense_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    defense = (result.method_results or {}).get("defense_orders")
+    if defense is None:
+        return
+    details = getattr(defense, "details", None) or {}
+    if details.get("output_type") != "defense_orders":
+        return
+
+    lines.extend(["", "## 军工订单驱动估值", ""])
+    backlog = details.get("order_backlog")
+    years = details.get("order_execution_years")
+    margin = details.get("order_margin")
+    if isinstance(backlog, (int, float)):
+        lines.append(f"- **在手订单:** {backlog / 1e8:.2f} 亿元")
+    if years is not None:
+        lines.append(f"- **预计消化:** {years} 年")
+    if margin is not None:
+        lines.append(f"- **订单利润率:** {margin}%（税前）")
+    lines.append(f"- **订单折现公允价:** {_fmt_num(defense.fair_value)}")
+    if defense.assessment:
+        lines.append(f"- **评估:** {defense.assessment}")
+    lines.append("- 说明: 订单多为配置/手工输入；缺输入时保持诚实降级，勿用通用 DCF 替代")
+
+
+def _append_insurance_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    insurance = (result.method_results or {}).get("insurance_ev")
+    if insurance is None:
+        return
+    details = getattr(insurance, "details", None) or {}
+    if details.get("output_type") != "insurance_ev":
+        return
+
+    lines.extend(["", "## 保险 EV/NBV 估值", ""])
+    ev = details.get("embedded_value")
+    if isinstance(ev, (int, float)):
+        lines.append(f"- **内含价值 EV:** {ev / 1e8:.2f} 亿元")
+    ev_ps = details.get("ev_per_share")
+    if ev_ps is not None:
+        lines.append(f"- **每股 EV:** {_fmt_num(ev_ps)}")
+    pev = details.get("p_ev_actual")
+    pev_fair = details.get("p_ev_fair")
+    if pev is not None:
+        lines.append(f"- **当前 P/EV:** {pev:.2f}x（公允假设 {pev_fair}x）")
+    nbv = details.get("nbv")
+    if isinstance(nbv, (int, float)) and nbv > 0:
+        lines.append(f"- **一年新业务价值 NBV:** {nbv / 1e8:.2f} 亿元")
+    lines.append(f"- **EV 对照公允价:** {_fmt_num(insurance.fair_value)}")
+    if insurance.assessment:
+        lines.append(f"- **评估:** {insurance.assessment}")
+    lines.append("- 说明: EV/NBV 依赖年报或配置手工输入；缺 EV 时保持诚实降级")
+
+
+def _append_growth_tech_section(lines: list[str], result: ValueAnalysisResult) -> None:
+    if result.prototype != "growth_tech":
+        return
+    methods = result.method_results or {}
+    if not any(k in methods for k in ("peg", "garp", "rule_of_40")):
+        return
+
+    lines.extend(["", "## 成长科技方法（PEG / GARP / Rule of 40）", ""])
+    peg = methods.get("peg")
+    if peg is not None and peg.error is None and peg.applicability != "Not Applicable":
+        pd = peg.details or {}
+        lines.append(
+            f"- **PEG:** {_fmt_num(pd.get('peg_ratio'))}"
+            f"（PE {_fmt_num(pd.get('pe_ratio'), 1)} / 增速 {_fmt_num(pd.get('growth_rate'), 1)}%）"
+            f" → 公允价 {_fmt_num(peg.fair_value)}"
+        )
+    garp = methods.get("garp")
+    if garp is not None and garp.error is None and garp.applicability != "Not Applicable":
+        lines.append(f"- **GARP:** 公允价 {_fmt_num(garp.fair_value)} | {garp.assessment}")
+    rule = methods.get("rule_of_40")
+    if rule is not None and rule.error is None and rule.applicability != "Not Applicable":
+        rd = rule.details or {}
+        lines.append(
+            f"- **Rule of 40:** 得分 {_fmt_num(rd.get('rule_of_40_score') or rd.get('score'), 1)}"
+            f"（增速 {_fmt_num(rd.get('growth'), 1)}% + FCF 利润率 {_fmt_num(rd.get('fcf_margin'), 1)}%）"
+        )
+    lines.append("- 说明: 成长科技路由显式使用 PEG 族方法，避免被当成普通 value_growth")
 
 
 def format_value_report(
@@ -247,6 +424,12 @@ def format_value_report(
                 "- ⚠ 历史最高价仅供参考，不建议作为决策心理锚点",
             ]
         )
+
+    _append_scenario_section(lines, result)
+    _append_cyclical_section(lines, result)
+    _append_defense_section(lines, result)
+    _append_insurance_section(lines, result)
+    _append_growth_tech_section(lines, result)
 
     if result.method_results:
         lines.extend(["", "## 估值方法", ""])

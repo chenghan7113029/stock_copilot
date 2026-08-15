@@ -5,14 +5,22 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass, field
 
+from service.value.mos_thresholds import assessment_from_mos
 from service.value.valuation.base import ValuationRange, ValuationResult
 
-SCORE_METHOD_KEYS = frozenset({"altman_z", "piotroski_f", "beneish_m", "value_trap", "sbc"})
+SCORE_METHOD_KEYS = frozenset(
+    {"altman_z", "piotroski_f", "beneish_m", "value_trap", "sbc", "rule_of_40"}
+)
 
 PRIMARY_METHODS_BY_PROTOTYPE: dict[str, frozenset[str]] = {
     "value_growth": frozenset({"dcf", "pe_relative"}),
     "bank": frozenset({"pb_relative", "residual_income"}),
     "high_dividend": frozenset({"ddm", "two_stage_ddm"}),
+    "growth_manufacturing": frozenset({"scenario_dcf"}),
+    "cashflow_ad_cycle": frozenset({"cyclical_fcf", "cyclical_pe"}),
+    "defense_orders": frozenset({"defense_orders"}),
+    "insurance": frozenset({"insurance_ev"}),
+    "growth_tech": frozenset({"peg", "ev_ebitda"}),
 }
 
 _UNRELIABLE_WARNING = (
@@ -38,6 +46,7 @@ class ValuationAggregator:
         self,
         results: dict[str, ValuationResult],
         current_price: float | None,
+        prototype: str | None = None,
     ) -> AggregateResult:
         warnings: list[str] = []
         values: list[float] = []
@@ -76,19 +85,24 @@ class ValuationAggregator:
         if len(filtered) == 1:
             low = base = high = filtered[0]
 
-        fair_value_range = ValuationRange(low=low, base=base, high=high)
+        scenario_range = self._scenario_fair_value_range(results)
+        if scenario_range is not None:
+            fair_value_range = scenario_range
+            low, base, high = scenario_range.low, scenario_range.base, scenario_range.high
+        else:
+            fair_value_range = ValuationRange(low=low, base=base, high=high)
         mos = None
         price_percentile = None
         assessment = "数据不足"
 
         if current_price is not None and base > 0:
             mos = ((base - current_price) / base) * 100
-            assessment = _assessment_from_mos(mos)
+            assessment = assessment_from_mos(mos, prototype)
             price_percentile = _price_percentile(current_price, low, high)
 
         confidence = _confidence(filtered)
 
-        primary_methods = self._detect_primary_methods(results)
+        primary_methods = self._detect_primary_methods(results, prototype=prototype)
         if primary_methods and self._all_primary_na(results, primary_methods):
             confidence = "不可信"
             warnings.insert(0, _UNRELIABLE_WARNING)
@@ -187,8 +201,33 @@ class ValuationAggregator:
         return filtered, warnings
 
     @staticmethod
+    def _scenario_fair_value_range(
+        results: dict[str, ValuationResult],
+    ) -> ValuationRange | None:
+        for result in results.values():
+            details = result.details or {}
+            if details.get("output_type") != "scenario":
+                continue
+            if result.error is not None or result.applicability == "Not Applicable":
+                continue
+            if result.fair_value_range is None:
+                continue
+            return result.fair_value_range
+        return None
+
+    @staticmethod
     def _detect_prototype(results: dict[str, ValuationResult]) -> str | None:
         keys = set(results.keys())
+        if "scenario_dcf" in keys:
+            return "growth_manufacturing"
+        if "defense_orders" in keys:
+            return "defense_orders"
+        if "insurance_ev" in keys:
+            return "insurance"
+        if "cyclical_fcf" in keys or "cyclical_pe" in keys:
+            return "cashflow_ad_cycle"
+        if "peg" in keys or "rule_of_40" in keys or "garp" in keys:
+            return "growth_tech"
         if "dcf" in keys or "pe_relative" in keys:
             return "value_growth"
         if "pb_relative" in keys or "residual_income" in keys:
@@ -198,7 +237,13 @@ class ValuationAggregator:
         return None
 
     @classmethod
-    def _detect_primary_methods(cls, results: dict[str, ValuationResult]) -> frozenset[str]:
+    def _detect_primary_methods(
+        cls,
+        results: dict[str, ValuationResult],
+        prototype: str | None = None,
+    ) -> frozenset[str]:
+        if prototype and prototype in PRIMARY_METHODS_BY_PROTOTYPE:
+            return PRIMARY_METHODS_BY_PROTOTYPE[prototype]
         proto = cls._detect_prototype(results)
         if proto is None:
             return frozenset()
@@ -230,18 +275,6 @@ def _percentile(values: list[float], p: float) -> float:
     if f_idx == c_idx:
         return sorted_vals[f_idx]
     return sorted_vals[f_idx] + (k - f_idx) * (sorted_vals[c_idx] - sorted_vals[f_idx])
-
-
-def _assessment_from_mos(mos: float) -> str:
-    if mos > 20:
-        return "低估"
-    if mos > 5:
-        return "合理偏低"
-    if mos > -5:
-        return "合理"
-    if mos > -20:
-        return "合理偏高"
-    return "高估"
 
 
 def _price_percentile(price: float, low: float, high: float) -> float:

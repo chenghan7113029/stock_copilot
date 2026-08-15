@@ -100,6 +100,31 @@ CLI 离线价值面报告命令：读快照 → 估值计算 → 格式化输出
 - **WHEN** `format_value_report(result, as_json=True)` 且 `result.value_trap_alert` 非空
 - **THEN** 输出 JSON 顶层包含键 `"value_trap_alert"`，值为对应文案
 
+### Requirement: 诚实降级标的在价值报告中去行动化展示
+
+当 `ValueAnalysisResult.methodology_applicable is False` 时，`format_value_report`（非 `--json`）SHALL：
+
+1. 在报告靠前位置展示诚实警告（来自 `warnings` 中的缺口文案，或等价置顶块）
+2. 主评估行展示 `assessment` 原文「方法暂不适用」（不得改写成「低估」「高估」）
+3. 若展示安全边际或公允区间，SHALL 附带「对照用」或等价中文标注，表明不可作为买卖依据
+
+`--json` 模式 SHALL 原样序列化 `methodology_applicable` 与 `assessment` 字段，不做改写。
+
+#### Scenario: 比亚迪文本报告主评估非低估
+
+- **WHEN** `format_value_report(result)` 且 `result.code=="002594"`，`methodology_applicable=False`，`assessment=="方法暂不适用"`
+- **THEN** 文本含「方法暂不适用」，含诚实警告关键语义，若出现安全边际数字则同时出现「对照用」或等价标注
+
+#### Scenario: JSON 含 methodology_applicable
+
+- **WHEN** `format_value_report(result, as_json=True)` 且 result 含 `methodology_applicable=False`
+- **THEN** JSON 中该字段为 `false`，`assessment` 为「方法暂不适用」
+
+#### Scenario: 正常标的展示不变
+
+- **WHEN** `methodology_applicable=True` 且 assessment 为「低估」
+- **THEN** 文本可正常显示「低估」，不强制追加「对照用」标注
+
 ### Requirement: `report value` 文本输出的价格分位呈现方式
 `format_value_report()` 文本模式输出 SHALL 以定性分档描述（`percentile_band()` 结果）作为价格分位信息的呈现主体，原始数值 SHALL 以弱化形式（如括号内标注）伴随展示，不得以精确数值作为该信息行的句首/主语。`--json` 模式 SHALL 保持 `price_percentile` 原始数值字段不变，供程序化消费方使用。
 
@@ -114,4 +139,18 @@ CLI 离线价值面报告命令：读快照 → 估值计算 → 格式化输出
 #### Scenario: price_percentile 为 None 时不展示分档
 - **WHEN** `result.price_percentile is None`
 - **THEN** 文本输出 SHALL 不包含分位相关行（沿用既有"字段为 None 时不展示该行"约定）
+
+### Requirement: 价值报告展示 V2 情景与周期语义
+
+当结果含情景估值或周期调整语义时，`format_value_report`（非 JSON）SHALL 以非金融可读方式展示：多档情景标签、现价相对落位说明、或周期位置说明；SHALL NOT 仅显示一个未解释的公允中枢。JSON 模式 SHALL 序列化新增字段。
+
+#### Scenario: 比亚迪报告含三档情景标签
+
+- **WHEN** 结果含 P1 情景结构
+- **THEN** 文本出现悲观/基准/乐观（或等价中文）分档
+
+#### Scenario: 诚实未毕业报告仍去行动化
+
+- **WHEN** `methodology_applicable=False`
+- **THEN** 主评估为方法暂不适用语义，并保留对照用标注（与诚实层一致）
 

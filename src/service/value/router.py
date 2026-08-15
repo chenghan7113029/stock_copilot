@@ -13,19 +13,16 @@ _CODE_OVERRIDE: dict[str, str] = {
     "600036": "bank",
     "600900": "high_dividend",
     "600519": "value_growth",
+    "002594": "growth_manufacturing",
+    "002027": "cashflow_ad_cycle",
+    "600072": "defense_orders",
+    "601318": "insurance",
+    "300627": "growth_tech",
 }
 
 # code → (标签, 方法论/偏差说明基句)；命中后短路为 unknown（诚实层）
-_CODE_V2_HONESTY: dict[str, tuple[str, str]] = {
-    "002594": (
-        "成长+制造周期",
-        "单点 DCF/盈利能力价值会把产能与销量波动当成稳定成长，景气高时容易偏乐观、景气低时容易偏悲观。专用情景估值暂缺",
-    ),
-    "002027": (
-        "现金流+广告周期",
-        "轻资产高现金流在广告景气期会被静态外推得过高，在下行期会被看得过低。缺周期位置时专用方法暂缺",
-    ),
-}
+# P1–P5：持仓样本已毕业；其他军工与其他保险仍走行业诚实层
+_CODE_V2_HONESTY: dict[str, tuple[str, str]] = {}
 
 _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
     "银行": "bank",
@@ -34,6 +31,10 @@ _INDUSTRY_PROTOTYPE_MAP: dict[str, str] = {
     "燃气": "high_dividend",
     "高速公路": "high_dividend",
     "港口": "high_dividend",
+    "软件服务": "growth_tech",
+    "软件开发": "growth_tech",
+    "互联网服务": "growth_tech",
+    "通信设备": "growth_tech",
 }
 
 _INDUSTRY_V2_UNIMPLEMENTED: dict[str, str] = {
@@ -49,7 +50,18 @@ _INDUSTRY_METHODOLOGY_GAP: dict[str, str] = {
 
 _DECISION_BAN = "通用方法得出的低估/高估不应用于买卖决策"
 
-_IMPLEMENTED_PROTOTYPES = frozenset({"bank", "high_dividend", "value_growth"})
+_IMPLEMENTED_PROTOTYPES = frozenset(
+    {
+        "bank",
+        "high_dividend",
+        "value_growth",
+        "growth_manufacturing",
+        "cashflow_ad_cycle",
+        "defense_orders",
+        "insurance",
+        "growth_tech",
+    }
+)
 
 _PROTOTYPE_METHODS: dict[str, list[str]] = {
     "bank": [
@@ -80,6 +92,37 @@ _PROTOTYPE_METHODS: dict[str, list[str]] = {
         "pe_relative",
         "piotroski_f",
         "beneish_m",
+        "value_trap",
+    ],
+    "growth_manufacturing": [
+        "scenario_dcf",
+        "altman_z",
+        "piotroski_f",
+        "value_trap",
+    ],
+    "cashflow_ad_cycle": [
+        "cyclical_fcf",
+        "cyclical_pe",
+        "altman_z",
+        "value_trap",
+    ],
+    "defense_orders": [
+        "defense_orders",
+        "altman_z",
+        "value_trap",
+    ],
+    "insurance": [
+        "insurance_ev",
+        "altman_z",
+        "value_trap",
+    ],
+    "growth_tech": [
+        "peg",
+        "garp",
+        "rule_of_40",
+        "ev_ebitda",
+        "dcf",
+        "piotroski_f",
         "value_trap",
     ],
     "unknown": [
@@ -120,11 +163,19 @@ def describe_unimplemented_industry(industry: str | None) -> tuple[str, str] | N
 
 
 def describe_honesty_gap(code: str, industry: str | None) -> HonestyGap | None:
-    """code 优先于行业：返回诚实缺口；未命中返回 None。"""
+    """code 优先于行业：返回诚实缺口；未命中返回 None。
+
+    已毕业到已实现 V2/V1 原型的 code（`_CODE_OVERRIDE`）不再套行业诚实层，
+    避免中船等军工样本被「军工行业暂缺」二次压制。
+    """
     code_entry = _CODE_V2_HONESTY.get(code)
     if code_entry is not None:
         label, base = code_entry
         return HonestyGap(label=label, methodology_gap=_compose_methodology_gap(base))
+
+    override = _CODE_OVERRIDE.get(code)
+    if override is not None and override in _IMPLEMENTED_PROTOTYPES:
+        return None
 
     industry_detail = describe_unimplemented_industry(industry)
     if industry_detail is None:

@@ -59,6 +59,7 @@ class StockData:
 
     # ── 现金流 ────────────────────────────────────────────────────────────────
     fcf: Optional[float] = None            # 自由现金流（元）
+    operating_cash_flow: Optional[float] = None  # 经营现金流（元）
     capex: Optional[float] = None          # 资本开支（元）
     depreciation: Optional[float] = None  # 折旧摊销（元）
 
@@ -116,6 +117,25 @@ class StockData:
     # ── 历史估值序列（相对估值方法用，可空）────────────────────────────────────
     historical_pe: Optional[List[float]] = None  # 历史滚动 PE 序列（降序）
     historical_pb: Optional[List[float]] = None  # 历史滚动 PB 序列（降序）
+
+    # ── 周期股扩展（V2 Cyclical / 广告周期；可空，缺 cycle_position 则不毕业）──
+    # cycle_position: bottom | early_up | mid | late | top | early_down
+    cycle_position: Optional[str] = None
+    normalized_eps: Optional[float] = None       # 周期均值化 EPS（元）
+    normalized_fcf: Optional[float] = None       # 周期均值化 FCF 总额（元）
+    historical_roe: Optional[List[float]] = None  # 历史 ROE（%）
+    historical_fcf: Optional[List[float]] = None  # 历史 FCF 总额序列（元）
+
+    # ── 军工订单扩展（V2 defense_orders；缺订单输入则不毕业）────────────────
+    order_backlog: Optional[float] = None          # 在手订单金额（元）
+    order_execution_years: Optional[float] = None  # 预计消化年数
+    order_margin: Optional[float] = None           # 订单利润率（%，税前）
+    revaluation_assets: Optional[float] = None     # 资产重估增量（元，可选）
+
+    # ── 保险 EV/NBV 扩展（V2 insurance；缺内含价值则不毕业）────────────────
+    embedded_value: Optional[float] = None         # 内含价值 EV 总额（元）
+    nbv: Optional[float] = None                    # 一年新业务价值 NBV（元，可选）
+    p_ev_fair: Optional[float] = None              # 公允 P/EV 倍数（缺省 1.0）
 
     # ── 元数据 ────────────────────────────────────────────────────────────────
     # 估值原型（由 PrototypeRouter.route() 写入，供 AssumptionProvider 查 β/floor）

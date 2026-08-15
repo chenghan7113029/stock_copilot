@@ -136,7 +136,7 @@ etire-akshare-default |
 
 | ID | 项 | 说明 | 建议 change | 状态 |
 |----|-----|------|-------------|------|
-| T-1 | 安全边际按原型差异化 | 当前统一 MOS 阈值 | — | [ ] 待设计 |
+| T-1 | 安全边际按原型差异化 | 当前统一 MOS 阈值；按原型表迁移中（bank/high_dividend 12/-12，value_growth 20/-10） | `add-mos-thresholds-by-prototype` | [~] 进行中 |
 | T-2 | value_trap High 专项提示 | `value_trap_alert` 独立高危区块 + confidence 一级降级；摘要仍保留 warnings | `add-value-trap-high-alert` | [x] 已实现 |
 | T-3 | 银行指标 E2E 验证 | 净息差/不良率等完整度 | value-bank-e2e | [x] 路由+聚合 ✅；专项指标 🔧 常 missing |
 | T-7 | 行业→原型映射 Router | Tushare `stock_basic.industry` 简化行业 → 原型；非 SW/CS 多级代码 | `add-industry-prototype-router` | [x] 已实现；保险高杠杆不再误判 bank |
@@ -222,13 +222,13 @@ etire-akshare-default |
 
 | ID | 项 | 样本股 | 状态 |
 |----|-----|--------|------|
-| T-4 | 保险 EV/NBV 模型 | 中国平安 | [ ] V2 |
-| T-5 | 军工·订单驱动模型 | 中船科技 | [ ] V2 |
-| T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [ ] V2 |
-| — | 成长 + 制造周期情景 DCF | 比亚迪 | [ ] V2（诚实层已覆盖 code 压制） |
+| T-4 | 保险 EV/NBV 模型 | 中国平安 | [x] V2 P4（`insurance`；本分支） |
+| T-5 | 军工·订单驱动模型 | 中船科技 | [x] V2 P3（`defense_orders`；本分支） |
+| T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [x] V2 P5（`growth_tech` 路由接线；本分支） |
+| — | 成长 + 制造周期情景 DCF | 比亚迪 | [x] V2 P1（`growth_manufacturing` + 浅情景 DCF；本分支） |
 | — | 周期 + 资产重估 | 北大荒 | [ ] V2 |
-| — | 现金流 + 广告周期 | 分众传媒 | [ ] V2（诚实层已覆盖 code 压制） |
-| T-12 | Cyclical 4 方法 + `CyclicalStock` | `cyclical_pb/pe/fcf/dividend` | [ ] V2 |
+| — | 现金流 + 广告周期 | 分众传媒 | [x] V2 P2（`cashflow_ad_cycle` + cyclical 子集；本分支） |
+| T-12 | Cyclical 4 方法 + `CyclicalStock` 数据模型 | — | [~] P2 已落地 pe/fcf + 字段扩展；pb/dividend 待增量 |
 
 ---
 
