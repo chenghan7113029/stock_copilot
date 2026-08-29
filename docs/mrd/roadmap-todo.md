@@ -13,6 +13,7 @@
 | 日期 | 摘要 |
 |------|------|
 | 2026-08-29 | `add-confrontation-narrate-api` 在分支 `feat/decision-audit-v2` 实现：`report confront [--narrate]`、numbered evidence、`ConfrontationRecord` |
+| 2026-08-29 | `fix-migration-baseline-as-of`：L3 门禁钉 `as_of`，与墙钟解耦并 re-baseline |
 | 2026-08-29 | 决策护航 V2 探索落地：OpenSpec 立项 `add-confrontation-narrate-api` / `add-confrontation-declaration` / `add-confrontation-persona-stress-test`；主路径 CLI+API；declare 结构化+evidence 序号；命令分散仅 ID 关联 |
 | 2026-08-29 | 竞品参考：`docs/mrd/competitive-reference.md` + `ref/` 镜像 12 项目；Tushare 权限扫描 `docs/mrd/tushare-permission-scan.md` |
 | 2026-08-15 | 飞书 dual 推送：`feishu push` + lark-cli 新建文档 / 一票一消息（`add-feishu-watchlist-push`） |

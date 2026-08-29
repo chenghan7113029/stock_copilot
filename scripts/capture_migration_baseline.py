@@ -22,6 +22,7 @@ from common.migration_baseline import stable_hash, strip_non_deterministic  # no
 
 DEFAULT_CODES = ("600519", "601398", "601939")
 DEFAULT_KINDS = ("tech", "value", "dual")
+DEFAULT_AS_OF = "2026-08-10"
 SEED_DB = ROOT / "data" / "fixtures" / "stock_copilot_seed.db"
 OUT_DIR = ROOT / "test" / "fixtures" / "migration_baseline"
 
@@ -39,7 +40,13 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def run_offline_json(code: str, kind: str, config: dict[str, Any]) -> dict[str, Any]:
+def run_offline_json(
+    code: str,
+    kind: str,
+    config: dict[str, Any],
+    *,
+    as_of: str | None = None,
+) -> dict[str, Any]:
     """生成单票离线 JSON（与 CLI report --json 契约对齐的核心字段）。"""
     from apps.formatters import format_dual_report, format_tech_report, format_value_report
     from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
@@ -57,6 +64,8 @@ def run_offline_json(code: str, kind: str, config: dict[str, Any]) -> dict[str, 
     from service.value.analyzer import ValueAnalyzer
     from service.value.valuation.assumptions import AssumptionProvider
     from service.value.valuation.engine import default_engine
+
+    observe = as_of or config.get("as_of") or DEFAULT_AS_OF
 
     engine = create_db_engine(config)
     Base.metadata.create_all(engine)
@@ -81,15 +90,18 @@ def run_offline_json(code: str, kind: str, config: dict[str, Any]) -> dict[str, 
         )
 
         if kind == "tech":
-            result = tech_analyzer.analyze(code, offline=True)
+            result = tech_analyzer.analyze(code, offline=True, as_of=observe)
             return json.loads(format_tech_report(result, as_json=True))
         if kind == "value":
+            # value 离线读 snapshot，不依赖 date.today()；as_of 仅对齐 tech/dual 窗口
             result = value_analyzer.analyze_offline(code)
             if result is None:
                 return {"code": code, "error": "no_value_snapshot"}
             return json.loads(format_value_report(result, as_json=True))
         if kind == "dual":
-            report = DualTrackAnalyzer(value_analyzer, tech_analyzer).analyze_offline(code)
+            report = DualTrackAnalyzer(value_analyzer, tech_analyzer).analyze_offline(
+                code, as_of=observe
+            )
             buckets = EvidenceBucketer().bucket(report)
             return json.loads(
                 format_dual_report(
@@ -112,6 +124,7 @@ def capture(
     codes: tuple[str, ...] = DEFAULT_CODES,
     out_dir: Path = OUT_DIR,
     seed_db: Path = SEED_DB,
+    as_of: str = DEFAULT_AS_OF,
 ) -> Path:
     if not seed_db.is_file():
         raise FileNotFoundError(f"seed DB missing: {seed_db}")
@@ -128,12 +141,15 @@ def capture(
             "data_sources": {"enabled": []},
             "tech": {"kline_days": 90},
             "logging": {"cli_progress": False},
+            "as_of": as_of,
         }
 
         file_hashes: dict[str, str] = {}
         for code in codes:
             for kind in DEFAULT_KINDS:
-                payload = strip_non_deterministic(run_offline_json(code, kind, config))
+                payload = strip_non_deterministic(
+                    run_offline_json(code, kind, config, as_of=as_of)
+                )
                 name = f"report_{kind}_{code}.json"
                 path = seed_out / name
                 path.write_text(
@@ -144,6 +160,7 @@ def capture(
                 print(f"wrote {path.relative_to(ROOT)} hash={file_hashes[name][:12]}")
 
     manifest = {
+        "as_of": as_of,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
         "seed_db": str(seed_db.as_posix()),
@@ -151,6 +168,9 @@ def capture(
         "kinds": list(DEFAULT_KINDS),
         "file_hashes": file_hashes,
         "float_rel_tol": 1e-6,
+        "rebaseline_reason": (
+            "as_of window lock; dual evidence {index,text}; methodology_applicable"
+        ),
     }
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(
@@ -166,8 +186,14 @@ def main() -> None:
     parser.add_argument("--codes", nargs="*", default=list(DEFAULT_CODES))
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--seed-db", type=Path, default=SEED_DB)
+    parser.add_argument("--as-of", default=DEFAULT_AS_OF, help="观察日 YYYY-MM-DD")
     args = parser.parse_args()
-    capture(codes=tuple(args.codes), out_dir=args.out_dir, seed_db=args.seed_db)
+    capture(
+        codes=tuple(args.codes),
+        out_dir=args.out_dir,
+        seed_db=args.seed_db,
+        as_of=args.as_of,
+    )
 
 
 if __name__ == "__main__":

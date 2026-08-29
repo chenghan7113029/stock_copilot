@@ -122,6 +122,14 @@ def compare(
         return 2
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    as_of = manifest.get("as_of")
+    if not as_of:
+        print(
+            "[error] manifest missing required 'as_of'; re-run capture_migration_baseline.py",
+            file=sys.stderr,
+        )
+        return 2
+
     rel_tol = float(manifest.get("float_rel_tol", 1e-6))
     codes = tuple(manifest.get("codes") or capture.DEFAULT_CODES)
     kinds = tuple(manifest.get("kinds") or capture.DEFAULT_KINDS)
@@ -136,6 +144,7 @@ def compare(
             "data_sources": {"enabled": []},
             "tech": {"kline_days": 90},
             "logging": {"cli_progress": False},
+            "as_of": as_of,
         }
 
         for code in codes:
@@ -146,7 +155,9 @@ def compare(
                     all_diffs.append({"path": name, "reason": "missing_baseline_file"})
                     continue
                 expected = json.loads(baseline_file.read_text(encoding="utf-8"))
-                actual = strip_non_deterministic(capture.run_offline_json(code, kind, config))
+                actual = strip_non_deterministic(
+                    capture.run_offline_json(code, kind, config, as_of=as_of)
+                )
                 file_diffs: list[dict[str, Any]] = []
                 _diff_values(expected, actual, name, rel_tol=rel_tol, diffs=file_diffs)
                 if file_diffs:
@@ -157,6 +168,7 @@ def compare(
     payload = {
         "compared_at": datetime.now(timezone.utc).isoformat(),
         "baseline_git_sha": manifest.get("git_sha"),
+        "as_of": as_of,
         "diff_count": len(all_diffs),
         "diffs": all_diffs,
     }
