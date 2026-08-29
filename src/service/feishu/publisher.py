@@ -153,6 +153,8 @@ class LarkCliPublisher:
             "json",
             "--doc-format",
             "markdown",
+            "--as",
+            "user",
             "--title",
             title,
             "--content",
@@ -197,6 +199,8 @@ class LarkCliPublisher:
             "+messages-send",
             "--format",
             "json",
+            "--as",
+            "user",
         ]
         # user_id（自聊）优先；与 chat_id 互斥
         if user_id:

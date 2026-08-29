@@ -68,8 +68,10 @@ def test_publish_create_then_send(tmp_path: Path):
     assert result.doc_url == "https://feishu.cn/docx/d1"
     assert result.title == "今日研报_贵州茅台_2026-08-18_1700"
     assert runner.calls[0][1:3] == ["docs", "+create"]
+    assert runner.calls[0][runner.calls[0].index("--as") + 1] == "user"
     assert "--title" in runner.calls[0]
     assert runner.calls[1][1:3] == ["im", "+messages-send"]
+    assert runner.calls[1][runner.calls[1].index("--as") + 1] == "user"
     assert "--chat-id" in runner.calls[1]
     assert "今日研报_贵州茅台_2026-08-18_1700" in runner.calls[1][runner.calls[1].index("--text") + 1]
 
@@ -102,8 +104,10 @@ def test_publish_prefers_user_id_over_chat_id(tmp_path: Path):
     )
     assert result.error is None
     create_argv = runner.calls[0]
+    assert create_argv[create_argv.index("--as") + 1] == "user"
     assert create_argv[create_argv.index("--parent-token") + 1] == "fld_x"
     send_argv = runner.calls[1]
+    assert send_argv[send_argv.index("--as") + 1] == "user"
     assert "--user-id" in send_argv
     assert send_argv[send_argv.index("--user-id") + 1] == "ou_me"
     assert "--chat-id" not in send_argv
