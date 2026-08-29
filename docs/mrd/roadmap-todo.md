@@ -14,6 +14,7 @@
 |------|------|
 | 2026-08-29 | `add-confrontation-narrate-api` 在分支 `feat/decision-audit-v2` 实现：`report confront [--narrate]`、numbered evidence、`ConfrontationRecord` |
 | 2026-08-29 | `fix-migration-baseline-as-of`：L3 门禁钉 `as_of`，与墙钟解耦并 re-baseline |
+| 2026-08-29 | `add-confrontation-declaration`：`confront declare/show` + checklist/trade `--confrontation-id` |
 | 2026-08-29 | 决策护航 V2 探索落地：OpenSpec 立项 `add-confrontation-narrate-api` / `add-confrontation-declaration` / `add-confrontation-persona-stress-test`；主路径 CLI+API；declare 结构化+evidence 序号；命令分散仅 ID 关联 |
 | 2026-08-29 | 竞品参考：`docs/mrd/competitive-reference.md` + `ref/` 镜像 12 项目；Tushare 权限扫描 `docs/mrd/tushare-permission-scan.md` |
 | 2026-08-15 | 飞书 dual 推送：`feishu push` + lark-cli 新建文档 / 一票一消息（`add-feishu-watchlist-push`） |
@@ -91,9 +92,9 @@ etire-akshare-default |
 |----|------|------|------|
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [x] 已实现（`report summary [--narrate]`） |
-| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [~] V1 Skill 版 ✅；**V2 进行中**：`add-confrontation-narrate-api` + `add-confrontation-declaration`（API + declare + evidence 序号） |
+| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [~] V1 Skill ✅；**narrate-api 已归档**；**declaration 实现中**（`confront declare`） |
 | PO-03b | Persona 压力测试 | 同 evidence 多 lens，对抗单框架思维 | [ ] 已立项 `add-confrontation-persona-stress-test` |
-| PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现；V2 将增加 `--confrontation-id` 软链（declaration change） |
+| PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现；支持 `--confrontation-id` 软链 |
 | PO-05 | 假设今日首开仓 | 隐藏持仓成本/盈亏比例，对抗沉没成本 | [x] 已实现（`entry-check`）；**PO-05b** 用户回答落库见 §2.4 |
 
 ### 2.2 P1 — 情绪与交互
@@ -126,7 +127,7 @@ etire-akshare-default |
 | Change | 能力 | 依赖 | 状态 |
 |--------|------|------|------|
 | `add-confrontation-narrate-api` | `report confront [--narrate]`；numbered evidence；grounded 互驳 JSON；`ConfrontationRecord` | `llm-narrative-core` ✅ | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-narrate-api`） |
-| `add-confrontation-declaration` | `confront declare` 结构化 schema + evidence ref 校验；`checklist/trade --confrontation-id` | narrate-api | 已 propose，待 apply |
+| `add-confrontation-declaration` | `confront declare` 结构化 schema + evidence ref 校验；`checklist/trade --confrontation-id` | narrate-api | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-declaration`） |
 | `add-confrontation-persona-stress-test` | `report persona-stress`（value_quality / trend_momentum / risk_governor） | narrate-api | 已 propose，待 apply |
 
 **推荐实施顺序：** narrate-api → declaration → persona（可并行 declaration 与 persona 设计，但 declare 依赖 confrontation_id）。

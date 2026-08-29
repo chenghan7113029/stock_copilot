@@ -234,7 +234,7 @@
 
 - [ ] MRD / Design 与 OpenSpec 归档同步（见 [docs/README.md](../README.md)）
 - [ ] 确定性计算与 LLM 输出分离，数值可追溯至 data_provider / service 原始结果
-- [ ] 关键决策（Checklist 填写、用户拒绝红蓝哪方）可持久化备查
+- [x] 关键决策（Checklist 填写、用户拒绝红蓝哪方）可持久化备查
 
 ### 8.3 非目标（明确排除）
 

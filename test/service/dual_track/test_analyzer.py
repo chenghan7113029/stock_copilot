@@ -169,7 +169,9 @@ def test_analyze_offline_success():
     assert report.combined_signal == CombinedSignal.STRONG_BUY
     assert report.value_rating == ValueRating.UNDERVALUED
     analyzer._value_analyzer.analyze_offline.assert_called_once_with("600519")
-    analyzer._tech_analyzer.analyze.assert_called_once_with("600519", offline=True)
+    analyzer._tech_analyzer.analyze.assert_called_once_with(
+        "600519", offline=True, as_of=None
+    )
     analyzer._value_analyzer.analyze.assert_not_called()
 
 
@@ -195,7 +197,7 @@ def test_analyze_offline_does_not_call_online_analyze():
     analyzer.analyze_offline("600519")
 
     value_analyzer.analyze.assert_not_called()
-    tech_analyzer.analyze.assert_called_once_with("600519", offline=True)
+    tech_analyzer.analyze.assert_called_once_with("600519", offline=True, as_of=None)
 
 
 def test_analyze_online_unchanged_still_calls_analyze():

@@ -36,20 +36,27 @@ def test_run_trade_record_persists_optional_checklist_id(
 
 
 @patch("apps.cli.TradeRecordRepo")
+@patch("apps.cli.ConfrontationRepo")
 @patch("apps.cli.make_session_factory")
 @patch("apps.cli.create_db_engine")
 @patch("apps.cli.load_app_config", return_value={})
-def test_run_trade_record_allows_missing_optional_checklist_id(
-    mock_cfg, mock_engine, mock_session_factory, mock_repo
+def test_run_trade_record_persists_confrontation_id(
+    mock_cfg, mock_engine, mock_session_factory, mock_confront, mock_repo, capsys
 ):
     session = MagicMock()
     mock_session_factory.return_value = MagicMock(return_value=session)
+    mock_confront.return_value.get.return_value = MagicMock(code="600519")
 
-    run_trade_record("600519", "sell", 1600.0, 100)
+    run_trade_record(
+        "600519",
+        "buy",
+        1500.0,
+        100,
+        confrontation_id=12,
+    )
 
     record = mock_repo.return_value.add.call_args.args[0]
-    assert record.action == "SELL"
-    assert record.checklist_id is None
+    assert record.confrontation_id == 12
 
 
 @pytest.mark.parametrize(
@@ -94,6 +101,7 @@ def test_trade_record_command_routes_arguments(mock_record):
         100,
         trade_date="2026-08-01",
         checklist_id=42,
+        confrontation_id=None,
         note="首次建仓",
         config=None,
     )

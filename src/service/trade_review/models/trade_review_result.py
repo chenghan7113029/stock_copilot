@@ -13,6 +13,8 @@ class Badcase:
     checklist_id: int
     return_rate: float
     quantity: int
+    confrontation_id: int | None = None
+    declare_stance: str | None = None
 
 
 @dataclass(frozen=True)

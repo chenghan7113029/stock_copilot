@@ -13,6 +13,8 @@ from dao.models import ConfrontationRecord
 NARRATE_OK = "ok"
 NARRATE_SKIPPED = "skipped"
 NARRATE_FAILED = "failed"
+DECLARE_OK = "ok"
+DECLARE_INVALID = "invalid"
 
 
 class ConfrontationRepo:
@@ -41,6 +43,27 @@ class ConfrontationRepo:
         self._session.flush()
         return record
 
+    def update_declare(
+        self,
+        record_id: int,
+        declaration: dict[str, Any],
+        *,
+        declare_status: str = DECLARE_OK,
+    ) -> ConfrontationRecord:
+        from datetime import datetime, timezone
+
+        record = self.get(record_id)
+        if record is None:
+            raise ValueError(f"confrontation_id={record_id} 不存在")
+        if record.declare_status == DECLARE_OK:
+            raise ValueError(f"confrontation_id={record_id} 已有成功 declare，V1 不允许覆盖")
+        record.declare_json = json.dumps(declaration, ensure_ascii=False, default=str)
+        record.declare_status = declare_status
+        record.declared_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        self._session.flush()
+        self._hydrate(record)
+        return record
+
     def get(self, record_id: int) -> ConfrontationRecord | None:
         record = self._session.get(ConfrontationRecord, record_id)
         if record is not None:
@@ -63,6 +86,7 @@ class ConfrontationRepo:
     def _hydrate(record: ConfrontationRecord) -> None:
         record.evidence = ConfrontationRepo._load_json(record.evidence_json) or {}
         record.narrative = ConfrontationRepo._load_json(record.narrative_json)
+        record.declaration = ConfrontationRepo._load_json(record.declare_json)
 
     @staticmethod
     def _load_json(payload: str | None) -> dict[str, Any] | None:

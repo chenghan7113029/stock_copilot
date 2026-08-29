@@ -729,6 +729,50 @@ def format_entry_check_report(view: FreshEntryView, as_json: bool = False) -> st
     )
 
 
+def format_confrontation_history(
+    code: str,
+    records: list[Any],
+    *,
+    as_json: bool = False,
+) -> str:
+    """列出某票 confrontation 历史（含 declare 状态）。"""
+    rows = []
+    for record in records:
+        evidence = getattr(record, "evidence", None) or {}
+        bull = evidence.get("bull_evidence") or []
+        bear = evidence.get("bear_evidence") or []
+        decl = getattr(record, "declaration", None) or {}
+        rows.append(
+            {
+                "id": record.id,
+                "code": record.code,
+                "narrate_status": record.narrate_status,
+                "declare_status": record.declare_status,
+                "declared_at": (
+                    record.declared_at.isoformat() if record.declared_at else None
+                ),
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "bull_count": len(bull) if isinstance(bull, list) else 0,
+                "bear_count": len(bear) if isinstance(bear, list) else 0,
+                "declare_stance": decl.get("stance") if isinstance(decl, dict) else None,
+            }
+        )
+    if as_json:
+        return _dump_json({"code": code, "records": rows})
+    if not rows:
+        return f"暂无 {code} 的 confrontation 记录"
+    lines = [f"# Confrontation 历史 — {code}", ""]
+    for row in rows:
+        stance = row["declare_stance"] or "-"
+        lines.append(
+            f"- **#{row['id']}** | narrate={row['narrate_status']} | "
+            f"declare={row['declare_status'] or 'none'} | stance={stance} | "
+            f"evidence bull={row['bull_count']} bear={row['bear_count']} | "
+            f"created={row['created_at']}"
+        )
+    return "\n".join(lines)
+
+
 def format_trade_review_report(result: TradeReviewResult, as_json: bool = False) -> str:
     """格式化严格离线的 FIFO 交易复盘报告。"""
     if as_json:
@@ -750,8 +794,15 @@ def format_trade_review_report(result: TradeReviewResult, as_json: bool = False)
         lines.extend(["", f"## Badcase ({len(result.badcase_list)})", ""])
         if result.badcase_list:
             lines.extend(
-                f"- `{item.code}` | Checklist #{item.checklist_id} | "
-                f"收益率 {item.return_rate:.2%} | 数量 {item.quantity}"
+                (
+                    f"- `{item.code}` | Checklist #{item.checklist_id} | "
+                    f"收益率 {item.return_rate:.2%} | 数量 {item.quantity}"
+                    + (
+                        f" | declare={item.declare_stance}"
+                        if item.declare_stance
+                        else ""
+                    )
+                )
                 for item in result.badcase_list
             )
         else:

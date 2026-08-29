@@ -122,12 +122,23 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                     "take_profit_price FLOAT, "
                     "passed BOOLEAN NOT NULL, "
                     "rejection_reasons_json TEXT NOT NULL, "
+                    "confrontation_id INTEGER, "
                     "created_at DATETIME NOT NULL"
                     ")"
                 )
             )
             conn.execute(text("CREATE INDEX ix_checklist_records_code ON checklist_records (code)"))
             logger.info("已创建表 checklist_records")
+        else:
+            checklist_cols = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(checklist_records)")).fetchall()
+            }
+            if "confrontation_id" not in checklist_cols:
+                conn.execute(
+                    text("ALTER TABLE checklist_records ADD COLUMN confrontation_id INTEGER")
+                )
+                logger.info("已添加列 checklist_records.confrontation_id")
         if "position_records" not in tables:
             conn.execute(
                 text(
@@ -143,6 +154,25 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             )
             conn.execute(text("CREATE INDEX ix_position_records_code ON position_records (code)"))
             logger.info("已创建表 position_records")
+        if "trade_records" not in tables:
+            # create_all 通常已建；此处兜底并保证 confrontation_id
+            pass
+        trade_exists = "trade_records" in {
+            row[0]
+            for row in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            ).fetchall()
+        }
+        if trade_exists:
+            trade_cols = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(trade_records)")).fetchall()
+            }
+            if "confrontation_id" not in trade_cols:
+                conn.execute(
+                    text("ALTER TABLE trade_records ADD COLUMN confrontation_id INTEGER")
+                )
+                logger.info("已添加列 trade_records.confrontation_id")
         if "confrontation_records" not in tables:
             conn.execute(
                 text(
@@ -152,6 +182,9 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                     "evidence_json TEXT NOT NULL, "
                     "narrative_json TEXT, "
                     "narrate_status VARCHAR(20) NOT NULL, "
+                    "declare_json TEXT, "
+                    "declare_status VARCHAR(20), "
+                    "declared_at DATETIME, "
                     "created_at DATETIME NOT NULL"
                     ")"
                 )
@@ -160,6 +193,21 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 text("CREATE INDEX ix_confrontation_records_code ON confrontation_records (code)")
             )
             logger.info("已创建表 confrontation_records")
+        else:
+            confront_cols = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(confrontation_records)")).fetchall()
+            }
+            for col, sql_type in (
+                ("declare_json", "TEXT"),
+                ("declare_status", "VARCHAR(20)"),
+                ("declared_at", "DATETIME"),
+            ):
+                if col not in confront_cols:
+                    conn.execute(
+                        text(f"ALTER TABLE confrontation_records ADD COLUMN {col} {sql_type}")
+                    )
+                    logger.info("已添加列 confrontation_records.%s", col)
 
 
 class Base(DeclarativeBase):
