@@ -143,6 +143,23 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             )
             conn.execute(text("CREATE INDEX ix_position_records_code ON position_records (code)"))
             logger.info("已创建表 position_records")
+        if "confrontation_records" not in tables:
+            conn.execute(
+                text(
+                    "CREATE TABLE confrontation_records ("
+                    "id INTEGER NOT NULL PRIMARY KEY, "
+                    "code VARCHAR(10) NOT NULL, "
+                    "evidence_json TEXT NOT NULL, "
+                    "narrative_json TEXT, "
+                    "narrate_status VARCHAR(20) NOT NULL, "
+                    "created_at DATETIME NOT NULL"
+                    ")"
+                )
+            )
+            conn.execute(
+                text("CREATE INDEX ix_confrontation_records_code ON confrontation_records (code)")
+            )
+            logger.info("已创建表 confrontation_records")
 
 
 class Base(DeclarativeBase):

@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from apps.formatters import (
     format_checklist_records,
+    format_confront_report,
     format_dashboard_report,
     format_dual_report,
     format_entry_check_report,
@@ -34,6 +35,12 @@ from common.watchlist import (
 from common.win_console import setup_utf8_console
 from dao.checklist_repo import ChecklistRepo
 from dao.chip_distribution_repo import ChipDistributionRepo
+from dao.confrontation_repo import (
+    NARRATE_FAILED,
+    NARRATE_OK,
+    NARRATE_SKIPPED,
+    ConfrontationRepo,
+)
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
 from dao.kline_repo import KlineRepo
 from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
@@ -41,6 +48,7 @@ from dao.market_sentiment_repo import MarketSentimentRepo
 from dao.models import (  # noqa: F401 — register ORM models
     ChecklistRecord,
     ChipDistribution,
+    ConfrontationRecord,
     Kline,
     MarketSentimentSnapshot,
     PositionRecord,
@@ -61,6 +69,7 @@ from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.feishu.pipeline import reports_root, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError
 from service.guard.checklist_validator import ChecklistValidator
+from service.guard.confrontation_narrator import ConfrontationNarrator
 from service.guard.fresh_entry_check import FreshEntryCheck
 from service.guard.fresh_entry_check import LocalDataMissingError as FreshEntryLocalDataMissingError
 from service.guard.models.checklist import ChecklistSubmission
@@ -386,6 +395,111 @@ def run_report_dual(
             tech_result=report.tech_result,
         )
         _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
+def run_report_confront(
+    code: str,
+    *,
+    narrate: bool = False,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """离线证据分桶 + 可选 LLM 互驳叙事（产品主路径）。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 红蓝对抗报告（离线 Level 0{' + narrate' if narrate else ''}）…")
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        progress.emit("正在加载本地快照并跑双轨离线分析…")
+        value_analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
+        tech_analyzer = TechAnalyzer.from_config(cfg)
+        dual = DualTrackAnalyzer(
+            value_analyzer,
+            tech_analyzer,
+            sentiment_analyzer=SentimentAnalyzer(
+                MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+            ),
+        )
+        report = dual.analyze_offline(code)
+
+        no_value = report.value_result is None
+        no_tech = report.tech_result is None or any(
+            "无K线缓存" in w for w in report.tech_result.warnings
+        ) or any("无K线缓存" in r for r in report.tech_result.risk_factors)
+        if no_value and no_tech:
+            print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+
+        buckets = EvidenceBucketer().bucket(report)
+        narrator = ConfrontationNarrator()
+        evidence = narrator.build_evidence(
+            buckets, code=code, analysis_summary=report.analysis_summary
+        )
+
+        narrate_status = NARRATE_SKIPPED
+        narrative = None
+        narrate_error = None
+        from_cache = False
+        low_confidence_warning = False
+
+        if narrate:
+            progress.emit("正在调用 LLM 生成互驳叙事…")
+            cache = LLMNarrateCacheRepo(session)
+            outcome = narrator.narrate(
+                buckets,
+                code=code,
+                analysis_summary=report.analysis_summary,
+                config=cfg,
+                cache=cache,
+            )
+            from_cache = bool(outcome.result.from_cache)
+            low_confidence_warning = bool(outcome.result.low_confidence_warning)
+            if outcome.result.ok and outcome.narrative is not None:
+                narrate_status = NARRATE_OK
+                narrative = outcome.narrative
+            else:
+                narrate_status = NARRATE_FAILED
+                narrate_error = outcome.result.error or "LLM 叙事失败"
+                progress.emit(f"叙事失败，仅输出 Level 0：{narrate_error}")
+
+        repo = ConfrontationRepo(session)
+        record = repo.save(
+            code=code,
+            evidence=evidence,
+            narrate_status=narrate_status,
+            narrative=narrative,
+        )
+        session.commit()
+
+        text = format_confront_report(
+            code=code,
+            evidence=evidence,
+            narrate_status=narrate_status,
+            narrative=narrative,
+            confrontation_id=record.id,
+            narrate_error=narrate_error,
+            from_cache=from_cache,
+            low_confidence_warning=low_confidence_warning,
+            as_json=as_json,
+        )
+        _emit_report(text, output, progress)
+
+        if narrate and narrate_status == NARRATE_FAILED:
+            raise SystemExit(1)
     finally:
         session.close()
 
@@ -932,6 +1046,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_report_common(
         report_sub.add_parser("dual", help="红蓝对抗证据分桶（离线 Level 0）")
     )
+    confront_parser = report_sub.add_parser(
+        "confront",
+        help="红蓝对抗报告（离线 Level 0；--narrate 联网 LLM 互驳）",
+    )
+    _add_report_common(confront_parser)
+    confront_parser.add_argument(
+        "--narrate",
+        action="store_true",
+        help="显式联网调用 LLM 生成互驳叙事（需配置 llm: 或 LLM_API_KEY）",
+    )
     sentiment_report_parser = report_sub.add_parser("sentiment", help="市场情绪报告（严格离线）")
     sentiment_report_parser.add_argument("code", help="股票代码，仅用于报告标识")
     sentiment_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
@@ -1225,6 +1349,7 @@ def main(argv: list[str] | None = None) -> None:
                 "tech": (run_report_tech, "tech"),
                 "value": (run_report_value, "value"),
                 "dual": (run_report_dual, "dual"),
+                "confront": (run_report_confront, "confront"),
                 "sentiment": (run_report_sentiment, "sentiment"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
@@ -1234,7 +1359,7 @@ def main(argv: list[str] | None = None) -> None:
                 "as_json": args.json,
                 "config": config_override,
             }
-            if args.report_type == "summary":
+            if args.report_type in ("summary", "confront"):
                 extra["narrate"] = bool(getattr(args, "narrate", False))
             if args.report_type == "value":
                 extra["show_anchor_price"] = bool(args.show_anchor_price)

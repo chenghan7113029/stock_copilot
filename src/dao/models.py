@@ -286,3 +286,23 @@ class TradeRecord(Base):
 
     def __repr__(self) -> str:
         return f"<TradeRecord code={self.code} action={self.action} quantity={self.quantity}>"
+
+
+class ConfrontationRecord(Base):
+    """红蓝对抗会话：证据分桶 + 可选 LLM 互驳叙事（declare/persona 由后续 change 扩展）。"""
+
+    __tablename__ = "confrontation_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    narrative_json: Mapped[str | None] = mapped_column(Text)
+    narrate_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConfrontationRecord id={self.id} code={self.code} "
+            f"status={self.narrate_status}>"
+        )
+
