@@ -30,6 +30,7 @@ class ConfrontationRepo:
         evidence: dict[str, Any],
         narrate_status: str,
         narrative: dict[str, Any] | None = None,
+        persona_stress: dict[str, Any] | None = None,
     ) -> ConfrontationRecord:
         record = ConfrontationRecord(
             code=code,
@@ -38,9 +39,29 @@ class ConfrontationRepo:
                 json.dumps(narrative, ensure_ascii=False, default=str) if narrative else None
             ),
             narrate_status=narrate_status,
+            persona_stress_json=(
+                json.dumps(persona_stress, ensure_ascii=False, default=str)
+                if persona_stress
+                else None
+            ),
         )
         self._session.add(record)
         self._session.flush()
+        return record
+
+    def update_persona_stress(
+        self,
+        record_id: int,
+        persona_stress: dict[str, Any],
+    ) -> ConfrontationRecord:
+        record = self.get(record_id)
+        if record is None:
+            raise ValueError(f"confrontation_id={record_id} 不存在")
+        record.persona_stress_json = json.dumps(
+            persona_stress, ensure_ascii=False, default=str
+        )
+        self._session.flush()
+        self._hydrate(record)
         return record
 
     def update_declare(
@@ -87,6 +108,7 @@ class ConfrontationRepo:
         record.evidence = ConfrontationRepo._load_json(record.evidence_json) or {}
         record.narrative = ConfrontationRepo._load_json(record.narrative_json)
         record.declaration = ConfrontationRepo._load_json(record.declare_json)
+        record.persona_stress = ConfrontationRepo._load_json(record.persona_stress_json)
 
     @staticmethod
     def _load_json(payload: str | None) -> dict[str, Any] | None:

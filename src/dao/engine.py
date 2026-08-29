@@ -185,6 +185,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                     "declare_json TEXT, "
                     "declare_status VARCHAR(20), "
                     "declared_at DATETIME, "
+                    "persona_stress_json TEXT, "
                     "created_at DATETIME NOT NULL"
                     ")"
                 )
@@ -202,6 +203,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 ("declare_json", "TEXT"),
                 ("declare_status", "VARCHAR(20)"),
                 ("declared_at", "DATETIME"),
+                ("persona_stress_json", "TEXT"),
             ):
                 if col not in confront_cols:
                     conn.execute(

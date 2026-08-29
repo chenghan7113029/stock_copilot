@@ -291,7 +291,7 @@ class TradeRecord(Base):
 
 
 class ConfrontationRecord(Base):
-    """红蓝对抗会话：证据分桶 + 可选 LLM 互驳叙事 + 用户 declare。"""
+    """红蓝对抗会话：证据分桶 + 可选 LLM 互驳叙事 + 用户 declare + persona 压力测试。"""
 
     __tablename__ = "confrontation_records"
 
@@ -303,6 +303,7 @@ class ConfrontationRecord(Base):
     declare_json: Mapped[str | None] = mapped_column(Text)
     declare_status: Mapped[str | None] = mapped_column(String(20))
     declared_at: Mapped[datetime | None] = mapped_column(DateTime)
+    persona_stress_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
     def __repr__(self) -> str:

@@ -8,6 +8,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-29 | §4.1 Investor Persona：**已立项并实现中** `add-confrontation-persona-stress-test`（三固定 lens） |
 | 2026-08-29 | 决策护航 V2 OpenSpec 立项（narrate-api / declaration / persona-stress-test）；§7 后续动作更新 |
 | 2026-08-29 | 本地镜像：§9 所列 12 个 GitHub 项目已 shallow clone 至 `ref/`（不入库） |
 | 2026-08-29 | 初稿：GitHub 开源投资助手分层梳理、与 stock_copilot 差异对照、可借鉴 Feature 映射与 ROI 排序 |
@@ -87,7 +88,7 @@
 |--------|------|-------------------|
 | 结构化辩论轮次 | Aggressive → Conservative → Neutral 固定轮换，有终止条件 | 红蓝 Skill 版已有；可补轮次 + 终止 + Judge schema |
 | TradeRecommendation Schema | signal / position_fraction / stop_loss / time_horizon / confidence | 可嵌入 Checklist 输出，不变成自动下单 |
-| Investor Persona 压力测试 | Buffett / Lynch / Burry 等同票不同 lens | 比单纯多空更贴近确认偏差审计 |
+| Investor Persona 压力测试 | Buffett / Lynch / Burry 等同票不同 lens | **已立项**：`add-confrontation-persona-stress-test`（V1 三固定 lens：`value_quality` / `trend_momentum` / `risk_governor`；CLI `report persona-stress`） |
 | Post-trade Reflection + BM25 Memory | 交易后反思写入记忆，影响下次分析 | FIFO 复盘已有；规则反哺 Checklist 仍偏人工 |
 
 **建议优先级：高** — 与 PO-03、PO-09 直接衔接，不违背「不自动交易」。

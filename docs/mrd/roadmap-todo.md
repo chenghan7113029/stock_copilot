@@ -92,8 +92,8 @@ etire-akshare-default |
 |----|------|------|------|
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [x] 已实现（`report summary [--narrate]`） |
-| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [~] V1 Skill ✅；**narrate-api 已归档**；**declaration 实现中**（`confront declare`） |
-| PO-03b | Persona 压力测试 | 同 evidence 多 lens，对抗单框架思维 | [ ] 已立项 `add-confrontation-persona-stress-test` |
+| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [~] V1 Skill ✅；**narrate-api / declaration 已归档**；CLI `confront declare` |
+| PO-03b | Persona 压力测试 | 同 evidence 多 lens，对抗单框架思维 | [x] `report persona-stress [--narrate]`；已归档 `add-confrontation-persona-stress-test` |
 | PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现；支持 `--confrontation-id` 软链 |
 | PO-05 | 假设今日首开仓 | 隐藏持仓成本/盈亏比例，对抗沉没成本 | [x] 已实现（`entry-check`）；**PO-05b** 用户回答落库见 §2.4 |
 

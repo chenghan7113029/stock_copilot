@@ -16,6 +16,7 @@ from apps.formatters import (
     format_dashboard_report,
     format_dual_report,
     format_entry_check_report,
+    format_persona_stress_report,
     format_portfolio_report,
     format_sentiment_report,
     format_summary_report,
@@ -77,6 +78,10 @@ from service.guard.fresh_entry_check import FreshEntryCheck
 from service.guard.fresh_entry_check import LocalDataMissingError as FreshEntryLocalDataMissingError
 from service.guard.models.checklist import ChecklistSubmission
 from service.guard.models.confrontation_declaration import ConfrontationDeclaration
+from service.guard.persona_stress_narrator import (
+    PersonaStressNarrator,
+    pending_persona_stress,
+)
 from service.portfolio.analyzer import PortfolioAnalyzer
 from service.report.comprehensive_narrator import narrate_comprehensive_report
 from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingError
@@ -504,6 +509,120 @@ def run_report_confront(
 
         if narrate and narrate_status == NARRATE_FAILED:
             raise SystemExit(1)
+    finally:
+        session.close()
+
+
+def run_report_persona_stress(
+    code: str,
+    *,
+    narrate: bool = False,
+    as_json: bool = False,
+    output: str | None = None,
+    confrontation_id: int | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """同一 numbered evidence 上的三 persona lens（可选 --narrate）。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(
+        f"生成 {code} Persona 压力测试"
+        f"（Level 0{' + narrate' if narrate else ''}）…"
+    )
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        repo = ConfrontationRepo(session)
+        narrator = PersonaStressNarrator()
+        existing: ConfrontationRecord | None = None
+
+        if confrontation_id is not None:
+            existing = repo.get(confrontation_id)
+            if existing is None:
+                print(f"[error] confrontation_id={confrontation_id} 不存在", file=sys.stderr)
+                raise SystemExit(1)
+            if existing.code != code:
+                print(
+                    f"[error] confrontation_id={confrontation_id} 属于 {existing.code}，"
+                    f"与请求代码 {code} 不一致",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            evidence = existing.evidence or {}
+            if not evidence.get("bull_evidence") and not evidence.get("bear_evidence"):
+                print(
+                    f"[error] confrontation_id={confrontation_id} 无可用 evidence",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            progress.emit(f"复用 confrontation_id={confrontation_id} 的 evidence…")
+        else:
+            snapshot_repo = StockSnapshotRepo(session)
+            progress.emit("正在加载本地快照并跑双轨离线分析…")
+            value_analyzer = ValueAnalyzer.from_config(
+                cfg,
+                repo=snapshot_repo,
+                override_repo=PrototypeOverrideRepo(session),
+            )
+            tech_analyzer = TechAnalyzer.from_config(cfg)
+            dual = DualTrackAnalyzer(
+                value_analyzer,
+                tech_analyzer,
+                sentiment_analyzer=SentimentAnalyzer(
+                    MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+                ),
+            )
+            report = dual.analyze_offline(code)
+
+            no_value = report.value_result is None
+            no_tech = report.tech_result is None or any(
+                "无K线缓存" in w for w in report.tech_result.warnings
+            ) or any("无K线缓存" in r for r in report.tech_result.risk_factors)
+            if no_value and no_tech:
+                print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
+                raise SystemExit(1)
+
+            buckets = EvidenceBucketer().bucket(report)
+            evidence = narrator.build_evidence(
+                buckets, code=code, analysis_summary=report.analysis_summary
+            )
+
+        if narrate:
+            progress.emit("正在调用 LLM 生成三 persona lens…")
+            cache = LLMNarrateCacheRepo(session)
+            outcome = narrator.stress(
+                evidence,
+                config=cfg,
+                cache=cache,
+            )
+            persona_payload = outcome.payload
+        else:
+            persona_payload = pending_persona_stress()
+
+        if existing is not None:
+            record = repo.update_persona_stress(existing.id, persona_payload)
+        else:
+            record = repo.save(
+                code=code,
+                evidence=evidence,
+                narrate_status=NARRATE_SKIPPED,
+                persona_stress=persona_payload,
+            )
+        session.commit()
+
+        text = format_persona_stress_report(
+            code=code,
+            evidence=evidence,
+            persona_stress=persona_payload,
+            confrontation_id=record.id,
+            as_json=as_json,
+        )
+        _emit_report(text, output, progress)
     finally:
         session.close()
 
@@ -1220,6 +1339,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="显式联网调用 LLM 生成互驳叙事（需配置 llm: 或 LLM_API_KEY）",
     )
+    persona_parser = report_sub.add_parser(
+        "persona-stress",
+        help="Persona 压力测试（同 evidence 三 lens；--narrate 联网）",
+    )
+    _add_report_common(persona_parser)
+    persona_parser.add_argument(
+        "--narrate",
+        action="store_true",
+        help="显式联网调用 LLM 生成三 persona 解读（需配置 llm: 或 LLM_API_KEY）",
+    )
+    persona_parser.add_argument(
+        "--confrontation-id",
+        type=int,
+        help="挂载到已有 confrontation 记录（复用 evidence，不新建快照）",
+    )
     sentiment_report_parser = report_sub.add_parser("sentiment", help="市场情绪报告（严格离线）")
     sentiment_report_parser.add_argument("code", help="股票代码，仅用于报告标识")
     sentiment_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
@@ -1551,6 +1685,7 @@ def main(argv: list[str] | None = None) -> None:
                 "value": (run_report_value, "value"),
                 "dual": (run_report_dual, "dual"),
                 "confront": (run_report_confront, "confront"),
+                "persona-stress": (run_report_persona_stress, "persona-stress"),
                 "sentiment": (run_report_sentiment, "sentiment"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
@@ -1560,8 +1695,10 @@ def main(argv: list[str] | None = None) -> None:
                 "as_json": args.json,
                 "config": config_override,
             }
-            if args.report_type in ("summary", "confront"):
+            if args.report_type in ("summary", "confront", "persona-stress"):
                 extra["narrate"] = bool(getattr(args, "narrate", False))
+            if args.report_type == "persona-stress":
+                extra["confrontation_id"] = getattr(args, "confrontation_id", None)
             if args.report_type == "value":
                 extra["show_anchor_price"] = bool(args.show_anchor_price)
             if len(codes) == 1 and not use_wl:
