@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from common.exceptions import UnsupportedMarketError
@@ -173,8 +173,17 @@ class DualTrackAnalyzer:
             data_timestamp=data_timestamp,
         )
 
-    def analyze_offline(self, raw_code: str) -> DualTrackReport:
-        """离线双轨分析：不发起任何网络请求。"""
+    def analyze_offline(
+        self,
+        raw_code: str,
+        *,
+        as_of: date | str | None = None,
+    ) -> DualTrackReport:
+        """离线双轨分析：不发起任何网络请求。
+
+        ``as_of`` 仅影响技术面 K 线窗口（与 migration baseline 一致）；
+        value/sentiment 离线读快照，不依赖墙钟 ``date.today()``。
+        """
         if not is_a_share(raw_code.strip()):
             raise UnsupportedMarketError(
                 f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
@@ -198,7 +207,7 @@ class DualTrackAnalyzer:
             warnings.append(f"价值面分析失败: {exc}")
 
         try:
-            tech_result = self._tech_analyzer.analyze(code, offline=True)
+            tech_result = self._tech_analyzer.analyze(code, offline=True, as_of=as_of)
             warnings.extend(tech_result.warnings)
         except UnsupportedMarketError:
             raise

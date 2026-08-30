@@ -2,7 +2,7 @@
 
 > 面向：**实际使用本工具分析 A 股的个人投资者**（非开发者文档）  
 > 当前入口：**命令行（CLI）**；Web 界面仍在规划中
-> 最后更新：2026-08-01
+> 最后更新：2026-08-15
 
 ---
 
@@ -21,6 +21,7 @@
 | 能力 | 怎么用 |
 |------|--------|
 | 常看股票列表 | `watchlist list/add/remove`；`sync`/`report` 支持 `--watchlist` |
+| 飞书 dual 推送 | `feishu push --watchlist`（经 `lark-cli`，见 §3.5） |
 | 同步行情与财报快照 | `python -m apps.cli sync <代码>` 或 `sync --watchlist` |
 | 技术面报告 | `python -m apps.cli report tech <代码>` |
 | 价值面报告 | `python -m apps.cli report value <代码>` |
@@ -40,7 +41,7 @@
 
 ### 1.2 尚未交付（请勿期待）
 
-Web 界面、飞书定时推送、个股融资余额/龙虎榜/社媒文本情绪、协方差组合优化等仍在路线图中。详见 [mrd/roadmap-todo.md](mrd/roadmap-todo.md)。
+Web 界面、个股融资余额/龙虎榜/社媒文本情绪、协方差组合优化等仍在路线图中。详见 [mrd/roadmap-todo.md](mrd/roadmap-todo.md)。
 
 > **说明：** CLI「多维看板 / Checklist / 情绪 / 复盘」已可用；Web 版仍待建。
 ### 1.3 免责声明
@@ -236,6 +237,49 @@ git commit -m "chore: update watchlist"
 git push
 ```
 
+### 3.5 飞书推送 dual（通勤阅读）
+
+只推红蓝证据分桶（`report dual`）。每份 `{code}_dual.md` 新建一篇飞书文档，成功后立刻发一条消息。
+
+**前置：** 安装官方 [lark-cli](https://github.com/larksuite/cli)，并在本机登录：
+
+```cmd
+npx @larksuite/cli@latest install
+lark-cli config init
+lark-cli auth login --recommend
+```
+
+在 `config/app.yaml` 填写推送目标（示例见 `config/app.example.yaml`）：自聊用 `feishu.user_id`（`lark-cli whoami` / `auth status` 的 open_id），群聊用 `feishu.chat_id`；二者同时配置时优先 `user_id`。
+
+**先本地试跑（不调 lark-cli 写命令）：**
+
+```cmd
+py -m apps.cli feishu push --watchlist --dry-run --no-sync --slot 1700
+```
+
+文件落在 `reports/feishu/{日期}/{slot}/{代码}_dual.md`。消息标题格式：`今日研报_{股票名称}_{YYYY-MM-DD}_{HHmm}`，正文只有文档链接。
+
+**Windows 计划任务（当前：周一至周五 09:00）：**
+
+本机已注册任务 `StockCopilot-FeishuPush-0900`，调用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\workspace\stock_copilot\scripts\feishu_push_slot.ps1 -Slot 0900
+```
+
+等价 CLI：`py -m apps.cli feishu push --watchlist --slot 0900`（默认会按配置先 sync）。日志写入 `log/feishu_push_0900_*.log`（UTF-8）。脚本启动前会检查 `lark-cli auth status`，用户 token 失效时直接失败并写日志。
+
+须以**已执行过 `lark-cli auth login` 的同一 Windows 用户**登录会话运行（任务为 Interactive 登录）。非交易日会 `[skip]` 并以退出码 0 结束。PC 休眠/未登录可能漏推；任务已开「错过时尽快运行」（`StartWhenAvailable`）。
+
+**常见收不到推送的原因：**
+
+1. `lark-cli` refresh token 过期（约 7 天未成功续期）→ 运行 `lark-cli auth login --recommend` 重新扫码授权（OAuth 安全限制，无法完全免扫码）
+2. access token 过期（约 2 小时）→ **无需手动操作**；推送前脚本会 `auth status --verify`，lark-cli 自动用 refresh token 续期
+2. 9:00 时 PC 未开机或未登录 → 任务不会按时执行
+3. 查看 `log/feishu_push_0900_*.log` 末尾的 `exit_code` 与 `[error]` 行
+
+若以后要加 13:00 / 17:00，可再注册同脚本并分别传 `-Slot 1300 -Realtime` / `-Slot 1700`。
+
 ### 3.3 把报告存成文件
 
 ```cmd
@@ -276,6 +320,14 @@ python -m apps.cli watchlist list
 python -m apps.cli watchlist add <代码> [--name 名称]
 python -m apps.cli watchlist remove <代码>
 ```
+
+### 4.0a `feishu push` — 飞书 dual 推送
+
+```text
+python -m apps.cli feishu push --watchlist [--dry-run] [--sync|--no-sync] [--realtime] [--slot 1700]
+```
+
+详见 §3.5。依赖本机 `lark-cli auth login`。
 
 ### 4.1 `sync` — 联网同步
 

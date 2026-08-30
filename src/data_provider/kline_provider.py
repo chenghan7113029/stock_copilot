@@ -88,6 +88,15 @@ class KlineProvider:
             use_akshare=any(n == "akshare" for _, n in kline_sources),
         )
 
+    @staticmethod
+    def resolve_as_of(as_of: date | str | None) -> date:
+        """解析观察日；None 表示墙钟今天。"""
+        if as_of is None:
+            return date.today()
+        if isinstance(as_of, date):
+            return as_of
+        return date.fromisoformat(str(as_of)[:10])
+
     def get_kline(
         self,
         code: str,
@@ -96,13 +105,17 @@ class KlineProvider:
         offline: bool = False,
         persist_today: bool = False,
         *,
+        as_of: date | str | None = None,
         on_progress: Callable[[str], None] | None = None,
     ) -> tuple[pd.DataFrame, list[str], str]:
-        """获取 K 线 DataFrame、warnings 与 quote_mode。"""
+        """获取 K 线 DataFrame、warnings 与 quote_mode。
+
+        ``as_of`` 为观察日（窗口 end）；默认 None 等价 ``date.today()``。
+        """
         norm_code, exchange = normalize_stock_code(code)
-        today = date.today()
-        end_date = today.strftime("%Y-%m-%d")
-        start_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        as_of_date = self.resolve_as_of(as_of)
+        end_date = as_of_date.strftime("%Y-%m-%d")
+        start_date = (as_of_date - timedelta(days=days)).strftime("%Y-%m-%d")
 
         if offline:
             return self._get_kline_offline(norm_code, start_date, end_date)

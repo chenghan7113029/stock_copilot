@@ -432,6 +432,7 @@
       "premium_discount": 0
     }
   },
+  "methodology_applicable": true,
   "name": "",
   "price_percentile": 17.772119128015888,
   "prototype": "value_growth",

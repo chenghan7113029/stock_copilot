@@ -78,14 +78,21 @@ Implement tasks from an OpenSpec change.
    - Implementation reveals a design issue → suggest updating artifacts
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
+   - Verification tests fail → do **not** mark the verification task complete; pause or fix before claiming done
 
 7. **On completion or pause, show status**
 
    Display:
    - Tasks completed this session
    - Overall progress: "N/M tasks complete"
-   - If all done: suggest archive
+   - If all done **and** verification gate passed: suggest archive
+   - If verification failed: state that change is **not** complete for archive
    - If paused: explain why and wait for guidance
+
+**Project hard gate (stock_copilot / `openspec/config.yaml`):**
+- Checkbox completion ≠ apply/archive complete.
+- Before claiming Implementation Complete or suggesting archive: run this change's new/changed tests plus `pytest -q -m "not network"` (and any extra gates in tasks, e.g. L3 baseline compare). Show command output.
+- Do **not** default-pass on "pre-existing unrelated failures". Only Owner explicit waiver (recorded in tasks/PR) may continue with known failures.
 
 **Output During Implementation**
 
@@ -147,6 +154,7 @@ What would you like to do?
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
+- Never claim complete / suggest archive while required tests fail unless Owner waived explicitly
 
 **Fluid Workflow Integration**
 

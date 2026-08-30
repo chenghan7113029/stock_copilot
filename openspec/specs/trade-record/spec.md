@@ -29,3 +29,11 @@ CLI `trade record` 命令 SHALL 在写入数据库前校验：`action` 必须是
 - **WHEN** 执行 `trade record AAPL buy 150 10`
 - **THEN** SHALL 拒绝（沿用既有 `UnsupportedMarketError` 语义），不写入数据库
 
+### Requirement: Optional confrontation association
+
+`trade record` SHALL 接受可选 `--confrontation-id <int>` 并写入 `TradeRecord.confrontation_id`。
+
+#### Scenario: 复盘可读到 declare
+- **WHEN** trade record 关联含 declare 的 confrontation
+- **THEN** `report trade-review` MAY 在 badcase 条目中展示 declare stance 摘要（只读）
+

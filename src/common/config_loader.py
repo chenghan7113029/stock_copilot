@@ -147,6 +147,37 @@ def has_tushare_token(config: dict[str, Any] | None = None) -> bool:
     return resolve_tushare_token(config) is not None
 
 
+@dataclass(frozen=True)
+class FeishuConfig:
+    """飞书 dual 推送配置（认证走 lark-cli，不在此存放 app_secret）。"""
+
+    lark_cli: str = "lark-cli"
+    user_id: str = ""
+    chat_id: str = ""
+    folder_token: str = ""
+    sync_before_push: bool = True
+    trading_days_only: bool = True
+    holidays: tuple[str, ...] = ()
+
+
+def resolve_feishu_config(config: dict[str, Any] | None = None) -> FeishuConfig:
+    """解析 ``feishu:``。"""
+    if config is None:
+        config = load_app_config()
+    raw = config.get("feishu") or {}
+    holidays_raw = raw.get("holidays") or ()
+    holidays = tuple(str(item).strip() for item in holidays_raw if str(item).strip())
+    return FeishuConfig(
+        lark_cli=str(raw.get("lark_cli") or "lark-cli").strip() or "lark-cli",
+        user_id=str(raw.get("user_id") or "").strip(),
+        chat_id=str(raw.get("chat_id") or "").strip(),
+        folder_token=str(raw.get("folder_token") or "").strip(),
+        sync_before_push=bool(raw.get("sync_before_push", True)),
+        trading_days_only=bool(raw.get("trading_days_only", True)),
+        holidays=holidays,
+    )
+
+
 def verify_tushare_access(config: dict[str, Any] | None = None) -> bool:
     """探测 Token 是否具备至少一个 Pro 接口权限（如 stock_basic）。
 

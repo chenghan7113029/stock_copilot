@@ -116,11 +116,24 @@ value_analysis:
 
 # LLM 叙事（OpenAI 兼容协议；api_key 勿提交到 Git）
 # 优先级：llm.api_key > 环境变量 LLM_API_KEY；均未配置时 narrate() 返回 ok=False
-# llm:
-#   base_url: "https://api.deepseek.com/v1"   # 任意 OpenAI 兼容端点
-#   model: "deepseek-chat"
-#   api_key: ""                               # 或使用环境变量 LLM_API_KEY
-#   max_evidence_chars: 24000                 # evidence 序列化超长截断阈值（约 8000 token）
+# DeepSeek 示例（推荐）：
+llm:
+  base_url: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+  api_key: ""                               # 或使用环境变量 LLM_API_KEY
+  max_evidence_chars: 24000                 # evidence 序列化超长截断阈值（约 8000 token）
+
+# 飞书 dual 推送（家里 PC 计划任务：`python -m apps.cli feishu push --watchlist --slot 1700`）
+# 认证走本机 lark-cli（npx @larksuite/cli@latest install && lark-cli auth login），不在此填 Open API secret
+feishu:
+  lark_cli: "lark-cli"
+  # 接收「一票一消息」：user_id（自聊 open_id）与 chat_id（群）二选一；同时配置时优先 user_id
+  user_id: ""                 # 例：ou_xxx（lark-cli auth status / whoami）
+  chat_id: ""                 # 例：oc_xxx
+  folder_token: ""            # 新建云文档父文件夹 token（可选，对应 lark-cli --parent-token）
+  sync_before_push: true
+  trading_days_only: true
+  holidays: []                # 休市日 ISO 日期，如 ["2026-10-01"]
 
 # 外部参考仓库本地路径（只读查阅，不参与 import；整个 ref/ 目录不进 git）
 ref:

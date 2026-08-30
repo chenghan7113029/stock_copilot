@@ -18,6 +18,7 @@ class _MatchedTrade:
     quantity: int
     return_rate: float
     checklist_id: int | None
+    confrontation_id: int | None = None
 
 
 class TradeReviewAnalyzer:
@@ -28,6 +29,7 @@ class TradeReviewAnalyzer:
         records: Iterable[TradeRecord],
         *,
         checklists: Iterable[ChecklistRecord] = (),
+        declare_stances: dict[int, str] | None = None,
     ) -> TradeReviewResult:
         matches, open_positions = self._match_fifo(records)
         returns = [match.return_rate for match in matches]
@@ -35,7 +37,11 @@ class TradeReviewAnalyzer:
         available = bool(checklist_by_id) and any(
             match.checklist_id in checklist_by_id for match in matches
         )
-        badcases = self._badcases(matches, checklist_by_id) if available else []
+        badcases = (
+            self._badcases(matches, checklist_by_id, declare_stances or {})
+            if available
+            else []
+        )
         warnings: list[str] = []
         if not available:
             warnings.append("⚠ 当前无关联 Checklist 记录，无法判定 Badcase，仅展示价格维度统计。")
@@ -70,6 +76,7 @@ class TradeReviewAnalyzer:
                         quantity=quantity,
                         return_rate=(record.price - buy.price) / buy.price,
                         checklist_id=buy.checklist_id,
+                        confrontation_id=getattr(buy, "confrontation_id", None),
                     )
                 )
                 remaining -= quantity
@@ -82,7 +89,9 @@ class TradeReviewAnalyzer:
 
     @staticmethod
     def _badcases(
-        matches: Iterable[_MatchedTrade], checklists: dict[int, ChecklistRecord]
+        matches: Iterable[_MatchedTrade],
+        checklists: dict[int, ChecklistRecord],
+        declare_stances: dict[int, str],
     ) -> list[Badcase]:
         return [
             Badcase(
@@ -90,6 +99,12 @@ class TradeReviewAnalyzer:
                 checklist_id=match.checklist_id,
                 return_rate=match.return_rate,
                 quantity=match.quantity,
+                confrontation_id=match.confrontation_id,
+                declare_stance=(
+                    declare_stances.get(match.confrontation_id)
+                    if match.confrontation_id is not None
+                    else None
+                ),
             )
             for match in matches
             if match.checklist_id is not None

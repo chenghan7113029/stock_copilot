@@ -179,3 +179,28 @@ def test_honesty_degrade_skips_method_assessment_keyword_bucketing():
     )
     assert not any("Undervalued" in e for e in buckets.bull_evidence)
     assert not any("[价值评级] 低估" in e for e in buckets.bull_evidence)
+
+
+def test_numbered_evidence_indices_stable_across_two_buckets():
+    report = _report(
+        _value_result(
+            method_results={
+                "dcf": ValuationResult(
+                    method="dcf",
+                    fair_value=2000,
+                    current_price=1500,
+                    premium_discount=-0.25,
+                    assessment="Undervalued",
+                )
+            }
+        ),
+        _tech_result(signal_reasons=["MA5 上穿 MA20"], risk_factors=["RSI 超买"]),
+    )
+    bucketer = EvidenceBucketer()
+    first = bucketer.bucket(report).numbered()
+    second = bucketer.bucket(report).numbered()
+    assert first == second
+    assert first["bull_evidence"][0]["index"] == 1
+    assert "text" in first["bull_evidence"][0]
+    assert first["bear_evidence"][0]["index"] == 1
+

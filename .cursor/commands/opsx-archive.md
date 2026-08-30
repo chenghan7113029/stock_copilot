@@ -46,6 +46,14 @@ Archive a completed change in the experimental workflow.
 
    **If no tasks file exists:** Proceed without task-related warning.
 
+3b. **Check verification gate (stock_copilot hard constraint)**
+
+   Per `openspec/config.yaml`: checkbox completion ≠ archive-ready.
+
+   - Run (or confirm) this change's new/changed tests and `pytest -q -m "not network"` (plus any extra gates in tasks).
+   - **If tests fail:** Do **NOT** archive by default. Pause and ask Owner to fix or explicitly waive named failures.
+   - Archive only when gates pass, or Owner waived with reasons recorded.
+
 4. **Assess delta spec sync state**
 
    Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, proceed without sync prompt.
@@ -150,7 +158,8 @@ Target archive directory already exists.
 **Guardrails**
 - Always prompt for change selection if not provided
 - Use artifact graph (openspec status --json) for completion checking
-- Don't block archive on warnings - just inform and confirm
+- Don't block archive on incomplete-artifact/task warnings alone - inform and confirm
+- **Do block default archive when verification tests fail** unless Owner explicitly waives (`openspec/config.yaml`)
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened
 - If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)

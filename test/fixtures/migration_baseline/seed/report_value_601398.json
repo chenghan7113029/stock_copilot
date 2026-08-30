@@ -192,6 +192,7 @@
       "premium_discount": 0
     }
   },
+  "methodology_applicable": true,
   "name": "",
   "price_percentile": null,
   "prototype": "bank",

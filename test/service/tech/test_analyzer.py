@@ -194,7 +194,9 @@ def test_analyze_default_quote_mode_eod():
     result = analyzer.analyze("600519")
 
     assert result.quote_mode == "eod"
-    provider.get_kline.assert_called_once_with("600519", days=90, use_realtime=False, offline=False)
+    provider.get_kline.assert_called_once_with(
+        "600519", days=90, use_realtime=False, offline=False, as_of=None
+    )
 
 
 def test_analyze_use_realtime_sets_quote_mode():
@@ -205,7 +207,9 @@ def test_analyze_use_realtime_sets_quote_mode():
     result = analyzer.analyze("600519", use_realtime=True)
 
     assert result.quote_mode == "realtime"
-    provider.get_kline.assert_called_once_with("600519", days=90, use_realtime=True, offline=False)
+    provider.get_kline.assert_called_once_with(
+        "600519", days=90, use_realtime=True, offline=False, as_of=None
+    )
 
 
 def test_analyze_realtime_fallback_quote_mode():

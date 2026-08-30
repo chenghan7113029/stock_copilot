@@ -100,7 +100,9 @@ def test_checklist_show_with_and_without_records(
 @patch("apps.cli.run_checklist_submit")
 def test_checklist_commands_are_routed(mock_submit, mock_show):
     main(["checklist", "submit", "600519", "--action", "buy"])
-    mock_submit.assert_called_once_with("600519", action="buy", config=None)
+    mock_submit.assert_called_once_with(
+        "600519", action="buy", confrontation_id=None, config=None
+    )
 
     main(["checklist", "show", "600519", "--json"])
     mock_show.assert_called_once_with("600519", as_json=True, config=None)

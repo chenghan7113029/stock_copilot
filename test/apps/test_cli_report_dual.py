@@ -119,6 +119,8 @@ def test_report_dual_json(
     assert '"bull_evidence"' in captured.out
     assert '"bear_evidence"' in captured.out
     assert "bull-1" in captured.out
+    assert '"index"' in captured.out
+    assert '"text"' in captured.out
 
 
 @patch("apps.cli.EvidenceBucketer")

@@ -33,7 +33,8 @@ def test_run_value_override_persists_and_updates_reason(tmp_path, capsys):
 def test_value_override_rejects_invalid_prototype_before_execution():
     parser = build_parser()
 
+    # insurance 等已是合法 V2 原型；此处须用不在 _PROTOTYPE_METHODS 中的名字
     with pytest.raises(SystemExit) as exc_info:
-        parser.parse_args(["value", "override", "600519", "insurance", "--reason", "测试"])
+        parser.parse_args(["value", "override", "600519", "bogus_proto", "--reason", "测试"])
 
     assert exc_info.value.code == 2
