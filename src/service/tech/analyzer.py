@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
@@ -52,7 +52,14 @@ class TechAnalyzer:
         )
         return cls(kline_provider=kline_provider, config=tech_cfg, chip_provider=chip_provider)
 
-    def analyze(self, raw_code: str, use_realtime: bool = False, offline: bool = False) -> TechAnalysisResult:
+    def analyze(
+        self,
+        raw_code: str,
+        use_realtime: bool = False,
+        offline: bool = False,
+        *,
+        as_of: date | str | None = None,
+    ) -> TechAnalysisResult:
         if not is_a_share(raw_code.strip()):
             raise UnsupportedMarketError(
                 f"V1 仅支持 A 股（6 位纯数字），不支持: {raw_code!r}"
@@ -67,6 +74,7 @@ class TechAnalyzer:
                 days=self._config.kline_days,
                 use_realtime=use_realtime,
                 offline=offline,
+                as_of=as_of,
             )
             result.quote_mode = quote_mode
             result.warnings.extend(kline_warnings)

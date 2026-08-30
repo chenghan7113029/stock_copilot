@@ -450,6 +450,12 @@ def format_value_report(
     return "\n".join(lines)
 
 
+def _numbered_evidence(items: list[str]) -> list[dict[str, int | str]]:
+    from service.dual_track.evidence_bucketer import number_evidence_list
+
+    return number_evidence_list(items)
+
+
 def format_dual_report(
     code: str,
     bull_evidence: list[str],
@@ -461,22 +467,23 @@ def format_dual_report(
     value_result: ValueAnalysisResult | None = None,
     tech_result: TechAnalysisResult | None = None,
 ) -> str:
-    """红蓝对抗 Level 0：证据分桶输出（供 Skill 消费）；文本模式附加同源讲解。"""
+    """红蓝对抗 Level 0：证据分桶输出；JSON 含稳定 1-based index。"""
     payload = {
         "code": code,
         "analysis_summary": analysis_summary,
-        "bull_evidence": list(bull_evidence),
-        "bear_evidence": list(bear_evidence),
+        "bull_evidence": _numbered_evidence(bull_evidence),
+        "bear_evidence": _numbered_evidence(bear_evidence),
         "sentiment_result": _to_json_serializable(sentiment_result),
     }
     if as_json:
-        # 讲解仅默认出现在文本模式，避免撑破 Skill 消费体积；证据字段契约不变
+        # 讲解仅默认出现在文本模式，避免撑破 Skill 消费体积
         return _dump_json(payload)
 
     lines: list[str] = [
         f"# 红蓝对抗证据分桶 {code}",
         "",
-        "[离线模式] Level 0 — 确定性证据分桶（互驳叙事请用 red-blue-confrontation Skill）",
+        "[离线模式] Level 0 — 确定性证据分桶"
+        "（产品主路径：`report confront --narrate`；Skill 为 fallback）",
         "",
     ]
     if analysis_summary:
@@ -509,6 +516,219 @@ def format_dual_report(
         lines.extend(["", "## 技术面讲解（与 report tech 同源）"])
         lines.extend(render_tech_explanations(tech_result))
 
+    return "\n".join(lines)
+
+
+def format_confront_report(
+    *,
+    code: str,
+    evidence: dict[str, Any],
+    narrate_status: str,
+    narrative: dict[str, Any] | None = None,
+    confrontation_id: int | None = None,
+    narrate_error: str | None = None,
+    from_cache: bool = False,
+    low_confidence_warning: bool = False,
+    as_json: bool = False,
+) -> str:
+    """红蓝对抗 Level 0/1 报告（产品主路径）。"""
+    payload = {
+        "code": code,
+        "confrontation_id": confrontation_id,
+        "narrate_status": narrate_status,
+        "evidence": evidence,
+        "narrative": narrative,
+        "narrate_error": narrate_error,
+        "from_cache": from_cache,
+        "low_confidence_warning": low_confidence_warning,
+        "disclaimer": (
+            "叙事由 AI 生成，仅供参考，请对照上方原始证据列表核实。不构成买卖建议。"
+        ),
+    }
+    if as_json:
+        return _dump_json(payload)
+
+    bull = evidence.get("bull_evidence") or []
+    bear = evidence.get("bear_evidence") or []
+    lines: list[str] = [
+        f"# 红蓝对抗报告 {code}",
+        "",
+        f"**narrate_status:** {narrate_status}",
+    ]
+    if confrontation_id is not None:
+        lines.append(f"**confrontation_id:** {confrontation_id}")
+    if from_cache:
+        lines.append("**来源:** LLM 缓存")
+    if low_confidence_warning:
+        lines.append("**警告:** 叙事置信度偏低，请人工核对证据")
+    lines.append("")
+
+    summary = evidence.get("analysis_summary") or ""
+    if summary:
+        lines.extend([f"**摘要:** {summary}", ""])
+
+    lines.extend([f"## 多方证据 ({len(bull)})", ""])
+    if bull:
+        for item in bull:
+            if isinstance(item, dict):
+                lines.append(f"{item.get('index', '?')}. {item.get('text', '')}")
+            else:
+                lines.append(f"- {item}")
+    else:
+        lines.append("- （空）")
+
+    lines.extend(["", f"## 空方证据 ({len(bear)})", ""])
+    if bear:
+        for item in bear:
+            if isinstance(item, dict):
+                lines.append(f"{item.get('index', '?')}. {item.get('text', '')}")
+            else:
+                lines.append(f"- {item}")
+    else:
+        lines.append("- （空）")
+
+    if narrative:
+        lines.extend(["", "## 多方论述", "", narrative.get("bull_thesis") or "（空）"])
+        lines.extend(["", "## 空方论述", "", narrative.get("bear_thesis") or "（空）"])
+        bull_rebs = narrative.get("bull_rebuttals") or []
+        lines.extend(["", "## 多方反驳空方", ""])
+        if bull_rebs:
+            for reb in bull_rebs:
+                idx = reb.get("target_index", "?")
+                lines.append(f"- 针对空方证据 [{idx}]：{reb.get('text', '')}")
+        else:
+            lines.append("- （空）")
+        bear_rebs = narrative.get("bear_rebuttals") or []
+        lines.extend(["", "## 空方反驳多方", ""])
+        if bear_rebs:
+            for reb in bear_rebs:
+                idx = reb.get("target_index", "?")
+                lines.append(f"- 针对多方证据 [{idx}]：{reb.get('text', '')}")
+        else:
+            lines.append("- （空）")
+        conf = narrative.get("confidence")
+        if conf is not None:
+            lines.extend(["", f"**置信度:** {conf}"])
+        disc = narrative.get("disclaimer") or payload["disclaimer"]
+        lines.extend(["", f"> {disc}"])
+    elif narrate_status == "failed":
+        lines.extend(
+            [
+                "",
+                "## LLM 互驳叙事",
+                "",
+                f"叙事失败：{narrate_error or '未知错误'}。请仅使用上方 Level 0 证据。",
+            ]
+        )
+    elif narrate_status == "skipped":
+        lines.extend(
+            [
+                "",
+                "## LLM 互驳叙事",
+                "",
+                "未请求 `--narrate`。产品主路径可运行：`report confront <code> --narrate`。",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
+def format_persona_stress_report(
+    *,
+    code: str,
+    evidence: dict[str, Any],
+    persona_stress: dict[str, Any],
+    confrontation_id: int | None = None,
+    as_json: bool = False,
+) -> str:
+    """Persona 压力测试报告（Level 0 占位 / Level 1 narrate）。"""
+    disclaimer = persona_stress.get("disclaimer") or (
+        "persona 为思维透镜，不构成买卖建议。"
+        "三种 lens 冲突时，应回到 declare 明确立场。"
+    )
+    payload = {
+        "code": code,
+        "confrontation_id": confrontation_id,
+        "evidence": evidence,
+        "persona_stress": persona_stress,
+        "disclaimer": disclaimer,
+    }
+    if as_json:
+        return _dump_json(payload)
+
+    labels = {
+        "value_quality": "价值质量",
+        "trend_momentum": "趋势动量",
+        "risk_governor": "风控官",
+    }
+    bull = evidence.get("bull_evidence") or []
+    bear = evidence.get("bear_evidence") or []
+    lines: list[str] = [
+        f"# Persona 压力测试 {code}",
+        "",
+    ]
+    if confrontation_id is not None:
+        lines.append(f"**confrontation_id:** {confrontation_id}")
+        lines.append("")
+
+    summary = evidence.get("analysis_summary") or ""
+    if summary:
+        lines.extend([f"**摘要:** {summary}", ""])
+
+    lines.extend([f"## 多方证据 ({len(bull)})", ""])
+    if bull:
+        for item in bull:
+            if isinstance(item, dict):
+                lines.append(f"{item.get('index', '?')}. {item.get('text', '')}")
+            else:
+                lines.append(f"- {item}")
+    else:
+        lines.append("- （空）")
+
+    lines.extend(["", f"## 空方证据 ({len(bear)})", ""])
+    if bear:
+        for item in bear:
+            if isinstance(item, dict):
+                lines.append(f"{item.get('index', '?')}. {item.get('text', '')}")
+            else:
+                lines.append(f"- {item}")
+    else:
+        lines.append("- （空）")
+
+    personas = persona_stress.get("personas") or []
+    lines.extend(["", "## Persona 结果", ""])
+    if not personas:
+        lines.append("- （无）")
+    for entry in personas:
+        pid = entry.get("id", "?")
+        label = labels.get(str(pid), str(pid))
+        status = entry.get("status", "?")
+        lines.extend([f"### {label} (`{pid}`) — {status}", ""])
+        if status == "pending":
+            lines.append("待 `--narrate` 生成 lens 解读。")
+        elif status == "failed":
+            lines.append(f"失败：{entry.get('error') or '未知错误'}")
+        else:
+            output = entry.get("output") or {}
+            lines.append(output.get("lens_summary") or "（空）")
+            refs = output.get("emphasized_refs") or []
+            if refs:
+                lines.extend(["", "**强调证据:**"])
+                for ref in refs:
+                    lines.append(f"- [{ref.get('side')}:{ref.get('index')}]")
+            blinds = output.get("blind_spots") or []
+            if blinds:
+                lines.extend(["", "**盲点:**"])
+                for b in blinds:
+                    lines.append(f"- {b}")
+            questions = output.get("questions_for_self") or []
+            if questions:
+                lines.extend(["", "**自省问题:**"])
+                for q in questions:
+                    lines.append(f"- {q}")
+        lines.append("")
+
+    lines.extend([f"> {disclaimer}"])
     return "\n".join(lines)
 
 
@@ -608,6 +828,50 @@ def format_entry_check_report(view: FreshEntryView, as_json: bool = False) -> st
     )
 
 
+def format_confrontation_history(
+    code: str,
+    records: list[Any],
+    *,
+    as_json: bool = False,
+) -> str:
+    """列出某票 confrontation 历史（含 declare 状态）。"""
+    rows = []
+    for record in records:
+        evidence = getattr(record, "evidence", None) or {}
+        bull = evidence.get("bull_evidence") or []
+        bear = evidence.get("bear_evidence") or []
+        decl = getattr(record, "declaration", None) or {}
+        rows.append(
+            {
+                "id": record.id,
+                "code": record.code,
+                "narrate_status": record.narrate_status,
+                "declare_status": record.declare_status,
+                "declared_at": (
+                    record.declared_at.isoformat() if record.declared_at else None
+                ),
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "bull_count": len(bull) if isinstance(bull, list) else 0,
+                "bear_count": len(bear) if isinstance(bear, list) else 0,
+                "declare_stance": decl.get("stance") if isinstance(decl, dict) else None,
+            }
+        )
+    if as_json:
+        return _dump_json({"code": code, "records": rows})
+    if not rows:
+        return f"暂无 {code} 的 confrontation 记录"
+    lines = [f"# Confrontation 历史 — {code}", ""]
+    for row in rows:
+        stance = row["declare_stance"] or "-"
+        lines.append(
+            f"- **#{row['id']}** | narrate={row['narrate_status']} | "
+            f"declare={row['declare_status'] or 'none'} | stance={stance} | "
+            f"evidence bull={row['bull_count']} bear={row['bear_count']} | "
+            f"created={row['created_at']}"
+        )
+    return "\n".join(lines)
+
+
 def format_trade_review_report(result: TradeReviewResult, as_json: bool = False) -> str:
     """格式化严格离线的 FIFO 交易复盘报告。"""
     if as_json:
@@ -629,8 +893,15 @@ def format_trade_review_report(result: TradeReviewResult, as_json: bool = False)
         lines.extend(["", f"## Badcase ({len(result.badcase_list)})", ""])
         if result.badcase_list:
             lines.extend(
-                f"- `{item.code}` | Checklist #{item.checklist_id} | "
-                f"收益率 {item.return_rate:.2%} | 数量 {item.quantity}"
+                (
+                    f"- `{item.code}` | Checklist #{item.checklist_id} | "
+                    f"收益率 {item.return_rate:.2%} | 数量 {item.quantity}"
+                    + (
+                        f" | declare={item.declare_stance}"
+                        if item.declare_stance
+                        else ""
+                    )
+                )
                 for item in result.badcase_list
             )
         else:

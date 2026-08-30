@@ -1,27 +1,29 @@
 {
-  "captured_at": "2026-08-10T00:40:52.635288+00:00",
+  "as_of": "2026-08-10",
+  "captured_at": "2026-08-29T10:46:12.732146+00:00",
   "codes": [
     "600519",
     "601398",
     "601939"
   ],
   "file_hashes": {
-    "report_dual_600519.json": "57ac85134c042aee85e0ec2925bca2bbad3f0c8060c46350a2fc0da24b754d89",
-    "report_dual_601398.json": "f5cdc8e534171dd7ce9c72db78572699867e20e0805c19f238ce9f639e81cce1",
-    "report_dual_601939.json": "43deb16cc4b27c4be0c103f348a8c3bef0f7c41c6ca213b3ff48e64c737eef05",
+    "report_dual_600519.json": "7faf8723941dcd676793ba3d486d2a0b613f12c0cb4a557c7f53645112b788f6",
+    "report_dual_601398.json": "c3152339eb6bdb6575ec289599b1d1779ab056e33ae00fec9eb98cc35e44353c",
+    "report_dual_601939.json": "edcda8ee06b6b6391815a6a09efa96ee80de0afb787bfc8724633cec897a6153",
     "report_tech_600519.json": "cf9f3414d09a0c5e2fbcef733d5583e1257b1cb57332e3c51c3925d2297c5b1c",
     "report_tech_601398.json": "bb5d3287b76ad2142c4c77b8a05dd96787194241210dea3501d1132b22dcd49d",
     "report_tech_601939.json": "d3370bfc6104cba10e23a5bc128c8f0f81a2ded67274c4f937d0e08fd198eaf7",
-    "report_value_600519.json": "ab870d78c61eabe7e7fe2a3e38b047688c892c9464de7a58bb2b120379488a68",
-    "report_value_601398.json": "0947777b8b854c4cae8bdc10ca7b7d32aa275218040f57a03119d62689e8453a",
+    "report_value_600519.json": "c140807e0c43bc7ca22f237ab7a44596ac6b67fb4df2b77e2b22877f2c9340d5",
+    "report_value_601398.json": "a9702660f421a97a51237f7b54714d565f8902d91ccd123ecb8a81070b1a7ff4",
     "report_value_601939.json": "4082893ec78e066030dd963661fdf6643f8b5bbe09ba1d7f6b6493091d7bc9cf"
   },
   "float_rel_tol": 1e-06,
-  "git_sha": "f093b1b3f799ba40cddf6beb4bf4d215aeb808cd",
+  "git_sha": "c98daabd299140d176371ce991dfb16bca4d1241",
   "kinds": [
     "tech",
     "value",
     "dual"
   ],
+  "rebaseline_reason": "as_of window lock; dual evidence {index,text}; methodology_applicable",
   "seed_db": "D:/workspace/stock_copilot/data/fixtures/stock_copilot_seed.db"
 }

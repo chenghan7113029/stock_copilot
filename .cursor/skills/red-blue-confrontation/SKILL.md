@@ -1,20 +1,29 @@
 ---
 name: red-blue-confrontation
-description: Generate Level-1 red-blue (bull vs bear) confrontation narrative from stock_copilot dual-track evidence buckets. Use when the user asks for 红蓝对抗、多空对抗、看多看空互驳、bull/bear confrontation, or wants opposing reports with mutual rebuttals for a stock code.
+description: Generate Level-1 red-blue (bull vs bear) confrontation narrative from stock_copilot dual-track evidence buckets. Use when the user asks for 红蓝对抗、多空对抗、看多看空互驳、bull/bear confrontation, or wants opposing reports with mutual rebuttals for a stock code — and prefers Cursor-session Skill rather than the product CLI API path.
 license: MIT
-compatibility: Requires stock_copilot CLI (`python -m apps.cli report dual`) and local sync data.
+compatibility: Requires stock_copilot CLI (`python -m apps.cli report dual` or `report confront`) and local sync data.
 metadata:
   author: stock_copilot
-  version: "1.0"
+  version: "1.1"
 ---
 
-# 红蓝对抗（Skill 版 Level 1）
+# 红蓝对抗（Skill 版 — fallback）
 
-基于 `report dual` 的**确定性证据分桶**，在当前 Cursor 会话中生成多方/空方论述与互相反驳。不调用应用内置 LLM API，不写数据库。
+> **产品主路径（CLI + LLM API）：** `python -m apps.cli report confront <code> --narrate`  
+> 本 Skill 保留为 **dev / 无 API Key 时的 fallback**，不写数据库、无 grounded 代码校验。
+
+基于 `report dual` / `report confront` 的**确定性证据分桶**，在当前 Cursor 会话中生成多方/空方论述与互相反驳。
 
 ## 何时使用
 
-用户提到：红蓝对抗、多空对抗、看多看空、互驳、bull/bear confrontation，或给出股票代码并要求对立报告时。
+用户提到红蓝对抗等，且**未**要求走 CLI API / 或明确要求在 Cursor 会话内生成时。
+
+若用户已配置 LLM API，优先建议运行：
+
+```bash
+python -m apps.cli report confront <code> --narrate
+```
 
 ## 步骤
 
@@ -29,14 +38,16 @@ metadata:
 
 ```bash
 python -m apps.cli report dual <code> --json --quiet
+# 或
+python -m apps.cli report confront <code> --json --quiet
 ```
 
 若用户已提供现成 JSON 文件路径，直接读取该文件，无需再跑命令。
 
 解析出：
 
-- `bull_evidence[]`
-- `bear_evidence[]`
+- `bull_evidence[]` — 每项可为字符串，或 `{index, text}` 对象（优先用 `text`，序号用 `index`）
+- `bear_evidence[]` — 同上
 - （可选）`analysis_summary`、`code`
 
 **若命令退出码非 0**（如本地无快照）：将错误信息如实转达用户（例如「请先运行 sync」），**停止**，不生成叙事。

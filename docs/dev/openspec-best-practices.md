@@ -101,12 +101,15 @@
 - 实现前**清空或新开 chat**，减少上下文噪音（OpenSpec 官方建议）
 - 遇到 plan 未覆盖的问题 → 先改 `design.md` / `tasks.md`，再继续
 - 一次只推进一个 change（`openspec list` 查看当前变更）
+- **测试门禁（硬约束）**：相关 pytest / 脚本未通过前，不得勾选完成、不得声称 apply 完成；禁止「既有无关失败」默认放行（除非 Owner 显式豁免并登记）
 
 ---
 
 ### 4. 归档 — `/opsx-archive [change-name]`
 
-**何时用：** 代码写完、测试通过、准备合并。
+**何时用：** 代码写完、**验证门禁已通过**、准备合并。
+
+**硬前置：** `openspec/config.yaml` 完成判定 — 默认须跑通本 change 相关测试 + `pytest -q -m "not network"`（及 tasks 声明的额外门禁）。测试失败时**不得**默认归档。
 
 **做什么：**
 
@@ -189,7 +192,7 @@ change 名称用 **kebab-case**，见名知意：
 5. **实现前清上下文** — 新开 chat + 附上 change 路径，避免旧对话干扰
 6. **tasks 要可验证** — 每步写清文件路径和测试方式
 7. **需求变更走 artifact** — 改 specs/design/tasks，不要 silent fix 代码
-8. **归档前跑测试** — Agent 声称完成 ≠ 真的完成，要求贴 pytest 输出
+8. **归档/完成前跑测试** — Agent 勾选 tasks ≠ 完成；相关测试未通过不得默认算 apply/archive 完成（见 `openspec/config.yaml` 完成判定硬约束）；要求贴出 pytest/门禁命令输出
 9. **并行 change 要显式指定名** — `/opsx-apply <name>`，避免搞混
 10. **定期 `openspec update`** — CLI 升级后刷新 Cursor 集成
 

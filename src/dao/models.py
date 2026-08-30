@@ -243,6 +243,7 @@ class ChecklistRecord(Base):
     take_profit_price: Mapped[float | None] = mapped_column(Float)
     passed: Mapped[bool] = mapped_column(nullable=False)
     rejection_reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    confrontation_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
     def __repr__(self) -> str:
@@ -268,7 +269,7 @@ class PositionRecord(Base):
 
 
 class TradeRecord(Base):
-    """用户手工录入的买卖交易记录；checklist_id 为软引用。"""
+    """用户手工录入的买卖交易记录；checklist_id / confrontation_id 为软引用。"""
 
     __tablename__ = "trade_records"
 
@@ -279,6 +280,7 @@ class TradeRecord(Base):
     price: Mapped[float] = mapped_column(Float, nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     checklist_id: Mapped[int | None] = mapped_column(Integer)
+    confrontation_id: Mapped[int | None] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
@@ -286,3 +288,27 @@ class TradeRecord(Base):
 
     def __repr__(self) -> str:
         return f"<TradeRecord code={self.code} action={self.action} quantity={self.quantity}>"
+
+
+class ConfrontationRecord(Base):
+    """红蓝对抗会话：证据分桶 + 可选 LLM 互驳叙事 + 用户 declare + persona 压力测试。"""
+
+    __tablename__ = "confrontation_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    narrative_json: Mapped[str | None] = mapped_column(Text)
+    narrate_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    declare_json: Mapped[str | None] = mapped_column(Text)
+    declare_status: Mapped[str | None] = mapped_column(String(20))
+    declared_at: Mapped[datetime | None] = mapped_column(DateTime)
+    persona_stress_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConfrontationRecord id={self.id} code={self.code} "
+            f"status={self.narrate_status}>"
+        )
+

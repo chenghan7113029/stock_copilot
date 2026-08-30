@@ -35,6 +35,13 @@ context: |
   - 确定性计算与 LLM 分离（三层防御，见 agent-engineering-quality.md）
   - OpenSpec 归档后合并 proposal/specs/design 到 docs/mrd 与 docs/design
 
+  完成判定（硬约束，全局）：
+  - tasks.md 勾选完成 ≠ change / apply / archive 完成。
+  - 相关测试未实际跑通前，不得声称「实现完成」「spec 完成」或默认执行归档。
+  - 默认门禁：本 change 新增/修改的用例 + `pytest -q -m "not network"`（以及 tasks/spec 声明的额外门禁，如 L3 `compare_migration_baseline.py`）必须执行并确认通过；须保留可核对的命令输出。
+  - 禁止以「既有无关失败」「大致够了」「稍后补测」默认放行。
+  - 仅当 Owner 在对话中显式豁免某失败项时，才可带豁免记录继续（tasks/PR 须写明豁免项与原因）。
+
 rules:
   proposal:
     - 说明影响的 src 模块（apps/controller/service 等）
@@ -48,5 +55,6 @@ rules:
     - 文件路径使用 src/<module>/ 格式
   tasks:
     - 每步对应具体文件路径（Create / Modify / Test）
-    - 含测试步骤（test/ 目录）
-    - 归档 task 包含「合并文档到 docs/mrd 或 docs/design」
+    - 含测试步骤（test/ 目录）；验证 task 须写明具体命令（如 pytest 路径或脚本）
+    - 测试未通过时不得将对应 checkbox 勾为完成；不得把「有失败但仍归档」写成默认路径
+    - 归档 task 包含「合并文档到 docs/mrd 或 docs/design」与「验证门禁已通过（或 Owner 显式豁免）」

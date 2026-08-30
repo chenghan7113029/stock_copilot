@@ -17,7 +17,13 @@ class ChecklistRepo:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def save(self, submission: ChecklistSubmission, result: ChecklistValidationResult) -> None:
+    def save(
+        self,
+        submission: ChecklistSubmission,
+        result: ChecklistValidationResult,
+        *,
+        confrontation_id: int | None = None,
+    ) -> None:
         self._session.add(
             ChecklistRecord(
                 code=submission.code,
@@ -29,6 +35,7 @@ class ChecklistRepo:
                 take_profit_price=submission.take_profit_price,
                 passed=result.passed,
                 rejection_reasons_json=json.dumps(result.rejection_reasons, ensure_ascii=False),
+                confrontation_id=confrontation_id,
             )
         )
         self._session.flush()

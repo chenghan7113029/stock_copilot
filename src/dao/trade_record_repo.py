@@ -67,6 +67,7 @@ class TradeRecordRepo:
                         price=buy.price,
                         quantity=remaining,
                         checklist_id=buy.checklist_id,
+                        confrontation_id=buy.confrontation_id,
                         note=buy.note,
                         created_at=buy.created_at,
                     )

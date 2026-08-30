@@ -55,6 +55,18 @@ class EvidenceBuckets:
     bull_evidence: list[str]
     bear_evidence: list[str]
 
+    def numbered(self) -> dict[str, list[dict[str, int | str]]]:
+        """对外 JSON 契约：两侧各自 1-based index + text。"""
+        return {
+            "bull_evidence": number_evidence_list(self.bull_evidence),
+            "bear_evidence": number_evidence_list(self.bear_evidence),
+        }
+
+
+def number_evidence_list(items: list[str]) -> list[dict[str, int | str]]:
+    """将证据文本列表转为稳定 1-based 序号对象列表。"""
+    return [{"index": i, "text": text} for i, text in enumerate(items, 1)]
+
 
 class EvidenceBucketer:
     """按既有确定性字段分桶，不重新计算、不调用 LLM。"""

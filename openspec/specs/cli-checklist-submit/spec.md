@@ -21,3 +21,15 @@ TBD - created by archiving change add-decision-checklist. Update Purpose after a
 - **WHEN** 该代码从未提交过 Checklist
 - **THEN** SHALL 输出「暂无 <code> 的 Checklist 记录」，不抛异常
 
+### Requirement: Optional confrontation association
+
+`checklist submit` SHALL 接受可选参数 `--confrontation-id <int>` 并写入 `ChecklistRecord.confrontation_id`。
+
+#### Scenario: 关联成功
+- **WHEN** `checklist submit 600519 --action buy --confrontation-id 12`
+- **THEN** 保存的 record SHALL 含 confrontation_id=12
+
+#### Scenario: ID 不存在
+- **WHEN** confrontation_id 不存在
+- **THEN** SHALL 拒绝提交并说明 id 无效
+

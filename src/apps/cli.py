@@ -11,9 +11,12 @@ from typing import Any, Callable
 
 from apps.formatters import (
     format_checklist_records,
+    format_confront_report,
+    format_confrontation_history,
     format_dashboard_report,
     format_dual_report,
     format_entry_check_report,
+    format_persona_stress_report,
     format_portfolio_report,
     format_sentiment_report,
     format_summary_report,
@@ -34,6 +37,13 @@ from common.watchlist import (
 from common.win_console import setup_utf8_console
 from dao.checklist_repo import ChecklistRepo
 from dao.chip_distribution_repo import ChipDistributionRepo
+from dao.confrontation_repo import (
+    DECLARE_OK,
+    NARRATE_FAILED,
+    NARRATE_OK,
+    NARRATE_SKIPPED,
+    ConfrontationRepo,
+)
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
 from dao.kline_repo import KlineRepo
 from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
@@ -41,6 +51,7 @@ from dao.market_sentiment_repo import MarketSentimentRepo
 from dao.models import (  # noqa: F401 — register ORM models
     ChecklistRecord,
     ChipDistribution,
+    ConfrontationRecord,
     Kline,
     MarketSentimentSnapshot,
     PositionRecord,
@@ -61,9 +72,16 @@ from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.feishu.pipeline import reports_root, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError
 from service.guard.checklist_validator import ChecklistValidator
+from service.guard.confrontation_declaration_validator import ConfrontationDeclarationValidator
+from service.guard.confrontation_narrator import ConfrontationNarrator
 from service.guard.fresh_entry_check import FreshEntryCheck
 from service.guard.fresh_entry_check import LocalDataMissingError as FreshEntryLocalDataMissingError
 from service.guard.models.checklist import ChecklistSubmission
+from service.guard.models.confrontation_declaration import ConfrontationDeclaration
+from service.guard.persona_stress_narrator import (
+    PersonaStressNarrator,
+    pending_persona_stress,
+)
 from service.portfolio.analyzer import PortfolioAnalyzer
 from service.report.comprehensive_narrator import narrate_comprehensive_report
 from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingError
@@ -390,6 +408,225 @@ def run_report_dual(
         session.close()
 
 
+def run_report_confront(
+    code: str,
+    *,
+    narrate: bool = False,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """离线证据分桶 + 可选 LLM 互驳叙事（产品主路径）。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(f"生成 {code} 红蓝对抗报告（离线 Level 0{' + narrate' if narrate else ''}）…")
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        progress.emit("正在加载本地快照并跑双轨离线分析…")
+        value_analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
+        tech_analyzer = TechAnalyzer.from_config(cfg)
+        dual = DualTrackAnalyzer(
+            value_analyzer,
+            tech_analyzer,
+            sentiment_analyzer=SentimentAnalyzer(
+                MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+            ),
+        )
+        report = dual.analyze_offline(code)
+
+        no_value = report.value_result is None
+        no_tech = report.tech_result is None or any(
+            "无K线缓存" in w for w in report.tech_result.warnings
+        ) or any("无K线缓存" in r for r in report.tech_result.risk_factors)
+        if no_value and no_tech:
+            print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+
+        buckets = EvidenceBucketer().bucket(report)
+        narrator = ConfrontationNarrator()
+        evidence = narrator.build_evidence(
+            buckets, code=code, analysis_summary=report.analysis_summary
+        )
+
+        narrate_status = NARRATE_SKIPPED
+        narrative = None
+        narrate_error = None
+        from_cache = False
+        low_confidence_warning = False
+
+        if narrate:
+            progress.emit("正在调用 LLM 生成互驳叙事…")
+            cache = LLMNarrateCacheRepo(session)
+            outcome = narrator.narrate(
+                buckets,
+                code=code,
+                analysis_summary=report.analysis_summary,
+                config=cfg,
+                cache=cache,
+            )
+            from_cache = bool(outcome.result.from_cache)
+            low_confidence_warning = bool(outcome.result.low_confidence_warning)
+            if outcome.result.ok and outcome.narrative is not None:
+                narrate_status = NARRATE_OK
+                narrative = outcome.narrative
+            else:
+                narrate_status = NARRATE_FAILED
+                narrate_error = outcome.result.error or "LLM 叙事失败"
+                progress.emit(f"叙事失败，仅输出 Level 0：{narrate_error}")
+
+        repo = ConfrontationRepo(session)
+        record = repo.save(
+            code=code,
+            evidence=evidence,
+            narrate_status=narrate_status,
+            narrative=narrative,
+        )
+        session.commit()
+
+        text = format_confront_report(
+            code=code,
+            evidence=evidence,
+            narrate_status=narrate_status,
+            narrative=narrative,
+            confrontation_id=record.id,
+            narrate_error=narrate_error,
+            from_cache=from_cache,
+            low_confidence_warning=low_confidence_warning,
+            as_json=as_json,
+        )
+        _emit_report(text, output, progress)
+
+        if narrate and narrate_status == NARRATE_FAILED:
+            raise SystemExit(1)
+    finally:
+        session.close()
+
+
+def run_report_persona_stress(
+    code: str,
+    *,
+    narrate: bool = False,
+    as_json: bool = False,
+    output: str | None = None,
+    confrontation_id: int | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """同一 numbered evidence 上的三 persona lens（可选 --narrate）。"""
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    progress.emit(
+        f"生成 {code} Persona 压力测试"
+        f"（Level 0{' + narrate' if narrate else ''}）…"
+    )
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        repo = ConfrontationRepo(session)
+        narrator = PersonaStressNarrator()
+        existing: ConfrontationRecord | None = None
+
+        if confrontation_id is not None:
+            existing = repo.get(confrontation_id)
+            if existing is None:
+                print(f"[error] confrontation_id={confrontation_id} 不存在", file=sys.stderr)
+                raise SystemExit(1)
+            if existing.code != code:
+                print(
+                    f"[error] confrontation_id={confrontation_id} 属于 {existing.code}，"
+                    f"与请求代码 {code} 不一致",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            evidence = existing.evidence or {}
+            if not evidence.get("bull_evidence") and not evidence.get("bear_evidence"):
+                print(
+                    f"[error] confrontation_id={confrontation_id} 无可用 evidence",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            progress.emit(f"复用 confrontation_id={confrontation_id} 的 evidence…")
+        else:
+            snapshot_repo = StockSnapshotRepo(session)
+            progress.emit("正在加载本地快照并跑双轨离线分析…")
+            value_analyzer = ValueAnalyzer.from_config(
+                cfg,
+                repo=snapshot_repo,
+                override_repo=PrototypeOverrideRepo(session),
+            )
+            tech_analyzer = TechAnalyzer.from_config(cfg)
+            dual = DualTrackAnalyzer(
+                value_analyzer,
+                tech_analyzer,
+                sentiment_analyzer=SentimentAnalyzer(
+                    MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+                ),
+            )
+            report = dual.analyze_offline(code)
+
+            no_value = report.value_result is None
+            no_tech = report.tech_result is None or any(
+                "无K线缓存" in w for w in report.tech_result.warnings
+            ) or any("无K线缓存" in r for r in report.tech_result.risk_factors)
+            if no_value and no_tech:
+                print(f"[error] 未找到 {code} 的本地数据，请先运行 sync", file=sys.stderr)
+                raise SystemExit(1)
+
+            buckets = EvidenceBucketer().bucket(report)
+            evidence = narrator.build_evidence(
+                buckets, code=code, analysis_summary=report.analysis_summary
+            )
+
+        if narrate:
+            progress.emit("正在调用 LLM 生成三 persona lens…")
+            cache = LLMNarrateCacheRepo(session)
+            outcome = narrator.stress(
+                evidence,
+                config=cfg,
+                cache=cache,
+            )
+            persona_payload = outcome.payload
+        else:
+            persona_payload = pending_persona_stress()
+
+        if existing is not None:
+            record = repo.update_persona_stress(existing.id, persona_payload)
+        else:
+            record = repo.save(
+                code=code,
+                evidence=evidence,
+                narrate_status=NARRATE_SKIPPED,
+                persona_stress=persona_payload,
+            )
+        session.commit()
+
+        text = format_persona_stress_report(
+            code=code,
+            evidence=evidence,
+            persona_stress=persona_payload,
+            confrontation_id=record.id,
+            as_json=as_json,
+        )
+        _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
 def run_report_dashboard(
     code: str,
     as_json: bool = False,
@@ -543,6 +780,7 @@ def run_trade_record(
     *,
     trade_date: str | None = None,
     checklist_id: int | None = None,
+    confrontation_id: int | None = None,
     note: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> None:
@@ -572,6 +810,15 @@ def run_trade_record(
     ensure_sqlite_schema(engine)
     session = make_session_factory(engine)()
     try:
+        if confrontation_id is not None:
+            record = ConfrontationRepo(session).get(confrontation_id)
+            if record is None:
+                print(f"[error] confrontation_id={confrontation_id} 不存在", file=sys.stderr)
+                raise SystemExit(2)
+            if record.code != code:
+                print(
+                    f"[warn] confrontation 所属 {record.code} 与交易 {code} 不一致，仍写入关联"
+                )
         TradeRecordRepo(session).add(
             TradeRecord(
                 code=code,
@@ -580,10 +827,14 @@ def run_trade_record(
                 price=price,
                 quantity=quantity,
                 checklist_id=checklist_id,
+                confrontation_id=confrontation_id,
                 note=note,
             )
         )
         session.commit()
+    except SystemExit:
+        session.rollback()
+        raise
     except Exception:
         session.rollback()
         raise
@@ -616,7 +867,22 @@ def run_report_trade_review(
             record
             for record in session.query(ChecklistRecord).filter(ChecklistRecord.id.in_(checklist_ids)).all()
         ] if checklist_ids else []
-        result = TradeReviewAnalyzer().analyze(records, checklists=checklists)
+        confrontation_ids = {
+            record.confrontation_id
+            for record in records
+            if getattr(record, "confrontation_id", None) is not None
+        }
+        declare_stances: dict[int, str] = {}
+        for cid in confrontation_ids:
+            crec = ConfrontationRepo(session).get(cid)
+            if crec is None or not crec.declaration:
+                continue
+            stance = crec.declaration.get("stance")
+            if stance:
+                declare_stances[cid] = str(stance)
+        result = TradeReviewAnalyzer().analyze(
+            records, checklists=checklists, declare_stances=declare_stances
+        )
         _emit_report(format_trade_review_report(result, as_json=as_json), output)
     finally:
         session.close()
@@ -710,11 +976,15 @@ def _prompt_optional_price(label: str) -> float | None:
 def run_checklist_submit(
     code: str,
     action: str | None = None,
+    *,
+    confrontation_id: int | None = None,
     config: dict[str, Any] | None = None,
 ) -> None:
     """交互式采集、校验并留痕一次 Checklist 提交。"""
     cfg = config or load_app_config()
     print(f"开始填写 {code} 的 Checklist（价值理由至少 2 条；直接回车结束理由输入）")
+    if confrontation_id is None:
+        print("提示：可用 --confrontation-id 关联红蓝对抗声明（可选）")
     value_reasons: list[str] = []
     while True:
         reason = input(f"请输入第 {len(value_reasons) + 1} 条价值理由：").strip()
@@ -738,8 +1008,22 @@ def run_checklist_submit(
     ensure_sqlite_schema(engine)
     session = make_session_factory(engine)()
     try:
-        ChecklistRepo(session).save(submission, result)
+        if confrontation_id is not None:
+            record = ConfrontationRepo(session).get(confrontation_id)
+            if record is None:
+                print(f"[error] confrontation_id={confrontation_id} 不存在", file=sys.stderr)
+                raise SystemExit(2)
+            if record.code != code:
+                print(
+                    f"[warn] confrontation 所属 {record.code} 与 checklist {code} 不一致，仍写入关联"
+                )
+        ChecklistRepo(session).save(
+            submission, result, confrontation_id=confrontation_id
+        )
         session.commit()
+    except SystemExit:
+        session.rollback()
+        raise
     except Exception:
         session.rollback()
         raise
@@ -773,6 +1057,119 @@ def run_checklist_show(
             print(f"暂无 {code} 的 Checklist 记录")
             return
         print(format_checklist_records(code, records, as_json=as_json))
+    finally:
+        session.close()
+
+
+def _parse_refs_csv(raw: str) -> list[int]:
+    if not raw.strip():
+        return []
+    refs: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        refs.append(int(part))
+    return refs
+
+
+def _prompt_declaration() -> ConfrontationDeclaration:
+    print("填写 Confrontation 声明（evidence 引用用逗号分隔序号，如 1,2）")
+    stance = input("stance [adopt_bull|adopt_bear|partial|abstain]：").strip()
+    adopted_side = input("adopted_side [bull|bear|none]：").strip() or "none"
+    rejected_side = input("rejected_side [bull|bear|none]：").strip() or "none"
+    adopted_bull = _parse_refs_csv(input("adopted bull refs：").strip())
+    adopted_bear = _parse_refs_csv(input("adopted bear refs：").strip())
+    rejected_bull = _parse_refs_csv(input("rejected bull refs：").strip())
+    rejected_bear = _parse_refs_csv(input("rejected bear refs：").strip())
+    rationale = input("rejection_rationale（含 [n] 引用）：").strip()
+    uncertainty = input("residual_uncertainty（可空）：").strip()
+    confidence_raw = input("confidence [0-1]：").strip() or "0.5"
+    from service.guard.models.confrontation_declaration import SideEvidenceRefs
+
+    return ConfrontationDeclaration(
+        stance=stance,
+        adopted_side=adopted_side,
+        rejected_side=rejected_side,
+        adopted_evidence_refs=SideEvidenceRefs(bull=adopted_bull, bear=adopted_bear),
+        rejected_evidence_refs=SideEvidenceRefs(bull=rejected_bull, bear=rejected_bear),
+        rejection_rationale=rationale,
+        residual_uncertainty=uncertainty,
+        confidence=float(confidence_raw),
+    )
+
+
+def run_confront_declare(
+    confrontation_id: int,
+    *,
+    json_file: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """提交结构化 confrontation 声明。"""
+    import json
+
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        repo = ConfrontationRepo(session)
+        record = repo.get(confrontation_id)
+        if record is None:
+            print(f"[error] confrontation_id={confrontation_id} 不存在", file=sys.stderr)
+            raise SystemExit(2)
+
+        if json_file:
+            payload = json.loads(Path(json_file).read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                print("[error] --json-file 须为 JSON object", file=sys.stderr)
+                raise SystemExit(2)
+            declaration = ConfrontationDeclaration.from_dict(payload)
+            raw_for_forbidden = payload
+        else:
+            declaration = _prompt_declaration()
+            raw_for_forbidden = declaration.to_dict()
+
+        result = ConfrontationDeclarationValidator().validate(
+            raw_for_forbidden,
+            evidence=record.evidence or {},
+            already_declared=record.declare_status == DECLARE_OK,
+        )
+        if not result.ok:
+            print("Declare 校验失败：", file=sys.stderr)
+            for err in result.errors:
+                print(f"  - {err}", file=sys.stderr)
+            raise SystemExit(1)
+
+        repo.update_declare(confrontation_id, declaration.to_dict(), declare_status=DECLARE_OK)
+        session.commit()
+        print(f"Declare 已保存：confrontation_id={confrontation_id} stance={declaration.stance}")
+    except SystemExit:
+        session.rollback()
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def run_confront_show(
+    code: str,
+    *,
+    as_json: bool = False,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """列出股票的 confrontation / declare 历史。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        records = ConfrontationRepo(session).list_by_code(code)
+        print(format_confrontation_history(code, records, as_json=as_json))
     finally:
         session.close()
 
@@ -932,6 +1329,31 @@ def build_parser() -> argparse.ArgumentParser:
     _add_report_common(
         report_sub.add_parser("dual", help="红蓝对抗证据分桶（离线 Level 0）")
     )
+    confront_parser = report_sub.add_parser(
+        "confront",
+        help="红蓝对抗报告（离线 Level 0；--narrate 联网 LLM 互驳）",
+    )
+    _add_report_common(confront_parser)
+    confront_parser.add_argument(
+        "--narrate",
+        action="store_true",
+        help="显式联网调用 LLM 生成互驳叙事（需配置 llm: 或 LLM_API_KEY）",
+    )
+    persona_parser = report_sub.add_parser(
+        "persona-stress",
+        help="Persona 压力测试（同 evidence 三 lens；--narrate 联网）",
+    )
+    _add_report_common(persona_parser)
+    persona_parser.add_argument(
+        "--narrate",
+        action="store_true",
+        help="显式联网调用 LLM 生成三 persona 解读（需配置 llm: 或 LLM_API_KEY）",
+    )
+    persona_parser.add_argument(
+        "--confrontation-id",
+        type=int,
+        help="挂载到已有 confrontation 记录（复用 evidence，不新建快照）",
+    )
     sentiment_report_parser = report_sub.add_parser("sentiment", help="市场情绪报告（严格离线）")
     sentiment_report_parser.add_argument("code", help="股票代码，仅用于报告标识")
     sentiment_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
@@ -968,7 +1390,21 @@ def build_parser() -> argparse.ArgumentParser:
     trade_record.add_argument("quantity", type=int, help="成交数量")
     trade_record.add_argument("--date", help="成交日期（ISO 格式，如 2026-08-01）")
     trade_record.add_argument("--checklist-id", type=int, help="关联的 Checklist 记录 ID（软引用）")
+    trade_record.add_argument(
+        "--confrontation-id",
+        type=int,
+        help="关联的 confrontation 记录 ID（软引用）",
+    )
     trade_record.add_argument("--note", help="备注")
+
+    confront_cmd = sub.add_parser("confront", help="红蓝对抗声明与历史查询")
+    confront_sub = confront_cmd.add_subparsers(dest="confront_action", required=True)
+    confront_declare = confront_sub.add_parser("declare", help="提交结构化立场声明")
+    confront_declare.add_argument("confrontation_id", type=int, help="confrontation 记录 ID")
+    confront_declare.add_argument("--json-file", help="从 JSON 文件读取 declare payload")
+    confront_show = confront_sub.add_parser("show", help="列出某票 confrontation 历史")
+    confront_show.add_argument("code", help="股票代码")
+    confront_show.add_argument("--json", action="store_true", help="JSON 输出")
 
     wl_parser = sub.add_parser("watchlist", help="维护常看股票列表（config/watchlist.yaml）")
     wl_sub = wl_parser.add_subparsers(dest="watchlist_action", required=True)
@@ -984,6 +1420,11 @@ def build_parser() -> argparse.ArgumentParser:
     checklist_submit = checklist_sub.add_parser("submit", help="交互式提交 Checklist")
     checklist_submit.add_argument("code", help="股票代码")
     checklist_submit.add_argument("--action", choices=("buy", "sell"), help="交易意图")
+    checklist_submit.add_argument(
+        "--confrontation-id",
+        type=int,
+        help="关联的 confrontation 记录 ID（可选软链）",
+    )
     checklist_show = checklist_sub.add_parser("show", help="查看 Checklist 历史记录")
     checklist_show.add_argument("code", help="股票代码")
     checklist_show.add_argument("--json", action="store_true", help="JSON 输出")
@@ -1138,9 +1579,26 @@ def main(argv: list[str] | None = None) -> None:
             return
         if args.command == "checklist":
             if args.checklist_action == "submit":
-                run_checklist_submit(args.code, action=args.action, config=config_override)
+                run_checklist_submit(
+                    args.code,
+                    action=args.action,
+                    confrontation_id=getattr(args, "confrontation_id", None),
+                    config=config_override,
+                )
             elif args.checklist_action == "show":
                 run_checklist_show(args.code, as_json=args.json, config=config_override)
+            return
+        if args.command == "confront":
+            if args.confront_action == "declare":
+                run_confront_declare(
+                    args.confrontation_id,
+                    json_file=args.json_file,
+                    config=config_override,
+                )
+            elif args.confront_action == "show":
+                run_confront_show(
+                    args.code, as_json=args.json, config=config_override
+                )
             return
         if args.command == "position":
             if args.position_action == "set":
@@ -1160,6 +1618,7 @@ def main(argv: list[str] | None = None) -> None:
                     args.quantity,
                     trade_date=args.date,
                     checklist_id=args.checklist_id,
+                    confrontation_id=getattr(args, "confrontation_id", None),
                     note=args.note,
                     config=config_override,
                 )
@@ -1225,6 +1684,8 @@ def main(argv: list[str] | None = None) -> None:
                 "tech": (run_report_tech, "tech"),
                 "value": (run_report_value, "value"),
                 "dual": (run_report_dual, "dual"),
+                "confront": (run_report_confront, "confront"),
+                "persona-stress": (run_report_persona_stress, "persona-stress"),
                 "sentiment": (run_report_sentiment, "sentiment"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
@@ -1234,8 +1695,10 @@ def main(argv: list[str] | None = None) -> None:
                 "as_json": args.json,
                 "config": config_override,
             }
-            if args.report_type == "summary":
+            if args.report_type in ("summary", "confront", "persona-stress"):
                 extra["narrate"] = bool(getattr(args, "narrate", False))
+            if args.report_type == "persona-stress":
+                extra["confrontation_id"] = getattr(args, "confrontation_id", None)
             if args.report_type == "value":
                 extra["show_anchor_price"] = bool(args.show_anchor_price)
             if len(codes) == 1 and not use_wl:

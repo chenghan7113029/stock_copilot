@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-29 | `fix-migration-baseline-as-of`：manifest/`get_kline` 引入 `as_of` 观察日，L3 与墙钟解耦；re-baseline（numbered evidence + `methodology_applicable`） |
 | 2026-08-10 | 阶段 C retire-akshare-default：默认仅 tushare+baostock；去硬门控；akshare_legacy 隔离；OQ-4 packaging 延期 |
 | 2026-08-09 | 阶段 B align-tushare-coverage：Tushare K 线/rt_k、Baostock 财报收敛、情绪 Tushare 替代、字段矩阵、bootstrap priority=1；S2 baseline 绿；关闭 Issue #1 |
 | 2026-08-09 | 阶段 A unify-data-source-router 已实现：Router/Failover/去 override、migration baseline 门禁；§5.A.3 验收勾选 |
@@ -462,7 +463,7 @@ flowchart TB
 
 ```
 test/fixtures/migration_baseline/
-  manifest.json              # 采集时间、git sha、config 摘要
+  manifest.json              # as_of、采集时间、git sha、rebaseline_reason、config 摘要
   seed/
     report_tech_600519.json
     report_value_600519.json
@@ -476,21 +477,25 @@ test/fixtures/migration_baseline/
   optional_network/          # 可选：Owner 环境联网 sync 一次后的快照（不入 CI 硬门禁）
 ```
 
-**采集脚本（待实现）**：`scripts/capture_migration_baseline.py`
+**`as_of`（观察日）**：离线 K 线窗口为 `[as_of - kline_days, as_of]`，**不**使用墙钟 `date.today()`。  
+这样同一份 seed（或可复用的生产缓存）在任意系统日期下 L3 结果稳定。复用生产库时，`as_of` MUST 落在该库 K 线覆盖区间内，否则会出现空窗伪失败。
+
+**采集脚本**：`scripts/capture_migration_baseline.py`
 
 1. 复制 `data/fixtures/stock_copilot_seed.db` → 临时库  
-2. 对样本码 `600519` / `601398` / `601939` 跑 `report tech|value|dual --json`（**严格离线**）  
+2. 对样本码 `600519` / `601398` / `601939` 跑离线 tech/value/dual JSON（**严格离线**，窗口钉在 `--as-of` / manifest.`as_of`）  
 3. 对规范化 JSON 计算 stable hash（剔除 `data_timestamp`、绝对路径等非确定性字段）  
-4. 写入 `test/fixtures/migration_baseline/seed/`
+4. 写入 `test/fixtures/migration_baseline/seed/`，manifest 必含 `as_of`
 
-**对比脚本（待实现）**：`scripts/compare_migration_baseline.py`
+**对比脚本**：`scripts/compare_migration_baseline.py`
 
+- 读取 manifest.`as_of`；**缺失则非零退出**并提示重新 capture  
 - 重新跑离线报告 → 与 baseline **逐 key 比较**  
 - **S2 硬门禁**：seed 离线三板报告（tech/value/dual）关键数值字段相对误差 ≤ **0**（整数/日期字符串完全一致）；浮点字段默认 ≤ **1e-6** 相对误差，或在 manifest 中登记豁免  
-- 输出 diff 报告到 `reports/migration_baseline_diff_<date>.json`
+- 输出 diff 报告到 `reports/migration_baseline_diff_<date>.json`  
+- 预期 schema 演进（如 dual evidence `{index,text}`、`methodology_applicable`）须在修复非确定性后 **re-baseline**，并在 manifest.`rebaseline_reason` / PR 登记；MUST NOT 仅靠放宽 `float_rel_tol` 掩盖时钟漂移
 
 > **为何强调离线 seed**：联网 sync 结果随市场波动，**不能**作为架构重构的逐日数值门禁；联网一致性用 L4「完备性 + 容差」单独覆盖。
-
 ### 12.4 分阶段测试方案
 
 #### 阶段 A — 数据源架构统一

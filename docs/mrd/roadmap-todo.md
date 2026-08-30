@@ -1,6 +1,6 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-08-15  
+> 最后更新：2026-08-29  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
 > 数据源迁移（三阶段 + 测试基线）：[features/data-source-migration.md](features/data-source-migration.md)  
@@ -12,6 +12,11 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-08-29 | `add-confrontation-narrate-api` 在分支 `feat/decision-audit-v2` 实现：`report confront [--narrate]`、numbered evidence、`ConfrontationRecord` |
+| 2026-08-29 | `fix-migration-baseline-as-of`：L3 门禁钉 `as_of`，与墙钟解耦并 re-baseline |
+| 2026-08-29 | `add-confrontation-declaration`：`confront declare/show` + checklist/trade `--confrontation-id` |
+| 2026-08-29 | 决策护航 V2 探索落地：OpenSpec 立项 `add-confrontation-narrate-api` / `add-confrontation-declaration` / `add-confrontation-persona-stress-test`；主路径 CLI+API；declare 结构化+evidence 序号；命令分散仅 ID 关联 |
+| 2026-08-29 | 竞品参考：`docs/mrd/competitive-reference.md` + `ref/` 镜像 12 项目；Tushare 权限扫描 `docs/mrd/tushare-permission-scan.md` |
 | 2026-08-15 | 飞书 dual 推送：`feishu push` + lark-cli 新建文档 / 一票一消息（`add-feishu-watchlist-push`） |
 | 2026-08-10 | housekeeping：批量归档 13 个已落地 OpenSpec change（dashboard/checklist/sentiment/anchor/chip 等）；PO-07 标为已实现 |
 | 2026-08-10 | 阶段 C 实现：retire-akshare-default（默认 tushare+baostock、去硬门控、akshare_legacy） |
@@ -62,6 +67,7 @@ etire-akshare-default |
 
 - [x] `DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`（`add-dual-track-analyzer`）
 - [x] `analyze_offline` + `EvidenceBucketer` + `report dual` + 红蓝对抗 Cursor Skill（`add-red-blue-confrontation` V1）
+- [ ] 红蓝对抗 V2：API narrate + 结构化 declare + persona 压力测试（见 §2.4）
 
 ### 1.4 尚未交付（产品级入口）
 
@@ -70,7 +76,8 @@ etire-akshare-default |
 - [x] CLI 多维看板（`report dashboard`，`add-stock-dashboard`）
 - [x] LLM 综合报告（`report summary [--narrate]`，`add-llm-comprehensive-report`）
 - [x] 情绪面 V1（涨跌停家数比 + 恐慌贪婪代理指数 + 三维联合解读）
-- [x] 决策护航（首开仓评估、Checklist 与红蓝对抗 V1 已交付）
+- [x] 决策护航 V1（首开仓评估、Checklist、红蓝 Skill 版已交付）
+- [ ] 决策护航 V2（API 互驳叙事、declare 留痕、persona、ID 关联；见 §2.4）
 - [x] 飞书 dual 推送（`feishu push`，经 lark-cli；`add-feishu-watchlist-push`）
 
 ---
@@ -85,9 +92,10 @@ etire-akshare-default |
 |----|------|------|------|
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [x] 已实现（`report summary [--narrate]`） |
-| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [x] V1 Skill 版已实现（证据分桶 + Cursor Skill）；Web+API / 用户声明待建 |
-| PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现（CLI `checklist submit/show`；不合规留痕） |
-| PO-05 | 假设今日首开仓 | 隐藏持仓成本/盈亏比例，对抗沉没成本 | [x] 已实现（`position set` + 严格离线 `entry-check`） |
+| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [~] V1 Skill ✅；**narrate-api / declaration 已归档**；CLI `confront declare` |
+| PO-03b | Persona 压力测试 | 同 evidence 多 lens，对抗单框架思维 | [x] `report persona-stress [--narrate]`；已归档 `add-confrontation-persona-stress-test` |
+| PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现；支持 `--confrontation-id` 软链 |
+| PO-05 | 假设今日首开仓 | 隐藏持仓成本/盈亏比例，对抗沉没成本 | [x] 已实现（`entry-check`）；**PO-05b** 用户回答落库见 §2.4 |
 
 ### 2.2 P1 — 情绪与交互
 
@@ -101,12 +109,55 @@ etire-akshare-default |
 
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
-| PO-09 | 复盘归因 | FIFO 胜率、Badcase 软引用归因、人工阅读统计 | [x] 已实现（`trade record` / `report trade-review`；无 Checklist 关联时降级） |
+| PO-09 | 复盘归因 | FIFO 胜率、Badcase 软引用归因、人工阅读统计 | [x] 已实现；**PO-09b** 规则反哺建议见 §2.4 |
 | PO-10 | 组合级相关性 | 持仓集中度 + 原始行业文本暴露度粗估；不含协方差矩阵或组合优化 | [x] `report portfolio` 已实现；持仓来源为 `add-trade-review-attribution` 的 `TradeRecord` |
 | PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [ ] 待规划 |
 | PO-12 | 个股融资融券余额 | 个股级 `(code, trade_date)` 情绪数据与分析 | [ ] 待建 |
 | PO-13 | 龙虎榜情绪信号 | 席位、净买入与异常交易行为 | [ ] 待建 |
 | PO-14 | 社媒/新闻文本情绪 | 非结构化文本挖掘，需独立评估 NLP/LLM 管线 | [ ] 待建 |
+
+---
+
+## 2.4 决策护航 V2（Explore → OpenSpec，2026-08-29）
+
+> 背景：[competitive-reference.md](competitive-reference.md) §4.1；主使用场景 **CLI + LLM API**；**不做**编排式 `decision audit` 单命令；命令分散，仅 **关联 ID** 串联审计链。
+
+### 2.4.1 已立项（OpenSpec 活跃）
+
+| Change | 能力 | 依赖 | 状态 |
+|--------|------|------|------|
+| `add-confrontation-narrate-api` | `report confront [--narrate]`；numbered evidence；grounded 互驳 JSON；`ConfrontationRecord` | `llm-narrative-core` ✅ | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-narrate-api`） |
+| `add-confrontation-declaration` | `confront declare` 结构化 schema + evidence ref 校验；`checklist/trade --confrontation-id` | narrate-api | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-declaration`） |
+| `add-confrontation-persona-stress-test` | `report persona-stress`（value_quality / trend_momentum / risk_governor） | narrate-api | 已 propose，待 apply |
+
+**推荐实施顺序：** narrate-api → declaration → persona（可并行 declaration 与 persona 设计，但 declare 依赖 confrontation_id）。
+
+**典型 CLI 链路（分散命令）：**
+
+```text
+report dual / report confront --narrate     → confrontation_id
+report persona-stress --confrontation-id N  → 可选
+confront declare <id>                       → declare 落库
+entry-check <code>                          → 有持仓时建议先跑（提示，非硬门控）
+checklist submit --confrontation-id N       → checklist_id
+trade record ... --checklist-id --confrontation-id
+report trade-review                         → 复盘
+```
+
+### 2.4.2 待规划（Explore 产物，尚未 propose）
+
+| ID | 能力 | 说明 | 建议 change |
+|----|------|------|-------------|
+| PO-05b | entry-check 回答落库 | 「今日仍愿买吗」Y/N + 理由持久化 | `add-entry-check-response` |
+| PO-09b | 复盘规则反哺建议 | Badcase → Checklist 规则**建议**（人工确认，非自动改 validator） | `add-trade-review-rule-hints` |
+| — | Level 2 多轮辩论 | Aggressive→Conservative→Neutral→Judge | `add-confrontation-debate-v2`（P2） |
+| — | decision-history 视图 | 单票 confront/checklist/trade 时间线只读汇总 | `add-decision-history`（P2） |
+
+### 2.4.3 明确不做
+
+- 编排式 `decision audit` 单命令（Owner 决策）
+- 19 Agent persona / 自动 Fund（竞品 ai-hedge-fund 路线）
+- LLM 自动填写 declare 或 Checklist 硬规则
 
 ---
 
@@ -248,7 +299,8 @@ etire-akshare-default |
 | **C4** | 离线年报 FCF 合并 | Q1 快照不再覆盖 1231 年报 FCF | ✅ fix-offline-annual-fcf |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ✅ 已实现 |
 | **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股融资、龙虎榜、文本情绪待后续 change |
-| **F** | 决策护航（PO-03~05） | Checklist / 红蓝对抗 / 首开仓 | ✅ PO-03 V1 Skill、Checklist 与首开仓检查已交付 |
+| **F** | 决策护航 V1（PO-03~05） | Checklist / 红蓝 Skill / 首开仓 | ✅ 已交付 |
+| **F2** | 决策护航 V2 | API confront + declare + persona + ID 链 | 🟨 已 propose（§2.4） |
 | **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web 待立项 |
 | **G'** | 飞书 dual 推送 | watchlist dual.md → lark-cli 文档+消息 | ✅ `feishu push` |
 | **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | ⬜ 待立项 |
@@ -337,4 +389,12 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 | 价值面 V1.x 增强 | 编排 P0 | ~6 项（T-1/2/3/7/8/15 + D-E） |
 | 价值面 V2 | — | 7+ 项（原型与方法扩展） |
 
-**OpenSpec 队列：** `add-tushare-financials`（层 B，待 Token 升级后实施）
+**OpenSpec 队列（2026-08-29）：**
+
+| 优先级 | Change | 说明 |
+|--------|--------|------|
+| P0 | `add-confrontation-narrate-api` | PO-03 API 主路径 |
+| P0 | `add-confrontation-declaration` | declare + ID 关联 |
+| P1 | `add-confrontation-persona-stress-test` | PO-03b |
+| P2 | `add-entry-check-response` / `add-trade-review-rule-hints` | 待 propose |
+| — | `add-pattern-recognition` / `add-bollinger-bands` | 技术面 V2（进行中） |

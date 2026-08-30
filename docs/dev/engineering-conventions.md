@@ -365,6 +365,7 @@ flowchart TB
 2. 变更流程：OpenSpec explore → propose → apply → archive
 3. **归档后须合并回 docs/**（见 [docs/README.md](../README.md)）
 4. 架构/目录/依赖变更须同步更新**本文档**与 `openspec/config.yaml`
+5. **完成判定硬约束**（详见 `openspec/config.yaml`）：相关测试未通过前，不得默认将 change 视为 apply/archive 完成；禁止以「既有无关失败」默认放行（除非 Owner 显式豁免并登记）
 
 ---
 

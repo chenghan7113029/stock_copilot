@@ -241,3 +241,31 @@ def test_from_config_baostock_only_does_not_build_akshare(monkeypatch):
     provider = KlineProvider.from_config(cfg, repo)
     assert created == ["baostock"]
     assert all(name != "akshare" for _, name in provider._kline_sources)
+
+
+def test_as_of_overrides_wall_clock_window():
+    """显式 as_of 决定 query_range 窗口，不跟随墙钟。"""
+    repo = MagicMock()
+    repo.query_range.return_value = []
+    provider = KlineProvider(repo, baostock_fetcher=MagicMock(), akshare_fetcher=MagicMock())
+
+    provider.get_kline("600519", days=90, offline=True, as_of="2026-08-10")
+
+    repo.query_range.assert_called_once_with("600519", "2026-05-12", "2026-08-10")
+
+
+def test_as_of_stable_when_today_mocked(monkeypatch):
+    """固定 as_of 时，伪造不同 today 仍查询同一窗口。"""
+    repo = MagicMock()
+    repo.query_range.return_value = []
+    provider = KlineProvider(repo, baostock_fetcher=MagicMock(), akshare_fetcher=MagicMock())
+
+    class _FakeDate(date):
+        @classmethod
+        def today(cls):
+            return date(2099, 1, 1)
+
+    monkeypatch.setattr("data_provider.kline_provider.date", _FakeDate)
+
+    provider.get_kline("600519", days=90, offline=True, as_of="2026-08-10")
+    assert repo.query_range.call_args.args == ("600519", "2026-05-12", "2026-08-10")
