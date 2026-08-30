@@ -95,9 +95,18 @@ Write-Log "cwd=$RepoRoot slot=$Slot"
 Write-Log ("cmd=py " + ($argv -join " "))
 
 $code = 0
+# Native stderr (e.g. [warn] from apps.cli) becomes ErrorRecord under 2>&1;
+# with Stop that aborts the whole watchlist after the first warning.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 try {
     & py @argv 2>&1 | ForEach-Object {
-        $line = [string]$_
+        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            $line = $_.Exception.Message
+            if (-not $line) { $line = [string]$_ }
+        } else {
+            $line = [string]$_
+        }
         if ($line) { Add-Content -Path $LogFile -Value $line -Encoding utf8 }
         Write-Host $line
     }
@@ -107,6 +116,8 @@ try {
 } catch {
     Write-Log "[ERROR] $($_.Exception.Message)"
     $code = 1
+} finally {
+    $ErrorActionPreference = $prevEap
 }
 
 Write-Log "exit_code=$code"
