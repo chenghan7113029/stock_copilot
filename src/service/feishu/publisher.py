@@ -128,6 +128,19 @@ class LarkCliPublisher:
             return found
         raise FeishuPublisherError(self.missing_cli_message())
 
+    @staticmethod
+    def _markdown_content_arg(md_path: Path, *, cwd: Path | None = None) -> str:
+        """返回 docs +create 可用的 @相对路径（避免 Windows argv 换行截断）。"""
+        base = (cwd or Path.cwd()).resolve()
+        resolved = md_path.resolve()
+        try:
+            rel = resolved.relative_to(base)
+        except ValueError as exc:
+            raise FeishuPublisherError(
+                f"dual.md 不在当前工作目录下，无法传给 lark-cli --content @file：{resolved}"
+            ) from exc
+        return f"@{rel.as_posix()}"
+
     def publish(
         self,
         *,
@@ -144,7 +157,9 @@ class LarkCliPublisher:
         if not md_path.exists():
             raise FeishuPublisherError(f"本地 dual.md 不存在：{md_path}")
         binary = self.resolve_binary()
-        markdown = md_path.read_text(encoding="utf-8")
+        # Windows CreateProcess 会截断含真实换行的 argv；markdown 正文必须走 @file。
+        # lark-cli 拒绝绝对路径，故转为相对 cwd 的 posix 路径。
+        content_arg = self._markdown_content_arg(md_path)
         create_argv = [
             binary,
             "docs",
@@ -158,7 +173,7 @@ class LarkCliPublisher:
             "--title",
             title,
             "--content",
-            markdown,
+            content_arg,
         ]
         if self.config.folder_token:
             create_argv.extend(["--parent-token", self.config.folder_token])
@@ -193,6 +208,9 @@ class LarkCliPublisher:
                 error="未配置 feishu.user_id 或 feishu.chat_id，文档已创建但无法发消息",
             )
         text = f"{title}\n{url}"
+        # Windows CreateProcess 会把 argv 拼成命令行；实参里的真实换行会截断，
+        # 导致 URL 丢失。用 JSON --content 让 \n 以转义形式传递。
+        content = json.dumps({"text": text}, ensure_ascii=False)
         send_argv = [
             binary,
             "im",
@@ -207,7 +225,7 @@ class LarkCliPublisher:
             send_argv.extend(["--user-id", user_id])
         else:
             send_argv.extend(["--chat-id", chat_id])
-        send_argv.extend(["--text", text])
+        send_argv.extend(["--msg-type", "text", "--content", content])
         sent = self.runner(send_argv)
         send_payload = _parse_json_blob(sent.stdout)
         if sent.returncode != 0 or send_payload.get("ok") is False:

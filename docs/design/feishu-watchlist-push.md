@@ -27,8 +27,11 @@ lark-cli auth login --recommend
 
 ```text
 lark-cli docs +create --format json --doc-format markdown --title "..." --content "..."
-lark-cli im +messages-send --format json --chat-id oc_xxx --text "标题\nURL"
+lark-cli im +messages-send --format json --chat-id oc_xxx --msg-type text --content "{\"text\":\"标题\\nURL\"}"
 ```
+
+> Windows 注意：经 Python `subprocess` 传真实换行给 `--text` / `--content` 会被 CreateProcess 截断。
+> 发消息须用 JSON `--content` 转义 `\n`；建文档须用 `--content @相对路径.md`（禁止把整篇 markdown 直接塞进 argv）。
 
 成功信封：`{"ok": true, "data": {...}}`。计划任务须以完成 `auth login` 的同一 Windows 用户运行。不自研 Open API。
 
