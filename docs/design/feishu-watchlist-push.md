@@ -37,4 +37,4 @@ lark-cli im +messages-send --format json --chat-id oc_xxx --msg-type text --cont
 
 ## 调度
 
-Windows 计划任务 09:00 / 13:00 / 17:00，分别 `--slot 0900|1300|1700`。交易日 V1：工作日 + `feishu.holidays`。PC 常开后置。
+Windows 计划任务 08:30 / 13:00 / 17:00，分别 `--slot 0830|1300|1700`。交易日 V1：工作日 + `feishu.holidays`。PC 常开后置。

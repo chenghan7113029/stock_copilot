@@ -259,15 +259,15 @@ py -m apps.cli feishu push --watchlist --dry-run --no-sync --slot 1700
 
 文件落在 `reports/feishu/{日期}/{slot}/{代码}_dual.md`。消息标题格式：`今日研报_{股票名称}_{YYYY-MM-DD}_{HHmm}`，正文只有文档链接。
 
-**Windows 计划任务（当前：周一至周五 09:00）：**
+**Windows 计划任务（当前：周一至周五 08:30）：**
 
-本机已注册任务 `StockCopilot-FeishuPush-0900`，调用：
+本机已注册任务 `StockCopilot-FeishuPush-0830`，调用：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File D:\workspace\stock_copilot\scripts\feishu_push_slot.ps1 -Slot 0900
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\workspace\stock_copilot\scripts\feishu_push_slot.ps1 -Slot 0830
 ```
 
-等价 CLI：`py -m apps.cli feishu push --watchlist --slot 0900`（默认会按配置先 sync）。日志写入 `log/feishu_push_0900_*.log`（UTF-8）。脚本启动前会检查 `lark-cli auth status`，用户 token 失效时直接失败并写日志。
+等价 CLI：`py -m apps.cli feishu push --watchlist --slot 0830`（默认会按配置先 sync）。日志写入 `log/feishu_push_0830_*.log`（UTF-8）。脚本启动前会检查 `lark-cli auth status`，用户 token 失效时直接失败并写日志。
 
 须以**已执行过 `lark-cli auth login` 的同一 Windows 用户**登录会话运行（任务为 Interactive 登录）。非交易日会 `[skip]` 并以退出码 0 结束。PC 休眠/未登录可能漏推；任务已开「错过时尽快运行」（`StartWhenAvailable`）。
 
@@ -275,8 +275,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\workspace\stock_copilot\s
 
 1. `lark-cli` refresh token 过期（约 7 天未成功续期）→ 运行 `lark-cli auth login --recommend` 重新扫码授权（OAuth 安全限制，无法完全免扫码）
 2. access token 过期（约 2 小时）→ **无需手动操作**；推送前脚本会 `auth status --verify`，lark-cli 自动用 refresh token 续期
-2. 9:00 时 PC 未开机或未登录 → 任务不会按时执行
-3. 查看 `log/feishu_push_0900_*.log` 末尾的 `exit_code` 与 `[error]` 行
+2. 8:30 时 PC 未开机或未登录 → 任务不会按时执行
+3. 查看 `log/feishu_push_0830_*.log` 末尾的 `exit_code` 与 `[error]` 行
 
 若以后要加 13:00 / 17:00，可再注册同脚本并分别传 `-Slot 1300 -Realtime` / `-Slot 1700`。
 
