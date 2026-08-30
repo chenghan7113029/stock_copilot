@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -69,7 +70,8 @@ from data_provider.provider import StockDataProvider
 from data_provider.sentiment.provider import MarketSentimentProvider
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
-from service.feishu.pipeline import reports_root, run_feishu_push
+from service.feishu.paths import feishu_md_path
+from service.feishu.pipeline import FeishuPushDocument, reports_root, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError
 from service.guard.checklist_validator import ChecklistValidator
 from service.guard.confrontation_declaration_validator import ConfrontationDeclarationValidator
@@ -1449,11 +1451,14 @@ def build_parser() -> argparse.ArgumentParser:
     value_override.add_argument("prototype", choices=list(_PROTOTYPE_METHODS), help="目标估值原型")
     value_override.add_argument("--reason", required=True, help="覆盖原因")
 
-    feishu_parser = sub.add_parser("feishu", help="飞书 dual 推送（经 lark-cli）")
+    feishu_parser = sub.add_parser("feishu", help="飞书研报推送（经 lark-cli）")
     feishu_sub = feishu_parser.add_subparsers(dest="feishu_action", required=True)
-    feishu_push = feishu_sub.add_parser("push", help="生成 dual.md 并经 lark-cli 新建文档+发消息")
+    feishu_push = feishu_sub.add_parser(
+        "push",
+        help="生成 confront + persona-stress.md 并经 lark-cli 各建文档+发消息",
+    )
     _add_code_or_watchlist(feishu_push)
-    feishu_push.add_argument("--dry-run", action="store_true", help="只写本地 dual.md，不调用 lark-cli")
+    feishu_push.add_argument("--dry-run", action="store_true", help="只写本地 md，不调用 lark-cli")
     feishu_push.add_argument("--sync", action="store_true", help="推送前同步（覆盖配置）")
     feishu_push.add_argument("--no-sync", action="store_true", help="推送前不同步（覆盖配置）")
     feishu_push.add_argument("--realtime", action="store_true", help="sync 时叠加实时报价")
@@ -1479,12 +1484,64 @@ def _quiet_config(config: dict[str, Any] | None) -> dict[str, Any]:
     return cfg
 
 
-def _write_dual_md(code: str, dest: Path, config: dict[str, Any] | None) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+_CONFRONTATION_ID_RE = re.compile(r"\*\*confrontation_id:\*\*\s*(\d+)")
+
+
+def _parse_confrontation_id(md_path: Path) -> int:
+    text = md_path.read_text(encoding="utf-8")
+    match = _CONFRONTATION_ID_RE.search(text)
+    if not match:
+        raise RuntimeError(f"无法从 {md_path} 解析 confrontation_id")
+    return int(match.group(1))
+
+
+def _write_feishu_reports(
+    code: str,
+    reports_dir: Path,
+    *,
+    slot: str,
+    today: date,
+    config: dict[str, Any] | None,
+) -> list[FeishuPushDocument]:
+    """生成 confront + persona-stress 本地 md（各含 --narrate）。"""
+    cfg = _quiet_config(config)
+    confront_dest = feishu_md_path(
+        reports_dir, day=today, slot=slot, code=code, suffix="confront"
+    )
+    confront_dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        run_report_dual(code, output=str(dest), as_json=False, config=_quiet_config(config))
+        run_report_confront(
+            code,
+            narrate=True,
+            output=str(confront_dest),
+            config=cfg,
+        )
     except SystemExit as exc:
-        raise RuntimeError(f"report dual 退出码 {exc.code}") from exc
+        if exc.code != 1 or not confront_dest.exists() or confront_dest.stat().st_size < 20:
+            raise RuntimeError(f"report confront 失败（退出码 {exc.code}）") from exc
+        print(f"[warn] {code} confront LLM 叙事失败，仍推送 Level 0", file=sys.stderr)
+
+    confrontation_id = _parse_confrontation_id(confront_dest)
+    persona_dest = feishu_md_path(
+        reports_dir, day=today, slot=slot, code=code, suffix="persona-stress"
+    )
+    try:
+        run_report_persona_stress(
+            code,
+            narrate=True,
+            confrontation_id=confrontation_id,
+            output=str(persona_dest),
+            config=cfg,
+        )
+    except SystemExit as exc:
+        raise RuntimeError(f"report persona-stress 失败（退出码 {exc.code}）") from exc
+
+    return [
+        FeishuPushDocument(kind="confront", path=confront_dest, title_tag="红蓝对抗"),
+        FeishuPushDocument(
+            kind="persona-stress", path=persona_dest, title_tag="Persona压力"
+        ),
+    ]
 
 
 def run_feishu_push_cmd(
@@ -1499,24 +1556,28 @@ def run_feishu_push_cmd(
     cfg = config or load_app_config()
     slot_key = _resolve_feishu_slot(slot)
     feishu_cfg = resolve_feishu_config(cfg)
+    push_day = datetime.now().date()
+    reports_dir = reports_root(cfg, _REPO_ROOT)
 
     def _sync(code: str) -> None:
         run_sync(code, realtime=realtime, config=cfg)
 
-    def _write(code: str, dest: Path) -> None:
-        _write_dual_md(code, dest, cfg)
+    def _write(code: str, root: Path, slot: str, today: date) -> list[FeishuPushDocument]:
+        return _write_feishu_reports(
+            code, root, slot=slot, today=today, config=cfg
+        )
 
     try:
         outcome = run_feishu_push(
             codes,
             config=cfg,
-            write_dual=_write,
-            reports_dir=reports_root(cfg, _REPO_ROOT),
+            write_reports=_write,
+            reports_dir=reports_dir,
             slot=slot_key,
             dry_run=dry_run,
             do_sync=do_sync,
             sync_fn=_sync,
-            today=datetime.now().date(),
+            today=push_day,
             feishu_cfg=feishu_cfg,
         )
     except FeishuPublisherError as exc:
@@ -1526,14 +1587,16 @@ def run_feishu_push_cmd(
     if outcome.skipped:
         print(f"[skip] {outcome.skip_reason}")
         return
-    for code, path in outcome.local_paths.items():
-        print(f"[ok] {code} 本地 {path}")
+    for code, paths in outcome.local_paths.items():
+        joined = "; ".join(paths)
+        print(f"[ok] {code} 本地 {joined}")
     if outcome.failed:
         detail = "; ".join(f"{c}: {err}" for c, err in outcome.failed)
-        print(f"[error] 失败 {len(outcome.failed)}/{len(codes)}: {detail}", file=sys.stderr)
+        print(f"[error] 失败 {len(outcome.failed)} 项: {detail}", file=sys.stderr)
         raise SystemExit(1)
     print(
-        f"飞书推送完成 {len(outcome.succeeded)}/{len(codes)}"
+        f"飞书推送完成 {outcome.doc_succeeded}/{outcome.doc_total} 文档，"
+        f"{len(outcome.succeeded)}/{len(codes)} 只股票"
         + ("（dry-run）" if dry_run else "")
     )
 

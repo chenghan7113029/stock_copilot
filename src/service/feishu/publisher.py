@@ -38,8 +38,10 @@ class PublishResult:
     error: str | None = None
 
 
-def push_title(name: str, *, day_iso: str, slot: str) -> str:
+def push_title(name: str, *, day_iso: str, slot: str, tag: str | None = None) -> str:
     label = (name or "").strip()
+    if tag:
+        return f"今日研报_{label}_{tag}_{day_iso}_{slot}"
     return f"今日研报_{label}_{day_iso}_{slot}"
 
 
@@ -150,8 +152,9 @@ class LarkCliPublisher:
         slot: str,
         day_iso: str,
         dry_run: bool = False,
+        title_tag: str | None = None,
     ) -> PublishResult:
-        title = push_title(name or code, day_iso=day_iso, slot=slot)
+        title = push_title(name or code, day_iso=day_iso, slot=slot, tag=title_tag)
         if dry_run:
             return PublishResult(code=code, doc_url="", title=title, dry_run=True)
         if not md_path.exists():

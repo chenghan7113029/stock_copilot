@@ -2,7 +2,7 @@
 
 > 面向：**实际使用本工具分析 A 股的个人投资者**（非开发者文档）  
 > 当前入口：**命令行（CLI）**；Web 界面仍在规划中
-> 最后更新：2026-08-15
+> 最后更新：2026-08-30
 
 ---
 
@@ -21,15 +21,17 @@
 | 能力 | 怎么用 |
 |------|--------|
 | 常看股票列表 | `watchlist list/add/remove`；`sync`/`report` 支持 `--watchlist` |
-| 飞书 dual 推送 | `feishu push --watchlist`（经 `lark-cli`，见 §3.5） |
+| 飞书研报推送 | `feishu push --watchlist`（confront + persona-stress，见 §3.5） |
 | 同步行情与财报快照 | `python -m apps.cli sync <代码>` 或 `sync --watchlist` |
 | 技术面报告 | `python -m apps.cli report tech <代码>` |
 | 价值面报告 | `python -m apps.cli report value <代码>` |
 | 多维看板（一页汇总） | `python -m apps.cli report dashboard <代码>` |
 | 综合摘要（可选 LLM 叙事） | `python -m apps.cli report summary <代码> [--narrate]` |
 | 红蓝证据分桶（多空清单） | `python -m apps.cli report dual <代码>` |
+| 红蓝对抗报告（编号证据 + 可选 LLM 互驳） | `python -m apps.cli report confront <代码> [--narrate]`（见 §7） |
+| Persona 压力测试（三 lens） | `python -m apps.cli report persona-stress <代码> [--narrate]`（见 §7） |
+| 对抗立场声明与历史 | `python -m apps.cli confront declare/show`（见 §4.8） |
 | 市场情绪 V1 | `python -m apps.cli sync market` 后执行 `report sentiment <代码>` 或 `report dual <代码>` |
-| 红蓝对抗叙事（多方/空方互驳） | Cursor 里让 Agent 做「红蓝对抗」（见 §7） |
 | 决策清单（提交 / 历史） | `python -m apps.cli checklist submit/show <代码>`（见 §4.7） |
 | 无仓位视角入场检查 | `position set` + `entry-check`（见附录） |
 | 人工覆盖估值原型 | `value override <代码> <原型> --reason ...`（见附录） |
@@ -237,9 +239,14 @@ git commit -m "chore: update watchlist"
 git push
 ```
 
-### 3.5 飞书推送 dual（通勤阅读）
+### 3.5 飞书推送 confront + persona-stress（通勤阅读）
 
-只推红蓝证据分桶（`report dual`）。每份 `{code}_dual.md` 新建一篇飞书文档，成功后立刻发一条消息。
+每只股票推送 **两篇**文档（各一条消息）：
+
+1. **`report confront --narrate`** → `{code}_confront.md`（编号证据 + LLM 互驳叙事；叙事失败仍推 Level 0）
+2. **`report persona-stress --narrate --confrontation-id …`** → `{code}_persona-stress.md`（三 Persona lens）
+
+需已配置 `llm:`（或 `LLM_API_KEY`）才能生成完整叙事；未配置时 confront 仅 Level 0、persona 为占位段。
 
 **前置：** 安装官方 [lark-cli](https://github.com/larksuite/cli)，并在本机登录：
 
@@ -257,7 +264,7 @@ lark-cli auth login --recommend
 py -m apps.cli feishu push --watchlist --dry-run --no-sync --slot 1700
 ```
 
-文件落在 `reports/feishu/{日期}/{slot}/{代码}_dual.md`。消息标题格式：`今日研报_{股票名称}_{YYYY-MM-DD}_{HHmm}`，正文只有文档链接。
+文件落在 `reports/feishu/{日期}/{slot}/{代码}_confront.md` 与 `{代码}_persona-stress.md`。消息标题格式：`今日研报_{股票名称}_{红蓝对抗|Persona压力}_{YYYY-MM-DD}_{HHmm}`；正文两行：**标题 + 飞书文档 URL**。
 
 **Windows 计划任务（当前：周一至周五 08:30）：**
 
@@ -321,13 +328,13 @@ python -m apps.cli watchlist add <代码> [--name 名称]
 python -m apps.cli watchlist remove <代码>
 ```
 
-### 4.0a `feishu push` — 飞书 dual 推送
+### 4.0a `feishu push` — 飞书研报推送
 
 ```text
-python -m apps.cli feishu push --watchlist [--dry-run] [--sync|--no-sync] [--realtime] [--slot 1700]
+python -m apps.cli feishu push --watchlist [--dry-run] [--sync|--no-sync] [--realtime] [--slot 0830]
 ```
 
-详见 §3.5。依赖本机 `lark-cli auth login`。
+每票依次生成并推送 `{code}_confront.md`、`{code}_persona-stress.md`（各新建一篇飞书文档 + 一条消息）。详见 §3.5。
 
 ### 4.1 `sync` — 联网同步
 
@@ -347,6 +354,14 @@ python -m apps.cli sync --watchlist [--realtime] [--quiet]
 
 - 价值面快照（价、财报字段、估值所需输入等）
 - 日 K 线缓存（默认约 90 个交易日）
+
+**全市场情绪（与单票 sync 分开）：**
+
+```text
+python -m apps.cli sync market [--quiet]
+```
+
+写入市场级情绪快照，供 `report sentiment` / `report dual` / `report confront` 的离线三维解读使用。不接受股票代码。
 
 ### 4.2 `report tech` — 技术面（离线）
 
@@ -414,9 +429,48 @@ python -m apps.cli report dual --watchlist [-o 目录] [--json] [--quiet]
 - **多方证据** `bull_evidence`
 - **空方证据** `bear_evidence`
 
-这是「清单级」输出。若要「论述 + 互相反驳」的叙事，见 §7。
+这是「清单级」输出：证据为**纯文本列表**（无序号）。若要**编号证据 + 互驳叙事 + 审计留痕**，用 `report confront`（见 §4.4a、§7）。
 
-`--json` 方便复制给 Cursor Skill 或自己写脚本。
+`--json` 方便复制给脚本或 Cursor Skill（fallback）。
+
+### 4.4a `report confront` — 红蓝对抗报告（离线 Level 0；可选 LLM Level 1）
+
+```text
+python -m apps.cli report confront <代码> [--narrate] [--json] [-o 文件] [--quiet]
+python -m apps.cli report confront --watchlist [-o 目录] [--json] [--quiet] [--narrate]
+```
+
+**产品主路径**（替代仅依赖 Cursor Agent 的做法）：
+
+| 层级 | 产出 | 说明 |
+|------|------|------|
+| Level 0 | 编号多方/空方证据 + `analysis_summary` | 始终离线；每条证据带 `index`，供 declare 引用 |
+| Level 1 | 多方/空方论述 + 逐条反驳（`target_index`） | 加 `--narrate` 时联网 LLM；失败仍输出 Level 0 |
+
+每次运行会**写入本地 confrontation 记录**，报告头显示 **`confrontation_id`**（后续 `confront declare`、`checklist submit --confrontation-id`、`trade record --confrontation-id` 用此 ID 软关联）。
+
+LLM 未配置或 `--narrate` 失败时：Level 0 照常；加 `--narrate` 且叙事失败时命令退出码为 1。
+
+### 4.4b `report persona-stress` — Persona 压力测试
+
+```text
+python -m apps.cli report persona-stress <代码> [--narrate] [--confrontation-id N] [--json] [-o 文件] [--quiet]
+python -m apps.cli report persona-stress --watchlist [-o 目录] [--json] [--quiet] [--narrate]
+```
+
+在同一套编号 evidence 上，从三个 lens 施压解读：
+
+| lens | 白话 |
+|------|------|
+| `value_quality` | 价值质量 |
+| `trend_momentum` | 趋势动量 |
+| `risk_governor` | 风控官 |
+
+- **默认**：离线占位（persona 段提示待 `--narrate`）
+- **`--narrate`**：联网生成三 lens 解读（需 `llm:` / `LLM_API_KEY`）
+- **`--confrontation-id N`**：复用已有 confrontation 的 evidence（不重新跑双轨）；适合先 `report confront --narrate` 再补 persona 视角
+
+同样会写入/更新 confrontation 记录，报告头含 `confrontation_id`。
 
 ### 4.5 `report dashboard` — 多维看板（离线）
 
@@ -446,7 +500,7 @@ python -m apps.cli report dashboard <代码> [--json] [-o 文件] [--quiet]
 
 - `dashboard` = 汇总视图（短）
 - `tech` / `value` / `dual` = 单维度深入（长）
-- 看板**不会**替代红蓝对抗完整证据列表或 Cursor Skill 叙事
+- 看板**不会**替代 `report confront` 的编号证据与互驳叙事（或 Cursor Skill fallback）
 
 仅当价值面与技术面**都**没有本地数据时，命令会报错并提示先 `sync`；只有一侧缺失时，该分区会提示「无本地快照」，其余分区仍可输出。
 
@@ -467,11 +521,13 @@ python -m apps.cli report summary <代码> [--json] [-o 文件] [--quiet] [--nar
 ### 4.7 `checklist` — 决策清单提交与历史
 
 ```text
-python -m apps.cli checklist submit <代码> [--action buy|sell]
+python -m apps.cli checklist submit <代码> [--action buy|sell] [--confrontation-id N]
 python -m apps.cli checklist show <代码> [--json]
 ```
 
 `submit` 会交互式收集：至少两条长期价值理由、技术面配合、情绪位置及解读、止损点、止盈点。价值理由逐条输入，直接回车结束；所有字段输入完成后，系统以确定性规则校验并写入本地数据库。
+
+可选 **`--confrontation-id N`**：软关联某次 `report confront` / `persona-stress` 留痕（便于 `report trade-review` 复盘时对照 declare 立场）。ID 不存在会报错；与股票代码不一致时仍会写入并打印 `[warn]`。
 
 ```text
 开始填写 600519 的 Checklist（价值理由至少 2 条；直接回车结束理由输入）
@@ -495,6 +551,31 @@ Checklist 提交被拒绝：
 ```
 
 用 `checklist show 600519` 查看该股票的全部历史记录（包括合规与不合规尝试）；`--json` 适合自行处理输出。
+
+### 4.8 `confront` — 立场声明与历史
+
+```text
+python -m apps.cli confront declare <confrontation_id> [--json-file 声明.json]
+python -m apps.cli confront show <代码> [--json]
+```
+
+在读完 `report confront [--narrate]`（及可选 `persona-stress`）后，用 **`confront declare`** 记录你**采纳/拒绝哪侧证据**（不是下单指令）：
+
+- **交互式**：按提示填写 `stance`（`adopt_bull` / `adopt_bear` / `partial` / `abstain`）、采纳/拒绝的证据序号（对应 Level 0 列表中的 `[n]`）、`rejection_rationale`（须含 `[n]` 引用）、`confidence` 等
+- **`--json-file`**：从 JSON 文件批量提交（字段见实现内 schema；禁止 `order` / `signal` / `action_buy` 等键）
+- 同一 `confrontation_id` **成功 declare 后不可覆盖**（V1）
+
+`confront show <代码>` 列出该票全部 confrontation 记录（证据条数、`narrate_status`、declare 状态等）。
+
+**建议决策审计链（可选，均本地留痕）：**
+
+```text
+report confront <代码> [--narrate]          → 记下 confrontation_id
+report persona-stress <代码> --confrontation-id N   （可选）
+confront declare N
+checklist submit <代码> --confrontation-id N
+trade record <代码> buy <价> <量> --checklist-id … --confrontation-id N
+```
 
 ---
 
@@ -657,7 +738,7 @@ Checklist 提交被拒绝：
 2. **价值：公允价区间 3.14～5.58～8.67，安全边际为负，评级偏高估** → 相对工具算法，现价不便宜（甚至偏贵）  
 3. **技术：强势多头、评分 62、信号买入，但风险写着 RSI/KDJ 超买** → 涨势在，但短线过热  
 4. 结论翻译成人话：**「涨得好，但不便宜，还超买 → 观望更合适」**  
-5. 若要争论细节，再打开 `*_dual.md` 或 `*_confrontation.md`，对照多方/空方条目，而不是只读 AI 论述段
+5. 若要争论细节，再打开 `*_dual.md` 或跑 `report confront`，对照编号多方/空方条目与互驳段，而不是只读形容词
 
 **海康 `002415` 的补充直觉：**  
 value 报告里 DCF 给了很高的公允价并标 Undervalued，但 EPV/EV·EBITDA 标 Overvalued，综合评估却可以是「合理」。  
@@ -668,7 +749,7 @@ value 报告里 DCF 给了很高的公允价并标 Undervalued，但 EPV/EV·EBI
 1. **技术「买入」≠ 价值便宜** — 可能是贵了还在涨。  
 2. **某个方法 Undervalued ≠ 整票低估** — 看评估/评级与多个方法是否同向。  
 3. **Altman「High Bankruptcy Risk」在银行股上别过度解读** — 银行资产负债表特殊，该指标常误报。  
-4. **对抗叙事里的形容词可以夸张，证据列表里的数字才是锚**。  
+4. **对抗叙事里的形容词可以夸张，编号证据列表里的数字才是锚** — `report confront` 的 `[n]` 与 declare 引用一致。  
 5. **置信度 Low / 大量 Not Applicable** — 当「信息不足」，不要当精确导航。
 
 ---
@@ -684,8 +765,23 @@ py -m apps.cli report summary 600519
 py -m apps.cli report dual 600519
 ```
 
-建议顺序：**先看板看全局 → summary 看确定性摘要 → dual 看多空是否一边倒 → 需要时再深入 value/tech。**  
+建议顺序：**先看板看全局 → summary 看确定性摘要 → dual 或 confront 看多空是否一边倒 → 需要时再深入 value/tech。**  
 术语不懂时翻 **§5**。价值便宜但技术破位，仍应视为高风险，而不是「必须抄底」。
+
+### 场景 E：重大决策前走完整审计链（可选）
+
+```cmd
+py -m apps.cli sync 600519
+py -m apps.cli report confront 600519 --narrate
+REM 记下报告中的 confrontation_id，例如 12
+py -m apps.cli report persona-stress 600519 --confrontation-id 12 --narrate
+py -m apps.cli confront declare 12
+py -m apps.cli checklist submit 600519 --action buy --confrontation-id 12
+REM 实际成交后：
+py -m apps.cli trade record 600519 buy 1500 100 --checklist-id <ID> --confrontation-id 12
+```
+
+若暂不联网 LLM，可省略 `--narrate`，仍保留 Level 0 证据与 declare。详见 §4.8。
 
 ### 场景 B：盘中追涨前再确认一眼
 
@@ -717,24 +813,40 @@ py -m apps.cli report value 601398
 
 ## 7. 红蓝对抗（多方 / 空方互驳）
 
-当前分两层：
+当前分三层（**CLI 为主，Cursor Skill 为 fallback**）：
 
 | 层级 | 产出 | 入口 |
 |------|------|------|
-| Level 0 | 确定性证据列表 | `report dual` |
-| Level 1 | 基于证据的互驳叙事 | Cursor Agent + `red-blue-confrontation` Skill |
+| Level 0 | 确定性证据（`dual` 为文本列表；`confront` 为**编号**列表） | `report dual` / `report confront` |
+| Level 1 | 基于证据的互驳叙事 | `report confront --narrate` |
+| Level 1+ | 三 Persona lens 施压 | `report persona-stress [--narrate]` |
+| 采纳留痕 | 结构化立场声明 | `confront declare <confrontation_id>` |
 
-**在 Cursor 中操作：**
+### 7.1 推荐：CLI 主路径
 
-1. 先保证该票已 `sync`
-2. 对新开对话说例如：「对 600519 做红蓝对抗」
-3. Agent 会跑 `report dual --json`，再只根据证据列表写多方/空方论述与互驳
+```cmd
+py -m apps.cli sync 600519
+py -m apps.cli report confront 600519 --narrate
+```
 
-**约束（你也应知情）：**
+1. 报告头 **`confrontation_id`** 写入本地库，供后续 checklist / trade 软关联  
+2. Level 0：多方/空方证据带序号 `[1]`、`[2]`…  
+3. Level 1（`--narrate`）：多方论述、空方论述、逐条反驳（`target_index` 对应证据序号）  
+4. 可选：`report persona-stress 600519 --confrontation-id <同上>` 补三 lens  
+5. 决策前：`confront declare <id>` 声明采纳/拒绝哪些证据（**不是自动下单**）
 
-- 叙事不得编造证据外的财报数字
-- 文末应有「AI 叙事仅供参考，请对照原始证据」类免责声明
-- **采纳哪一方、是否交易，仍由你决定**（自动记录采纳结果尚未上线）
+未配置 LLM 时去掉 `--narrate` 即可；叙事失败时仍保留 Level 0 与 `confrontation_id`（加 `--narrate` 时命令退出码 1）。
+
+### 7.2 Fallback：Cursor Agent + Skill
+
+无 CLI 或需对话式探索时，仍可在 Cursor 中对 Agent 说「对 600519 做红蓝对抗」；Agent 通常跑 `report dual --json` 或 `report confront --json` 再写论述。**编号证据与 declare 仍以 `report confront` 为准。**
+
+### 7.3 约束（你也应知情）
+
+- 叙事不得编造 evidence 外的财报数字（`narrate()` grounded 校验 + declare 校验）  
+- 报告/叙事文末有免责声明：**AI 仅供参考，请对照原始证据**  
+- **采纳哪一方、是否交易，仍由你决定**；`confront declare` 只记录立场，不触发交易  
+- 飞书定时推送（§3.5）推送 **`report confront` + `report persona-stress`**（含 `--narrate`），每票两条消息
 
 ---
 
@@ -787,7 +899,7 @@ py -m apps.cli sync 600519
 
 ### Q5b：报告里一堆 Undervalued / RSI / 安全边际，完全看不懂？
 
-`report tech` / `value` / `dual` **默认**在正文后附讲解：技术指标中文注释、Applicable 估值方法完整卡片（含义/适用/公式/本次入参来源/结果）、价值陷阱五维度白话。先扫决策摘要，再往下翻讲解即可。§5 词典仍可作速查。
+`report tech` / `value` / `dual` / `confront` **默认**在正文后附讲解（或证据/叙事结构说明）：技术指标中文注释、Applicable 估值方法完整卡片（含义/适用/公式/本次入参来源/结果）、价值陷阱五维度白话。先扫决策摘要，再往下翻讲解即可。§5 词典仍可作速查。
 
 ### Q5c：dual 摘要安全边际和 value 差很多？
 
@@ -837,18 +949,22 @@ py -m apps.cli report tech 600519
 py -m apps.cli report value 600519
 py -m apps.cli report value 600519 --show-anchor-price
 py -m apps.cli report dual 600519
+py -m apps.cli report confront 600519 --narrate
+py -m apps.cli report persona-stress 600519 --narrate
 py -m apps.cli report sentiment 600519
 py -m apps.cli report trade-review
 py -m apps.cli report portfolio
 py -m apps.cli report value --watchlist -o reports/watchlist
 
 # 决策与持仓
-py -m apps.cli checklist submit 600519 --action buy
+py -m apps.cli checklist submit 600519 --action buy --confrontation-id 12
 py -m apps.cli checklist show 600519
+py -m apps.cli confront declare 12
+py -m apps.cli confront show 600519
 py -m apps.cli position set 600519 --cost 1500 --shares 100
 py -m apps.cli entry-check 600519
 py -m apps.cli value override 600519 high_dividend --reason "按高股息方法复核"
-py -m apps.cli trade record 600519 buy --price 10 --quantity 100
+py -m apps.cli trade record 600519 buy 1500 100 --confrontation-id 12
 
 # 市场情绪（联网）
 py -m apps.cli sync market
@@ -982,8 +1098,8 @@ py -m apps.cli report tech 600519 --json
 交易记录仅保存在本地数据库。录入买卖后，可严格离线生成基于 FIFO（先进先出）配对的已实现收益统计：
 
 ```powershell
-# 录入买入；可选关联当时已提交的 Checklist ID
-py -m apps.cli trade record 600519 buy 1500 100 --date 2026-08-01 --checklist-id 42 --note "估值与趋势均满足"
+# 录入买入；可选关联 Checklist / confrontation ID
+py -m apps.cli trade record 600519 buy 1500 100 --date 2026-08-01 --checklist-id 42 --confrontation-id 12 --note "估值与趋势均满足"
 
 # 录入卖出
 py -m apps.cli trade record 600519 sell 1620 100 --date 2026-08-20 --note "达到目标价"
@@ -999,7 +1115,7 @@ py -m apps.cli report trade-review --code 600519 --json -o reports/600519_trade_
 
 - **FIFO 胜率**：按同一股票的交易时间顺序，让最早买入的数量优先与卖出数量配对。每个已平仓配对的收益率大于 0 即为盈利；胜率 = 盈利配对数 / 全部已平仓配对数。尚未卖出的数量不计入分母。
 - **部分平仓**：一笔买入可被多笔卖出分拆配对。例如买入 100 股后分两次各卖出 50 股，会得到两笔独立的已实现收益记录。
-- **Badcase 归因**：当买入关联的 Checklist 是“合规”（`passed=True`），但该已平仓配对的收益率低于 -8% 时，系统标记为 Badcase。这是用于复盘“当时流程合规却仍出现显著亏损”的样本，不是对未来收益的预测。
+- **Badcase 归因**：当买入关联的 Checklist 是“合规”（`passed=True`），但该已平仓配对的收益率低于 -8% 时，系统标记为 Badcase。这是用于复盘“当时流程合规却仍出现显著亏损”的样本，不是对未来收益的预测。若买入还关联了 `confrontation_id` 且已成功 `confront declare`，Badcase 行会附带 **`declare_stance`**（如 `adopt_bull`）供对照。
 - **降级提示**：没有关联且可解析的 Checklist 记录时，系统仍会输出 FIFO 胜率和平均收益率，但不会判断 Badcase，并会明确提示该限制。
 
 交易记录与复盘报告仅辅助回顾决策过程，不构成投资建议，也不会自动下单或修改 Checklist 规则。

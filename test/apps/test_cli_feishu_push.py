@@ -15,7 +15,9 @@ from service.feishu.publisher import FeishuPublisherError
 def test_feishu_push_dry_run(mock_push, capsys, tmp_path):
     mock_push.return_value = PushRunResult(
         succeeded=["600519"],
-        local_paths={"600519": str(tmp_path / "600519_dual.md")},
+        local_paths={"600519": [str(tmp_path / "600519_confront.md"), str(tmp_path / "600519_persona-stress.md")]},
+        doc_succeeded=2,
+        doc_total=2,
     )
     main(["feishu", "push", "600519", "--dry-run", "--no-sync", "--slot", "1700"])
     assert mock_push.call_args.kwargs["dry_run"] is True

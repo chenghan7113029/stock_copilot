@@ -1,4 +1,4 @@
-"""可选 sync → dual.md → lark-cli 新建文档并立即发消息。"""
+"""可选 sync → confront / persona-stress.md → lark-cli 新建文档并立即发消息。"""
 
 from __future__ import annotations
 
@@ -10,11 +10,17 @@ from typing import Any, Callable
 from common.config_loader import FeishuConfig, resolve_feishu_config
 from common.trading_day import is_a_share_trading_day
 from common.watchlist import load_watchlist
-from service.feishu.paths import dual_md_path
 from service.feishu.publisher import FeishuPublisherError, LarkCliPublisher
 
 SyncFn = Callable[[str], None]
-DualWriter = Callable[[str, Path], None]
+ReportWriter = Callable[[str, Path, str, date], list["FeishuPushDocument"]]
+
+
+@dataclass(frozen=True)
+class FeishuPushDocument:
+    kind: str
+    path: Path
+    title_tag: str
 
 
 @dataclass
@@ -23,7 +29,9 @@ class PushRunResult:
     skip_reason: str = ""
     succeeded: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
-    local_paths: dict[str, str] = field(default_factory=dict)
+    local_paths: dict[str, list[str]] = field(default_factory=dict)
+    doc_succeeded: int = 0
+    doc_total: int = 0
 
 
 def reports_root(config: dict[str, Any], repo_root: Path) -> Path:
@@ -36,7 +44,7 @@ def run_feishu_push(
     codes: list[str],
     *,
     config: dict[str, Any],
-    write_dual: DualWriter,
+    write_reports: ReportWriter,
     reports_dir: Path,
     slot: str,
     dry_run: bool,
@@ -70,24 +78,35 @@ def run_feishu_push(
     day_iso = today.isoformat()
 
     for code in codes:
-        dest = dual_md_path(reports_dir, day=today, slot=slot, code=code)
+        stock_paths: list[str] = []
+        stock_failed = False
         try:
-            write_dual(code, dest)
-            if not dest.exists():
-                raise FeishuPublisherError(f"未写出 dual.md：{dest}")
-            result.local_paths[code] = str(dest)
-            published = pub.publish(
-                code=code,
-                name=names.get(code) or code,
-                md_path=dest,
-                slot=slot,
-                day_iso=day_iso,
-                dry_run=dry_run,
-            )
-            if published.error:
-                result.failed.append((code, published.error))
-            else:
+            docs = write_reports(code, reports_dir, slot, today)
+            if not docs:
+                raise FeishuPublisherError(f"{code} 未生成任何推送文档")
+            result.doc_total += len(docs)
+            for doc in docs:
+                if not doc.path.exists():
+                    raise FeishuPublisherError(f"未写出 markdown：{doc.path}")
+                stock_paths.append(str(doc.path))
+                published = pub.publish(
+                    code=code,
+                    name=names.get(code) or code,
+                    md_path=doc.path,
+                    slot=slot,
+                    day_iso=day_iso,
+                    dry_run=dry_run,
+                    title_tag=doc.title_tag,
+                )
+                if published.error:
+                    result.failed.append((f"{code}/{doc.kind}", published.error))
+                    stock_failed = True
+                else:
+                    result.doc_succeeded += 1
+            if not stock_failed:
                 result.succeeded.append(code)
+            if stock_paths:
+                result.local_paths[code] = stock_paths
         except Exception as exc:  # noqa: BLE001
             result.failed.append((code, str(exc)))
     return result

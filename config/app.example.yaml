@@ -123,7 +123,8 @@ llm:
   api_key: ""                               # 或使用环境变量 LLM_API_KEY
   max_evidence_chars: 24000                 # evidence 序列化超长截断阈值（约 8000 token）
 
-# 飞书 dual 推送（家里 PC 计划任务：`python -m apps.cli feishu push --watchlist --slot 1700`）
+# Feishu 研报推送（家里 PC 计划任务：`python -m apps.cli feishu push --watchlist --slot 0830`）
+# 每票推送 confront + persona-stress 两篇文档（各一条消息）；正文经 lark-cli @file 上传
 # 认证走本机 lark-cli（npx @larksuite/cli@latest install && lark-cli auth login），不在此填 Open API secret
 feishu:
   lark_cli: "lark-cli"

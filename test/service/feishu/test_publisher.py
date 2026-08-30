@@ -17,6 +17,10 @@ from service.feishu.publisher import (
 
 def test_push_title_includes_date_and_slot():
     assert push_title("贵州茅台", day_iso="2026-08-18", slot="1700") == "今日研报_贵州茅台_2026-08-18_1700"
+    assert (
+        push_title("贵州茅台", day_iso="2026-08-18", slot="1700", tag="红蓝对抗")
+        == "今日研报_贵州茅台_红蓝对抗_2026-08-18_1700"
+    )
 
 
 def test_extract_doc_url_from_ok_envelope():

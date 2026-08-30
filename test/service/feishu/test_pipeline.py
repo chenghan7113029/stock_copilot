@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from common.config_loader import FeishuConfig
-from service.feishu.pipeline import run_feishu_push
+from service.feishu.pipeline import FeishuPushDocument, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError, PublishResult
 
 
@@ -37,9 +37,16 @@ def _cfg(**kwargs) -> FeishuConfig:
     return FeishuConfig(**data)
 
 
-def _write_dual(code: str, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(f"# 红蓝对抗证据分桶 {code}\n", encoding="utf-8")
+def _write_reports(code: str, reports_dir: Path, slot: str, today: date) -> list[FeishuPushDocument]:
+    confront = reports_dir / "feishu" / today.isoformat() / slot / f"{code}_confront.md"
+    persona = reports_dir / "feishu" / today.isoformat() / slot / f"{code}_persona-stress.md"
+    confront.parent.mkdir(parents=True, exist_ok=True)
+    confront.write_text(f"# 红蓝对抗报告 {code}\n**confrontation_id:** 1\n", encoding="utf-8")
+    persona.write_text(f"# Persona 压力测试 {code}\n", encoding="utf-8")
+    return [
+        FeishuPushDocument(kind="confront", path=confront, title_tag="红蓝对抗"),
+        FeishuPushDocument(kind="persona-stress", path=persona, title_tag="Persona压力"),
+    ]
 
 
 def test_pipeline_skips_weekend(tmp_path: Path):
@@ -47,7 +54,7 @@ def test_pipeline_skips_weekend(tmp_path: Path):
     outcome = run_feishu_push(
         ["600519"],
         config={},
-        write_dual=_write_dual,
+        write_reports=_write_reports,
         reports_dir=tmp_path,
         slot="1700",
         dry_run=False,
@@ -60,12 +67,12 @@ def test_pipeline_skips_weekend(tmp_path: Path):
     assert pub.calls == []
 
 
-def test_pipeline_dry_run_writes_dual_path(tmp_path: Path):
+def test_pipeline_dry_run_writes_two_docs_per_code(tmp_path: Path):
     pub = FakePublisher()
     outcome = run_feishu_push(
         ["600519", "002594"],
         config={},
-        write_dual=_write_dual,
+        write_reports=_write_reports,
         reports_dir=tmp_path,
         slot="0900",
         dry_run=True,
@@ -76,25 +83,27 @@ def test_pipeline_dry_run_writes_dual_path(tmp_path: Path):
     )
     assert outcome.failed == []
     assert outcome.succeeded == ["600519", "002594"]
+    assert outcome.doc_succeeded == 4
+    assert outcome.doc_total == 4
     for code in ("600519", "002594"):
-        path = Path(outcome.local_paths[code])
-        assert path.name == f"{code}_dual.md"
-        assert "2026-08-14" in str(path)
-        assert "0900" in str(path)
-        assert "红蓝对抗" in path.read_text(encoding="utf-8")
+        paths = outcome.local_paths[code]
+        assert len(paths) == 2
+        assert any(p.endswith(f"{code}_confront.md") for p in paths)
+        assert any(p.endswith(f"{code}_persona-stress.md") for p in paths)
     assert all(c["dry_run"] for c in pub.calls)
+    assert len(pub.calls) == 4
 
 
 def test_pipeline_one_failure_continues(tmp_path: Path):
-    def write(code: str, dest: Path) -> None:
+    def write(code: str, reports_dir: Path, slot: str, today: date) -> list[FeishuPushDocument]:
         if code == "bad":
-            raise RuntimeError("dual boom")
-        _write_dual(code, dest)
+            raise RuntimeError("report boom")
+        return _write_reports(code, reports_dir, slot, today)
 
     outcome = run_feishu_push(
         ["600519", "bad"],
         config={},
-        write_dual=write,
+        write_reports=write,
         reports_dir=tmp_path,
         slot="1300",
         dry_run=True,
@@ -116,7 +125,7 @@ def test_pipeline_missing_cli_before_write(tmp_path: Path):
         run_feishu_push(
             ["600519"],
             config={},
-            write_dual=_write_dual,
+            write_reports=_write_reports,
             reports_dir=tmp_path,
             slot="1700",
             dry_run=False,

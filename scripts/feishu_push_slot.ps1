@@ -1,5 +1,6 @@
-# Feishu dual push launcher for Windows Task Scheduler.
+# Feishu 研报推送 launcher for Windows Task Scheduler.
 # Usage: .\scripts\feishu_push_slot.ps1 -Slot 0830
+# Pushes report confront + persona-stress per watchlist code (2 docs + 2 messages each).
 # Optional: -Realtime  -NoSync
 
 param(
