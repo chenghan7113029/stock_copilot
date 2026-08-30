@@ -1459,7 +1459,7 @@ def build_parser() -> argparse.ArgumentParser:
     feishu_push.add_argument("--realtime", action="store_true", help="sync 时叠加实时报价")
     feishu_push.add_argument(
         "--slot",
-        help="推送时段 0900/1300/1700；默认 FEISHU_SLOT 或当前 HHmm",
+        help="推送时段 0830/0900/1300/1700；默认 FEISHU_SLOT 或当前 HHmm",
     )
     feishu_push.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 

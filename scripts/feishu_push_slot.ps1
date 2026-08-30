@@ -1,10 +1,10 @@
 # Feishu dual push launcher for Windows Task Scheduler.
-# Usage: .\scripts\feishu_push_slot.ps1 -Slot 0900
+# Usage: .\scripts\feishu_push_slot.ps1 -Slot 0830
 # Optional: -Realtime  -NoSync
 
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("0900", "1300", "1700")]
+    [ValidateSet("0830", "0900", "1300", "1700")]
     [string]$Slot,
 
     [switch]$Realtime,
