@@ -8,6 +8,7 @@
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-09-13 | add-html-briefing-report | `report briefing`：BriefingComposer + HtmlBriefingRenderer；默认 narrate；自包含 HTML |
 | 2026-08-15 | add-feishu-watchlist-push | 新增 `src/service/feishu/`（lark-cli publisher + dual 管道）；CLI `feishu push` |
 | 2026-06-13 | merge-arch | 合并原 architecture.md 与工程约定；确立 ref/、flat src/、reports/、三层防御 LLM 规范 |
 | 2026-06-13 | add-value-data-provider-v1 | 新增 dao 持久化层（SQLAlchemy + SQLite）；data_sources/db 配置节；importlib pytest 模式 |
@@ -108,7 +109,7 @@ stock_copilot/                    # 本 git 仓库根
 | `service/tech/` | 技术面：指标、趋势信号 |
 | `service/sentiment/` | 情绪面：市场级情绪快照的确定性评分、分档与联合解读输入 |
 | `service/dual_track/` | 双轨 Facade、`EvidenceBucketer`（红蓝 Level 0 证据分桶） |
-| `service/report/` | 报告 Context 打包、内嵌讲解（`explainers.py`）、LLM 编排、写入 reports/ |
+| `service/report/` | 报告 Context 打包、内嵌讲解（`explainers.py`）、LLM 编排、Briefing Pack（`briefing_composer` + `html_briefing_renderer` → 自包含 HTML）、写入 reports/ |
 | `service/guard/` | 决策护航：Checklist 等（红蓝 Level 1 叙事当前由 Cursor Skill 承接） |
 | `service/trade_review/` | 严格离线的 FIFO 交易复盘、胜率统计与 Checklist Badcase 归因 |
 | `service/portfolio/` | 严格离线的持仓集中度与行业暴露度粗估；复用 `TradeRecord` 派生当前持仓 |

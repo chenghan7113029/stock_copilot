@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-09-13 | HTML Briefing Pack：`report briefing` 周末深复盘自包含 HTML（默认 LLM narrate + persona；`--no-narrate` 离线；优雅降级）（`add-html-briefing-report`） |
 | 2026-09-13 | F-19 布林带：`IndicatorCalculator` 计算中/上/下轨与带宽百分位，`BollingerStatus` 五态；文案追加至 signal_reasons/risk_factors，不参与 `signal_score`（`add-bollinger-bands`） |
 | 2026-09-13 | F-18 K 线形态识别：`add-pattern-recognition` 落地（十字星/锤头/吊颈/吞没；独立 `candlestick_patterns`，不参与打分） |
 | 2026-08-29 | `add-confrontation-narrate-api` 在分支 `feat/decision-audit-v2` 实现：`report confront [--narrate]`、numbered evidence、`ConfrontationRecord` |

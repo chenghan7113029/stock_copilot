@@ -30,6 +30,7 @@
 | 红蓝证据分桶（多空清单） | `python -m apps.cli report dual <代码>` |
 | 红蓝对抗报告（编号证据 + 可选 LLM 互驳） | `python -m apps.cli report confront <代码> [--narrate]`（见 §7） |
 | Persona 压力测试（三 lens） | `python -m apps.cli report persona-stress <代码> [--narrate]`（见 §7） |
+| 周末深度复盘 Briefing（自包含 HTML） | `python -m apps.cli report briefing <代码> [-o *.html]`（默认 LLM；见 §4.4c） |
 | 对抗立场声明与历史 | `python -m apps.cli confront declare/show`（见 §4.8） |
 | 市场情绪 V1 | `python -m apps.cli sync market` 后执行 `report sentiment <代码>` 或 `report dual <代码>` |
 | 决策清单（提交 / 历史） | `python -m apps.cli checklist submit/show <代码>`（见 §4.7） |
@@ -471,6 +472,35 @@ python -m apps.cli report persona-stress --watchlist [-o 目录] [--json] [--qui
 - **`--confrontation-id N`**：复用已有 confrontation 的 evidence（不重新跑双轨）；适合先 `report confront --narrate` 再补 persona 视角
 
 同样会写入/更新 confrontation 记录，报告头含 `confrontation_id`。
+
+### 4.4c `report briefing` — 周末深度复盘 Briefing Pack（HTML）
+
+```text
+python -m apps.cli report briefing <代码> [--no-narrate] [--json] [-o 文件.html] [--quiet]
+python -m apps.cli report briefing --watchlist [-o 目录] [--json] [--quiet] [--no-narrate]
+```
+
+把价值/技术/情绪快扫、编号红蓝证据、互驳叙事、Persona、估值与技术深潜、Checklist/Declare 痕迹编成**一份自包含 HTML**（双击浏览器可开；无 CDN）。适合周末约 30–60 分钟深读，**不替代** `report tech/value/confront` 等 Markdown 出口，也不含 trade-review / portfolio / 飞书推送。
+
+| 参数 | 行为 |
+|------|------|
+| （默认） | **启用** LLM：confront narrate + persona-stress；写入 confrontation 记录 |
+| `--no-narrate` | 仅离线组装证据与确定性章节；HTML 中叙事/Persona 显示「未启用」提示 |
+| `-o` | 写出 HTML 文件；批量时 `-o` 为目录，写入 `{code}_briefing.html` |
+| `--json` | 输出 `BriefingView` JSON（便于调试） |
+
+降级约定：
+
+- 价值+技术皆无本地数据 → 退出码非 0（请先 `sync`）
+- 叙事/Persona 失败 → **仍退出 0**，stderr 与 HTML callout 提示失败原因与建议命令（如 `report confront --narrate`）
+- 无 Checklist / declare → HTML 明示「未生成」并给出建议命令
+
+示例：
+
+```text
+py -m apps.cli report briefing 600519 -o reports/600519_briefing.html
+py -m apps.cli report briefing 600519 --no-narrate -o reports/600519_briefing.html
+```
 
 ### 4.5 `report dashboard` — 多维看板（离线）
 

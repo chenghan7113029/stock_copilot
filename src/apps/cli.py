@@ -85,8 +85,13 @@ from service.guard.persona_stress_narrator import (
     pending_persona_stress,
 )
 from service.portfolio.analyzer import PortfolioAnalyzer
+from service.report.briefing_composer import (
+    BriefingComposer,
+    LocalDataMissingError as BriefingLocalDataMissingError,
+)
 from service.report.comprehensive_narrator import narrate_comprehensive_report
 from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingError
+from service.report.html_briefing_renderer import HtmlBriefingRenderer
 from service.sentiment.analyzer import SentimentAnalyzer
 from service.tech.analyzer import TechAnalyzer
 from service.trade_review.attribution import TradeReviewAnalyzer
@@ -134,15 +139,20 @@ def _resolve_target_codes(code: str | None, use_watchlist: bool) -> list[str]:
 def _batch_output_path(
     output: str | None, code: str, kind: str, *, as_json: bool = False
 ) -> str | None:
-    """批量模式下将 -o 视为目录，写入 {code}_{kind}.md|.json。"""
+    """批量模式下将 -o 视为目录，写入 {code}_{kind}.md|.json|.html。"""
     if not output:
         return None
     out = Path(output)
     # 单文件后缀误传时仍落到父目录
-    if out.suffix.lower() in {".txt", ".json", ".md"}:
+    if out.suffix.lower() in {".txt", ".json", ".md", ".html"}:
         out = out.parent if out.parent != Path("") else Path(".")
     out.mkdir(parents=True, exist_ok=True)
-    ext = ".json" if as_json else ".md"
+    if as_json:
+        ext = ".json"
+    elif kind == "briefing":
+        ext = ".html"
+    else:
+        ext = ".md"
     return str(out / f"{code}_{kind}{ext}")
 
 
@@ -624,6 +634,64 @@ def run_report_persona_stress(
             confrontation_id=record.id,
             as_json=as_json,
         )
+        _emit_report(text, output, progress)
+    finally:
+        session.close()
+
+
+def run_report_briefing(
+    code: str,
+    *,
+    narrate: bool = True,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """周末深度复盘 Briefing Pack：默认 LLM 叙事，输出自包含 HTML。"""
+    import json
+
+    cfg = config or load_app_config()
+    progress = CliProgress("report", enabled=cli_progress_enabled(cfg))
+    mode = "默认 narrate" if narrate else "--no-narrate 离线"
+    progress.emit(f"生成 {code} 深度复盘 Briefing（{mode}）…")
+
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session_factory = make_session_factory(engine)
+    session = session_factory()
+
+    try:
+        snapshot_repo = StockSnapshotRepo(session)
+        value_analyzer = ValueAnalyzer.from_config(
+            cfg,
+            repo=snapshot_repo,
+            override_repo=PrototypeOverrideRepo(session),
+        )
+        tech_analyzer = TechAnalyzer.from_config(cfg)
+        dual = DualTrackAnalyzer(
+            value_analyzer,
+            tech_analyzer,
+            sentiment_analyzer=SentimentAnalyzer(
+                MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
+            ),
+        )
+        composer = BriefingComposer(dual, session=session, config=cfg)
+        try:
+            view = composer.build(code, narrate=narrate)
+        except BriefingLocalDataMissingError as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+
+        for key in ("narrative", "persona"):
+            status = view.section_statuses.get(key)
+            if status is not None and status.status == "failed":
+                print(f"[warn] {status.hint}", file=sys.stderr)
+
+        if as_json:
+            text = json.dumps(view.to_dict(), ensure_ascii=False, indent=2)
+        else:
+            text = HtmlBriefingRenderer().render(view)
         _emit_report(text, output, progress)
     finally:
         session.close()
@@ -1356,6 +1424,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="挂载到已有 confrontation 记录（复用 evidence，不新建快照）",
     )
+    briefing_parser = report_sub.add_parser(
+        "briefing",
+        help="周末深度复盘 Briefing Pack（默认 LLM 叙事；输出自包含 HTML）",
+    )
+    _add_report_common(briefing_parser)
+    briefing_parser.add_argument(
+        "--no-narrate",
+        action="store_true",
+        help="仅离线组装（跳过 LLM 互驳与 Persona）；默认启用 narrate",
+    )
     sentiment_report_parser = report_sub.add_parser("sentiment", help="市场情绪报告（严格离线）")
     sentiment_report_parser.add_argument("code", help="股票代码，仅用于报告标识")
     sentiment_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
@@ -1749,6 +1827,7 @@ def main(argv: list[str] | None = None) -> None:
                 "dual": (run_report_dual, "dual"),
                 "confront": (run_report_confront, "confront"),
                 "persona-stress": (run_report_persona_stress, "persona-stress"),
+                "briefing": (run_report_briefing, "briefing"),
                 "sentiment": (run_report_sentiment, "sentiment"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
@@ -1760,6 +1839,8 @@ def main(argv: list[str] | None = None) -> None:
             }
             if args.report_type in ("summary", "confront", "persona-stress"):
                 extra["narrate"] = bool(getattr(args, "narrate", False))
+            if args.report_type == "briefing":
+                extra["narrate"] = not bool(getattr(args, "no_narrate", False))
             if args.report_type == "persona-stress":
                 extra["confrontation_id"] = getattr(args, "confrontation_id", None)
             if args.report_type == "value":
