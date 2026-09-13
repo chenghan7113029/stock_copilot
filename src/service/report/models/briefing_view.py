@@ -48,6 +48,11 @@ class BriefingView:
     sentiment_status: str = ""
     sentiment_note: str = ""
 
+    # 价格情境（近 N 交易日）
+    price_series: list[dict[str, Any]] = field(default_factory=list)
+    price_high: float | None = None
+    price_low: float | None = None
+
     # 冲突与立场
     bull_evidence: list[dict[str, Any]] = field(default_factory=list)
     bear_evidence: list[dict[str, Any]] = field(default_factory=list)

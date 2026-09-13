@@ -482,6 +482,13 @@ python -m apps.cli report briefing --watchlist [-o 目录] [--json] [--quiet] [-
 
 把价值/技术/情绪快扫、编号红蓝证据、互驳叙事、Persona、估值与技术深潜、Checklist/Declare 痕迹编成**一份自包含 HTML**（双击浏览器可开；无 CDN）。适合周末约 30–60 分钟深读，**不替代** `report tech/value/confront` 等 Markdown 出口，也不含 trade-review / portfolio / 飞书推送。
 
+版式与交互（桌面深读）：
+
+- **价格情境**（Hero 后、三维快扫前）：现价 + 近 **10 个交易日**收盘折线；公允低/中/高虚线；标注区间最高/最低
+- **冲突与立场**：多方左 / 空方右双栏；互驳与 Persona 全宽在下
+- **价值/技术深潜**：方法名与术语旁可点击「？」展开说明（文案来自内嵌讲解词典）
+- **版心**约 1240px，冷静金融浅色主题
+
 | 参数 | 行为 |
 |------|------|
 | （默认） | **启用** LLM：confront narrate + persona-stress；写入 confrontation 记录 |
@@ -494,6 +501,7 @@ python -m apps.cli report briefing --watchlist [-o 目录] [--json] [--quiet] [-
 - 价值+技术皆无本地数据 → 退出码非 0（请先 `sync`）
 - 叙事/Persona 失败 → **仍退出 0**，stderr 与 HTML callout 提示失败原因与建议命令（如 `report confront --narrate`）
 - 无 Checklist / declare → HTML 明示「未生成」并给出建议命令
+- K 线不足 10 日 → 仍按可得点数画图并提示可 sync 补齐
 
 示例：
 

@@ -50,13 +50,19 @@ def _sample_view(**overrides) -> BriefingView:
         value_method_rows=[
             {"key": "dcf", "fair_value": 2000.0, "label": "Undervalued", "applicable": "Applicable"}
         ],
-        tech_reasons=["MA 金叉"],
+        tech_reasons=["MA 金叉", "布林带收窄"],
         boll_mid=1600.0,
         boll_upper=1700.0,
         boll_lower=1500.0,
         boll_bandwidth=0.12,
         boll_percentile=40.0,
         boll_status="正常",
+        price_series=[
+            {"date": f"2026-06-{i:02d}", "close": 1480.0 + i}
+            for i in range(1, 11)
+        ],
+        price_high=1490.0,
+        price_low=1481.0,
         candlestick_patterns=[
             {
                 "pattern": "hammer",
@@ -74,6 +80,7 @@ def _sample_view(**overrides) -> BriefingView:
             "evidence": SectionStatus(status="ok"),
             "narrative": SectionStatus(status="ok"),
             "persona": SectionStatus(status="ok"),
+            "price_context": SectionStatus(status="ok"),
             "checklist": SectionStatus(
                 status="missing", hint="尚未提交 Checklist。可运行：checklist submit 600519"
             ),
@@ -94,6 +101,12 @@ def test_renderer_contains_html_sections_and_viz():
     assert "600519" in html
     assert "贵州茅台" in html
     assert "三维快扫" in html
+    assert "价格情境" in html
+    assert "price-svg" in html
+    assert "fair-line" in html
+    assert "evidence-cols" in html
+    assert "col-bull" in html
+    assert "col-bear" in html
     assert "冲突与立场" in html
     assert "价值面深潜" in html
     assert "技术面深潜" in html
@@ -101,10 +114,14 @@ def test_renderer_contains_html_sections_and_viz():
     assert "range-viz" in html
     assert "bar-fill" in html
     assert "evidence-bars" in html
+    assert "tip-q" in html
+    assert "现金流贴现" in html or "DCF" in html
     assert "checklist submit" in html
     assert "confront declare" in html
+    assert "max-width: 1240px" in html
     assert "<style>" in html
     assert "cdn." not in html.lower()
+    assert "chart.js" not in html.lower()
 
 
 def test_renderer_failed_callout_visible():

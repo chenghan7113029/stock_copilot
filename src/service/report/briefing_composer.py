@@ -14,6 +14,7 @@ from dao.confrontation_repo import (
     NARRATE_SKIPPED,
     ConfrontationRepo,
 )
+from dao.kline_repo import KlineRepo
 from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
@@ -21,6 +22,8 @@ from service.guard.confrontation_narrator import ConfrontationNarrator
 from service.guard.persona_stress_narrator import PersonaStressNarrator
 from service.report.models.briefing_view import BriefingView, SectionStatus
 from service.tech.models.tech_result import TechAnalysisResult
+
+_PRICE_SERIES_DAYS = 10
 
 
 class LocalDataMissingError(StockCopilotError):
@@ -84,6 +87,7 @@ class BriefingComposer:
         self._fill_value(view, report)
         self._fill_tech(view, report)
         self._fill_sentiment(view, report)
+        self._fill_price_context(view, code)
         view.bull_evidence = bull
         view.bear_evidence = bear
         view.section_statuses["evidence"] = SectionStatus(status="ok")
@@ -205,6 +209,40 @@ class BriefingComposer:
                 }
             )
         view.candlestick_patterns = patterns
+
+    def _fill_price_context(self, view: BriefingView, code: str) -> None:
+        rows = KlineRepo(self._session).list_by_code(code)
+        series: list[dict[str, Any]] = []
+        for row in rows:
+            close = row.get("close")
+            if close is None:
+                continue
+            try:
+                close_f = float(close)
+            except (TypeError, ValueError):
+                continue
+            date = str(row.get("trade_date") or row.get("date") or "")
+            series.append({"date": date, "close": close_f})
+        if not series:
+            view.section_statuses["price_context"] = SectionStatus(
+                status="missing",
+                hint="无本地 K 线收盘序列，价格情境不可用。请先运行 sync",
+            )
+            return
+        recent = series[-_PRICE_SERIES_DAYS:]
+        view.price_series = recent
+        closes = [p["close"] for p in recent]
+        view.price_high = max(closes)
+        view.price_low = min(closes)
+        if view.current_price is None and recent:
+            view.current_price = recent[-1]["close"]
+        if len(recent) < _PRICE_SERIES_DAYS:
+            view.section_statuses["price_context"] = SectionStatus(
+                status="ok",
+                hint=f"K 线不足 {_PRICE_SERIES_DAYS} 个交易日（当前 {len(recent)}），已按可得数据绘制。可 sync 补齐",
+            )
+        else:
+            view.section_statuses["price_context"] = SectionStatus(status="ok")
 
     def _fill_sentiment(self, view: BriefingView, report: Any) -> None:
         sent = report.sentiment_result

@@ -94,6 +94,18 @@ _TECH_NOTES: dict[str, str] = {
     "support": (
         "支撑/压力：近期价格曾获得买盘/卖盘集中的价位区域，仅供参考，可被放量突破。"
     ),
+    "boll": (
+        "布林带：中轨为均线，上下轨为均线 ± N×标准差。"
+        "带宽收窄常表示波动率低位、后续可能放大；触及上/下轨需结合趋势，不宜单独当作买卖信号。"
+    ),
+    "pattern": (
+        "K 线形态：用单根或多根蜡烛的实体与影线结构识别短线转折/延续线索。"
+        "命中仅作提示，不参与综合评分，需结合量能与趋势确认。"
+    ),
+    "trend": (
+        "趋势/多空排列：均线多头排列偏顺势做多语境，空头排列偏顺势做空或观望。"
+        "排列描述趋势结构，不等于即时下单点。"
+    ),
 }
 
 
@@ -171,7 +183,75 @@ _METHOD_META: dict[str, dict[str, str]] = {
         "what": "用净资产与合理市净率估算价格带。",
         "when": "适用：资产较重或银行等账面有意义的行业。",
     },
+    "pb_relative": {
+        "name": "PB 相对估值（历史分位）",
+        "what": "对照自身历史市净率分位判断贵贱。",
+        "when": "适用：银行等账面有意义的公司。分位低不自动等于买点，需结合资产质量。",
+    },
+    "residual_income": {
+        "name": "剩余收益模型",
+        "what": "在账面价值之上，把超额（剩余）收益贴现，得到股权价值。",
+        "when": "适用：银行等净资产与 ROE 较有信息量的行业。对 ROE 与折现假设敏感。",
+    },
+    "pb_valuation": {
+        "name": "P/B 估值",
+        "what": "按合理或目标市净率对净资产定价。",
+        "when": "适用：资产驱动型生意（如银行）。账面失真或一次性损益时慎用。",
+    },
 }
+
+
+def method_tip(key: str) -> dict[str, str]:
+    """供 HTML tip 使用的估值方法说明（name / what / when）。"""
+    return dict(
+        _METHOD_META.get(
+            key,
+            {
+                "name": key,
+                "what": "本工具内置的估值或评分方法。",
+                "when": "详见方法 applicability 与警告；请结合原型与置信度理解。",
+            },
+        )
+    )
+
+
+_TECH_KEYWORD_MAP: list[tuple[str, str]] = [
+    ("布林", "boll"),
+    ("boll", "boll"),
+    ("多头排列", "trend"),
+    ("空头排列", "trend"),
+    ("缩量", "volume"),
+    ("放量", "volume"),
+    ("MACD", "macd"),
+    ("RSI", "rsi"),
+    ("KDJ", "kdj"),
+    ("均线", "ma"),
+    ("MA", "ma"),
+    ("乖离", "bias"),
+    ("筹码", "chip"),
+    ("支撑", "support"),
+    ("压力", "support"),
+    ("锤头", "pattern"),
+    ("吞没", "pattern"),
+    ("十字星", "pattern"),
+    ("吊颈", "pattern"),
+    ("形态", "pattern"),
+    ("量能", "volume"),
+    ("量比", "volume"),
+]
+
+
+def tech_tip_key_for_text(text: str) -> str | None:
+    """从信号/风险文案中识别可讲解术语键。"""
+    for needle, key in _TECH_KEYWORD_MAP:
+        if needle.lower() in text.lower() or needle in text:
+            return key
+    return None
+
+
+def tech_tip(key: str) -> str | None:
+    """返回技术术语讲解文案。"""
+    return _TECH_NOTES.get(key)
 
 # details 字段 → (展示名, 来源说明)
 _DETAIL_SOURCES: dict[str, tuple[str, str]] = {

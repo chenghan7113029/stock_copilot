@@ -125,28 +125,30 @@ def _composer(dual_report: DualTrackReport, *, narrate_ok: bool = True):
     return composer, session, confront, persona
 
 
-def test_composer_offline_pack_when_dual_ready(monkeypatch):
-    composer, session, confront, persona = _composer(_report(_value(), _tech()))
-    saved = MagicMock()
-    saved.id = 42
-    saved.declare_status = "skipped"
-    saved.declaration = None
+def _kline_rows(n: int = 10) -> list[dict]:
+    rows = []
+    for i in range(n):
+        rows.append(
+            {
+                "trade_date": f"2026-06-{i + 1:02d}",
+                "close": 100.0 + i,
+            }
+        )
+    return rows
 
-    checklist_repo = MagicMock()
-    checklist_repo.list_by_code.return_value = []
-    confront_repo = MagicMock()
-    confront_repo.save.return_value = saved
-    confront_repo.get.return_value = saved
-    confront_repo.list_by_code.return_value = []
 
+def _patch_repos(monkeypatch, *, klines: list[dict] | None = None, **extra) -> None:
+    checklist_repo = extra.get("checklist_repo") or MagicMock(list_by_code=MagicMock(return_value=[]))
+    confront_repo = extra.get("confront_repo")
     monkeypatch.setattr(
         "service.report.briefing_composer.ChecklistRepo",
         lambda _s: checklist_repo,
     )
-    monkeypatch.setattr(
-        "service.report.briefing_composer.ConfrontationRepo",
-        lambda _s: confront_repo,
-    )
+    if confront_repo is not None:
+        monkeypatch.setattr(
+            "service.report.briefing_composer.ConfrontationRepo",
+            lambda _s: confront_repo,
+        )
     monkeypatch.setattr(
         "service.report.briefing_composer.LLMNarrateCacheRepo",
         lambda _s: MagicMock(),
@@ -155,6 +157,26 @@ def test_composer_offline_pack_when_dual_ready(monkeypatch):
         "service.report.briefing_composer.EvidenceBucketer",
         lambda: MagicMock(bucket=MagicMock(return_value=MagicMock())),
     )
+    kline_repo = MagicMock()
+    kline_repo.list_by_code.return_value = klines if klines is not None else _kline_rows(10)
+    monkeypatch.setattr(
+        "service.report.briefing_composer.KlineRepo",
+        lambda _s: kline_repo,
+    )
+
+
+def test_composer_offline_pack_when_dual_ready(monkeypatch):
+    composer, session, confront, persona = _composer(_report(_value(), _tech()))
+    saved = MagicMock()
+    saved.id = 42
+    saved.declare_status = "skipped"
+    saved.declaration = None
+
+    confront_repo = MagicMock()
+    confront_repo.save.return_value = saved
+    confront_repo.get.return_value = saved
+    confront_repo.list_by_code.return_value = []
+    _patch_repos(monkeypatch, confront_repo=confront_repo, klines=_kline_rows(12))
 
     view = composer.build("600519", narrate=True)
     assert view.code == "600519"
@@ -169,6 +191,10 @@ def test_composer_offline_pack_when_dual_ready(monkeypatch):
     assert view.confrontation_id == 42
     assert view.fair_base == 2000.0
     assert view.value_method_rows[0]["key"] == "dcf"
+    assert len(view.price_series) == 10
+    assert view.price_high == 111.0
+    assert view.price_low == 102.0
+    assert view.section_statuses["price_context"].status == "ok"
     confront.narrate.assert_called_once()
     persona.stress.assert_called_once()
     session.commit.assert_called()
@@ -189,27 +215,12 @@ def test_composer_narrate_failure_still_returns_view(monkeypatch):
     saved.id = 7
     saved.declare_status = "skipped"
     saved.declaration = None
-
-    monkeypatch.setattr(
-        "service.report.briefing_composer.ChecklistRepo",
-        lambda _s: MagicMock(list_by_code=MagicMock(return_value=[])),
+    confront_repo = MagicMock(
+        save=MagicMock(return_value=saved),
+        get=MagicMock(return_value=saved),
+        list_by_code=MagicMock(return_value=[]),
     )
-    monkeypatch.setattr(
-        "service.report.briefing_composer.ConfrontationRepo",
-        lambda _s: MagicMock(
-            save=MagicMock(return_value=saved),
-            get=MagicMock(return_value=saved),
-            list_by_code=MagicMock(return_value=[]),
-        ),
-    )
-    monkeypatch.setattr(
-        "service.report.briefing_composer.LLMNarrateCacheRepo",
-        lambda _s: MagicMock(),
-    )
-    monkeypatch.setattr(
-        "service.report.briefing_composer.EvidenceBucketer",
-        lambda: MagicMock(bucket=MagicMock(return_value=MagicMock())),
-    )
+    _patch_repos(monkeypatch, confront_repo=confront_repo)
 
     view = composer.build("600519", narrate=True)
     assert view.section_statuses["narrative"].status == "failed"
@@ -225,22 +236,12 @@ def test_composer_no_narrate_sets_missing_hints(monkeypatch):
     saved.id = 3
     saved.declare_status = "skipped"
     saved.declaration = None
-    monkeypatch.setattr(
-        "service.report.briefing_composer.ChecklistRepo",
-        lambda _s: MagicMock(list_by_code=MagicMock(return_value=[])),
+    confront_repo = MagicMock(
+        save=MagicMock(return_value=saved),
+        get=MagicMock(return_value=saved),
+        list_by_code=MagicMock(return_value=[]),
     )
-    monkeypatch.setattr(
-        "service.report.briefing_composer.ConfrontationRepo",
-        lambda _s: MagicMock(
-            save=MagicMock(return_value=saved),
-            get=MagicMock(return_value=saved),
-            list_by_code=MagicMock(return_value=[]),
-        ),
-    )
-    monkeypatch.setattr(
-        "service.report.briefing_composer.EvidenceBucketer",
-        lambda: MagicMock(bucket=MagicMock(return_value=MagicMock())),
-    )
+    _patch_repos(monkeypatch, confront_repo=confront_repo)
 
     view = composer.build("600519", narrate=False)
     assert view.section_statuses["narrative"].status == "missing"
@@ -248,3 +249,22 @@ def test_composer_no_narrate_sets_missing_hints(monkeypatch):
     assert view.section_statuses["persona"].status == "missing"
     confront.narrate.assert_not_called()
     persona.stress.assert_not_called()
+
+
+def test_composer_price_series_short_still_ok(monkeypatch):
+    composer, session, confront, persona = _composer(_report(_value(), _tech()))
+    saved = MagicMock()
+    saved.id = 9
+    saved.declare_status = "skipped"
+    saved.declaration = None
+    confront_repo = MagicMock(
+        save=MagicMock(return_value=saved),
+        get=MagicMock(return_value=saved),
+        list_by_code=MagicMock(return_value=[]),
+    )
+    _patch_repos(monkeypatch, confront_repo=confront_repo, klines=_kline_rows(3))
+
+    view = composer.build("600519", narrate=False)
+    assert len(view.price_series) == 3
+    assert view.section_statuses["price_context"].status == "ok"
+    assert "不足 10" in view.section_statuses["price_context"].hint

@@ -1,10 +1,4 @@
-# cli-report-briefing Specification
-
-## Purpose
-
-CLI 入口暴露周末深度复盘 Briefing Pack（默认 HTML；默认启用 LLM 叙事）。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: CLI `report briefing` 入口
 
@@ -27,12 +21,3 @@ CLI 入口暴露周末深度复盘 Briefing Pack（默认 HTML；默认启用 LL
 
 - **WHEN** 运行 `report briefing <code>` 但本地无价值快照且无可用 K 线
 - **THEN** SHALL 向 stderr 打印请先 sync 类错误，退出码非 0，且 MUST NOT 写出伪装完整的成功 HTML
-
-### Requirement: briefing 与现有 Markdown 报告并存
-
-引入 `report briefing` MUST NOT 移除或改变既有 `report tech` / `report value` / `report dashboard` / `report confront` 等命令的默认 Markdown/JSON 行为。
-
-#### Scenario: 既有 report tech 行为不变
-
-- **WHEN** 运行 `report tech 600519`（在 briefing 功能落地后）
-- **THEN** 输出 SHALL 仍为技术面 Markdown（或既有 `--json` 行为），MUST NOT 强制改为 HTML
