@@ -9,6 +9,7 @@ import pytest
 from service.tech.calculator import IndicatorCalculator, WeeklyKlineAggregator
 from service.tech.config import IndicatorParams, ScoringParams
 from service.tech.models.tech_result import (
+    BollingerStatus,
     KDJStatus,
     TrendStatus,
     VolumeStatus,
@@ -171,3 +172,195 @@ def test_weekly_rsi_computed():
 
     assert weekly.weekly_rsi_6 != 0.0
     assert not np.isnan(weekly.weekly_rsi_6)
+
+
+def test_bollinger_mid_equals_ma20_and_bands_match_std():
+    df = _make_uptrend_df(60)
+    calc = IndicatorCalculator()
+    indicators = calc.calculate(df, "600519")
+
+    assert indicators.boll_mid == pytest.approx(indicators.ma20, abs=1e-6)
+    std20 = float(df["close"].rolling(20).std().iloc[-1])
+    assert indicators.boll_upper - indicators.boll_mid == pytest.approx(2.0 * std20, abs=1e-6)
+    assert indicators.boll_mid - indicators.boll_lower == pytest.approx(2.0 * std20, abs=1e-6)
+    assert indicators.boll_percentile is not None
+    assert 0.0 <= indicators.boll_percentile <= 100.0
+
+
+def test_bollinger_custom_period_does_not_reuse_ma20():
+    df = _make_uptrend_df(60)
+    params = IndicatorParams(boll_period=10)
+    calc = IndicatorCalculator()
+    indicators = calc.calculate(df, "600519", params)
+
+    expected_mid = float(df["close"].rolling(10).mean().iloc[-1])
+    assert indicators.boll_mid == pytest.approx(expected_mid, abs=1e-6)
+    assert indicators.boll_mid != pytest.approx(indicators.ma20, abs=1e-6)
+
+
+def test_bollinger_insufficient_period_degrades():
+    df = _make_uptrend_df(25)
+    params = IndicatorParams(boll_period=30)
+    calc = IndicatorCalculator()
+    indicators = calc.calculate(df, "600519", params)
+
+    assert indicators.boll_signal == "数据不足"
+    assert any("布林带数据不足" in w for w in indicators.warnings)
+    assert indicators.boll_percentile is None
+
+
+def test_bollinger_bandwidth_lookback_short_warns():
+    df = _make_uptrend_df(45)
+    params = IndicatorParams(boll_period=20, boll_bandwidth_lookback=40)
+    calc = IndicatorCalculator()
+    indicators = calc.calculate(df, "600519", params)
+
+    assert indicators.boll_percentile is not None
+    assert any("布林带带宽历史样本不足" in w for w in indicators.warnings)
+
+
+def test_bollinger_status_squeeze():
+    """带宽百分位处于低位且价格在轨内 → SQUEEZE。"""
+    from service.tech.calculator import TechIndicators
+
+    calc = IndicatorCalculator()
+    n = 50
+    dates = pd.date_range("2025-01-01", periods=n, freq="B")
+    # 构造带宽序列：早期高、近期低，末值最低
+    bandwidths = np.linspace(0.2, 0.02, n)
+    mids = np.full(n, 10.0)
+    work = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "close": mids,
+            "BOLL_MID": mids,
+            "BOLL_UPPER": mids + 1.0,
+            "BOLL_LOWER": mids - 1.0,
+            "BOLL_BANDWIDTH": bandwidths,
+        }
+    )
+    result = TechIndicators(code="600519", df=work, current_price=10.0)
+    params = IndicatorParams(
+        boll_period=20,
+        boll_squeeze_percentile=20.0,
+        boll_expansion_percentile=80.0,
+        boll_bandwidth_lookback=40,
+    )
+    calc._analyze_bollinger(work, result, params)
+    assert result.boll_status == BollingerStatus.SQUEEZE
+    assert "收窄" in result.boll_signal
+
+
+def test_bollinger_status_expansion():
+    from service.tech.calculator import TechIndicators
+
+    calc = IndicatorCalculator()
+    n = 50
+    dates = pd.date_range("2025-01-01", periods=n, freq="B")
+    bandwidths = np.linspace(0.02, 0.2, n)  # 末值最高
+    mids = np.full(n, 10.0)
+    work = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "close": mids,
+            "BOLL_MID": mids,
+            "BOLL_UPPER": mids + 1.0,
+            "BOLL_LOWER": mids - 1.0,
+            "BOLL_BANDWIDTH": bandwidths,
+        }
+    )
+    result = TechIndicators(code="600519", df=work, current_price=10.0)
+    params = IndicatorParams(
+        boll_period=20,
+        boll_squeeze_percentile=20.0,
+        boll_expansion_percentile=80.0,
+        boll_bandwidth_lookback=40,
+    )
+    calc._analyze_bollinger(work, result, params)
+    assert result.boll_status == BollingerStatus.EXPANSION
+    assert "扩张" in result.boll_signal
+
+
+def test_bollinger_status_upper_breakout_priority_over_squeeze():
+    """收盘突破上轨时，即使带宽百分位很低也优先 UPPER_BREAKOUT。"""
+    from service.tech.calculator import TechIndicators
+
+    calc = IndicatorCalculator()
+    n = 50
+    dates = pd.date_range("2025-01-01", periods=n, freq="B")
+    bandwidths = np.linspace(0.2, 0.02, n)  # 末值低 → 本会判收窄
+    mids = np.full(n, 10.0)
+    work = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "close": np.full(n, 12.0),
+            "BOLL_MID": mids,
+            "BOLL_UPPER": mids + 1.0,
+            "BOLL_LOWER": mids - 1.0,
+            "BOLL_BANDWIDTH": bandwidths,
+        }
+    )
+    result = TechIndicators(code="600519", df=work, current_price=12.0)
+    params = IndicatorParams(
+        boll_period=20,
+        boll_squeeze_percentile=100.0,
+        boll_expansion_percentile=80.0,
+        boll_bandwidth_lookback=40,
+    )
+    calc._analyze_bollinger(work, result, params)
+    assert result.boll_status == BollingerStatus.UPPER_BREAKOUT
+    assert "上轨" in result.boll_signal
+
+
+def test_bollinger_status_lower_breakout():
+    from service.tech.calculator import TechIndicators
+
+    calc = IndicatorCalculator()
+    n = 50
+    dates = pd.date_range("2025-01-01", periods=n, freq="B")
+    bandwidths = np.linspace(0.05, 0.1, n)
+    mids = np.full(n, 10.0)
+    work = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "close": np.full(n, 8.0),
+            "BOLL_MID": mids,
+            "BOLL_UPPER": mids + 1.0,
+            "BOLL_LOWER": mids - 1.0,
+            "BOLL_BANDWIDTH": bandwidths,
+        }
+    )
+    result = TechIndicators(code="600519", df=work, current_price=8.0)
+    calc._analyze_bollinger(work, result, IndicatorParams(boll_period=20))
+    assert result.boll_status == BollingerStatus.LOWER_BREAKOUT
+
+
+def test_bollinger_status_normal():
+    from service.tech.calculator import TechIndicators
+
+    calc = IndicatorCalculator()
+    n = 50
+    dates = pd.date_range("2025-01-01", periods=n, freq="B")
+    # 末值居中百分位
+    bandwidths = np.concatenate([np.linspace(0.02, 0.2, n - 1), [0.11]])
+    mids = np.full(n, 10.0)
+    work = pd.DataFrame(
+        {
+            "date": dates.strftime("%Y-%m-%d"),
+            "close": mids,
+            "BOLL_MID": mids,
+            "BOLL_UPPER": mids + 1.0,
+            "BOLL_LOWER": mids - 1.0,
+            "BOLL_BANDWIDTH": bandwidths,
+        }
+    )
+    result = TechIndicators(code="600519", df=work, current_price=10.0)
+    params = IndicatorParams(
+        boll_period=20,
+        boll_squeeze_percentile=20.0,
+        boll_expansion_percentile=80.0,
+        boll_bandwidth_lookback=40,
+    )
+    calc._analyze_bollinger(work, result, params)
+    assert result.boll_status == BollingerStatus.NORMAL
+

@@ -13,10 +13,16 @@ from dao.models import ChipDistribution, Kline  # noqa: F401 — register ORM mo
 from data_provider.base import is_a_share, normalize_stock_code
 from data_provider.chip_distribution_provider import ChipDistributionProvider
 from data_provider.kline_provider import KlineProvider
-from service.tech.calculator import IndicatorCalculator
+from service.tech.calculator import IndicatorCalculator, TechIndicators
 from service.tech.chip_classifier import classify_chip_status
 from service.tech.config import TechAnalysisConfig
-from service.tech.models.tech_result import BuySignal, ChipStatus, TechAnalysisResult
+from service.tech.models.tech_result import (
+    BollingerStatus,
+    BuySignal,
+    ChipStatus,
+    TechAnalysisResult,
+)
+from service.tech.pattern_recognizer import PatternRecognizer
 from service.tech.scorer import BullTrendScorer, ScoringEngine
 
 
@@ -146,10 +152,18 @@ class TechAnalyzer:
         result.kdj_j = indicators.kdj_j
         result.kdj_status = indicators.kdj_status
         result.kdj_signal = indicators.kdj_signal
+        result.boll_mid = indicators.boll_mid
+        result.boll_upper = indicators.boll_upper
+        result.boll_lower = indicators.boll_lower
+        result.boll_bandwidth = indicators.boll_bandwidth
+        result.boll_percentile = indicators.boll_percentile
+        result.boll_status = indicators.boll_status
+        result.boll_signal = indicators.boll_signal
         result.buy_signal = signal.buy_signal
         result.signal_score = signal.signal_score
         result.signal_reasons = signal.signal_reasons
         result.risk_factors = signal.risk_factors
+        self._append_bollinger_notes(result, indicators)
         result.warnings.extend(indicators.warnings)
         if weekly_insufficient:
             result.warnings.extend(weekly.warnings)
@@ -162,10 +176,34 @@ class TechAnalyzer:
             result.weekly_ma10 = weekly.weekly_ma10
             result.weekly_ma20 = weekly.weekly_ma20
             result.warnings.extend(weekly.warnings)
+
+        # 形态识别独立于打分：不写入 signal_reasons/risk_factors，不改 signal_score/buy_signal
+        result.candlestick_patterns = PatternRecognizer.recognize(
+            df, indicators.trend_status, self._config.pattern_params
+        )
+
         self._merge_chip_distribution(result, code, offline)
         result.data_timestamp = datetime.now(timezone.utc)
 
         return result
+
+    @staticmethod
+    def _append_bollinger_notes(
+        result: TechAnalysisResult, indicators: TechIndicators
+    ) -> None:
+        """布林带单状态文案追加：不经过 ScoringEngine，不影响 signal_score/buy_signal。"""
+        status = indicators.boll_status
+        text = indicators.boll_signal
+        if not text or text == "数据不足":
+            return
+        if status in (
+            BollingerStatus.SQUEEZE,
+            BollingerStatus.EXPANSION,
+            BollingerStatus.UPPER_BREAKOUT,
+        ):
+            result.signal_reasons.append(text)
+        elif status is BollingerStatus.LOWER_BREAKOUT:
+            result.risk_factors.append(text)
 
     def _merge_chip_distribution(self, result: TechAnalysisResult, code: str, offline: bool) -> None:
         """合并辅助筹码数据，任何失败均不影响既有技术面结论。"""

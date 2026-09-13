@@ -7,8 +7,11 @@ from datetime import datetime
 
 from apps.formatters import format_dual_report, format_tech_report, format_value_report
 from service.tech.models.tech_result import (
+    BollingerStatus,
     BuySignal,
+    CandlestickPattern,
     ChipStatus,
+    PatternSignal,
     TechAnalysisResult,
     TrendStatus,
 )
@@ -63,6 +66,84 @@ def test_format_tech_report_renders_chip_section_only_when_available():
     assert "获利比例 42.5%" in text
     assert payload["chip_status"] == "高度控盘"
     assert "## 筹码分布" not in format_tech_report(TechAnalysisResult(code="600519"))
+
+
+def test_format_tech_report_renders_bollinger_section():
+    result = TechAnalysisResult(
+        code="600519",
+        boll_mid=100.0,
+        boll_upper=110.0,
+        boll_lower=90.0,
+        boll_bandwidth=0.2,
+        boll_percentile=35.0,
+        boll_status=BollingerStatus.SQUEEZE,
+        boll_signal="布林带收窄（带宽百分位 35%），波动率处于近期低位",
+    )
+    text = format_tech_report(result)
+    payload = json.loads(format_tech_report(result, as_json=True))
+
+    assert "--- 布林带 ---" in text
+    assert "中轨=100.00" in text
+    assert "上轨=110.00" in text
+    assert "下轨=90.00" in text
+    assert "带宽=20.00%" in text
+    assert "百分位 35%" in text
+    assert "收窄" in text
+    assert payload["boll_status"] == "收窄"
+    assert payload["boll_mid"] == 100.0
+    assert payload["boll_percentile"] == 35.0
+
+
+def test_format_tech_report_bollinger_insufficient_data():
+    result = TechAnalysisResult(
+        code="600519",
+        boll_signal="数据不足",
+        boll_percentile=None,
+        boll_status=BollingerStatus.NORMAL,
+    )
+    text = format_tech_report(result)
+    payload = json.loads(format_tech_report(result, as_json=True))
+
+    assert "--- 布林带 ---" in text
+    assert "百分位 N/A%" in text
+    assert payload["boll_percentile"] is None
+    assert payload["boll_status"] == "正常"
+
+
+def test_format_tech_report_renders_candlestick_patterns_section():
+    result = TechAnalysisResult(
+        code="600519",
+        candlestick_patterns=[
+            PatternSignal(
+                pattern=CandlestickPattern.BULLISH_ENGULFING,
+                direction="看多",
+                trade_date="2025-01-02",
+                description="阳线实体完全覆盖前日阴线实体",
+            ),
+            PatternSignal(
+                pattern=CandlestickPattern.DOJI,
+                direction="中性",
+                trade_date="2025-01-02",
+                description="实体占振幅比例较小，多空均衡",
+            ),
+        ],
+    )
+    text = format_tech_report(result, as_json=False)
+    payload = json.loads(format_tech_report(result, as_json=True))
+
+    assert "--- K 线形态 ---" in text
+    assert "2025-01-02 看涨吞没（看多）：阳线实体完全覆盖前日阴线实体" in text
+    assert "2025-01-02 十字星（中性）：实体占振幅比例较小，多空均衡" in text
+    assert payload["candlestick_patterns"][0]["pattern"] == "看涨吞没"
+    assert payload["candlestick_patterns"][0]["direction"] == "看多"
+
+
+def test_format_tech_report_skips_candlestick_section_when_empty():
+    text = format_tech_report(TechAnalysisResult(code="600519"), as_json=False)
+    payload = json.loads(format_tech_report(TechAnalysisResult(code="600519"), as_json=True))
+
+    assert "--- K 线形态 ---" not in text
+    assert payload["candlestick_patterns"] == []
 
 
 def test_format_value_report_text():

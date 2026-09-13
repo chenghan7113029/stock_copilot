@@ -1,7 +1,7 @@
 # 技术面分析模块 — 需求细则（MRD）
 
-> 最后更新：2026-06-28  
-> 状态：细则 v3（P0 核心 ✅；F-16 实时行情 ✅；F-20 周 K ✅）  
+> 最后更新：2026-09-13  
+> 状态：细则 v3（P0 核心 ✅；F-16 实时行情 ✅；F-20 周 K ✅；F-18 K 线形态 ✅）  
 > 上级文档：[product-overview.md](../product-overview.md) §5.1.2  
 > 关联设计：[tech-analysis-reference.md](../../design/tech-analysis-reference.md)  
 > 参考实现：`ref/daily_stock_analysis/src/stock_analyzer.py`
@@ -10,6 +10,7 @@
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-09-13 | add-pattern-recognition | F-18 K 线形态识别：十字星/锤头/吊颈线/吞没；`candlestick_patterns` 独立展示，不纳入 signal_score |
 | 2026-06-21 | explore | 初稿：基于 `daily_stock_analysis` 探索，确立技术面指标体系、评分框架、交易风格抽象、数据层设计 |
 | 2026-06-21 | decisions | **D-1 已决策**：K 线持久化 SQLite，表名 `kline`，当日实时拉取，历史命中缓存；**D-4 已决策**：KDJ J 值保留原始值，枚举判断层处理超界；**D-6 已决策**：极强趋势低评分时输出提示并保留人工判断空间；**D-7 已决策**：V1.x 支持周 K 线趋势，月 K 线暂不实现 |
 | 2026-06-21 | add-tech-analyzer-core | P0 核心交付：KlineProvider + KlineRepo + IndicatorCalculator + BullTrendScorer + TechAnalyzer；Baostock/AKShare fetch_kline；27 项单测（含 ref 一致性 ±0.1%）；OpenSpec 已归档 |
@@ -35,7 +36,7 @@
 **不解决的问题：**
 
 - 盘中实时监控与推送（V1 仅支持日线 EOD 分析）；
-- K 线形态识别（锤头线、吞没形态等）—— V2 扩展；
+- 晨星/暮星/三兵等需 3 根以上 K 线组合的复杂形态 —— 后续扩展；
 - 北向资金、机构持仓、融资融券等资金面指标 —— 情绪模块负责；
 - 个股所处行业与板块热度 —— 情绪模块负责。
 
@@ -70,8 +71,8 @@
 |---|--------|------|------|
 | F-16 | 实时行情融合 | ✅ | AKShare `stock_zh_a_spot_em` 拉取当日报价；`RealtimeOverlayProvider` 替换 K 线末端；`analyze(use_realtime=True)` 启用；`quote_mode` 标识 eod/realtime/eod_fallback |
 | F-17 | 筹码分布 | ✅ | 独立 AKShare `stock_cyq_em` 管道；获利/套牢比例、平均成本、90%/70%集中度与分档状态（V1 不参与评分） |
-| F-18 | K 线形态识别 | 待建 | 锤头线、吞没、十字星等经典形态 |
-| F-19 | 布林带（Bollinger Bands） | 待建 | 均值 ± N×σ，判断波动率收缩/扩张 |
+| F-18 | K 线形态识别 | ✅ | V1：十字星/锤头线/吊颈线/看涨吞没/看跌吞没；`candlestick_patterns` 独立展示，**不参与** `signal_score`/`buy_signal` |
+| F-19 | 布林带（Bollinger Bands） | ✅ | 均值 ± N×σ；带宽百分位判断收窄/扩张；上/下轨突破；V1 不参与 `signal_score` |
 | F-20 | 周 K 线趋势分析 | ✅ | 日线按自然周（`W-MON`）聚合；MA5W/10W/20W、MACD(5/10/4)、RSI(6W)；`WeeklyTrendStatus` 5 级；周线空头过滤降级 buy_signal |
 
 ### 2.3 V2 及以后（明确不在当前范围）
@@ -193,6 +194,15 @@ class TechAnalysisResult:
     kdj_status: KDJStatus            # 5 级枚举
     kdj_signal: str
 
+    # 布林带（F-19；数据不足时 boll_percentile=None，boll_signal="数据不足"）
+    boll_mid: float                  # 中轨（默认 = MA20）
+    boll_upper: float                # 上轨
+    boll_lower: float                # 下轨
+    boll_bandwidth: float            # (upper-lower)/mid
+    boll_percentile: float | None    # 带宽近期百分位 0~100
+    boll_status: BollingerStatus     # 5 级：收窄/扩张/上轨突破/下轨突破/正常
+    boll_signal: str                 # 状态文案（analyze 后追加至 reasons/risks，不参与打分）
+
     # 筹码分布（F-17，数据不可用时均为 None）
     winner_ratio: float | None        # 获利比例 %
     trap_ratio: float | None          # 套牢比例 %（100 - winner_ratio）
@@ -200,6 +210,11 @@ class TechAnalysisResult:
     concentration_90: float | None
     concentration_70: float | None
     chip_status: ChipStatus | None
+
+    # K 线形态（F-18，默认空列表；不参与打分）
+    candlestick_patterns: list[PatternSignal]
+    # PatternSignal: pattern(CandlestickPattern)、direction、trade_date、description
+    # V1 形态：十字星 / 锤头线 / 吊颈线 / 看涨吞没 / 看跌吞没
 
     # 综合信号
     buy_signal: BuySignal            # 6 级枚举
@@ -235,6 +250,7 @@ class TechAnalysisResult:
 | `MACDStatus` | GOLDEN_CROSS_ZERO / GOLDEN_CROSS / BULLISH / CROSSING_UP / CROSSING_DOWN / BEARISH / DEATH_CROSS |
 | `RSIStatus` | OVERBOUGHT / STRONG_BUY / NEUTRAL / WEAK / OVERSOLD |
 | `KDJStatus` | OVERBOUGHT / GOLDEN_CROSS / NEUTRAL / DEATH_CROSS / OVERSOLD |
+| `BollingerStatus` | SQUEEZE / EXPANSION / UPPER_BREAKOUT / LOWER_BREAKOUT / NORMAL |
 | `ChipStatus` | HIGHLY_CONCENTRATED / CONCENTRATED / NORMAL / DISPERSED |
 | `BuySignal` | STRONG_BUY / BUY / HOLD / WAIT / SELL / STRONG_SELL |
 | `WeeklyTrendStatus` | STRONG_BULL / BULL / NEUTRAL / BEAR / STRONG_BEAR |
@@ -293,6 +309,13 @@ class IndicatorParams:
     weekly_macd_fast: int = 5
     weekly_macd_slow: int = 10
     weekly_macd_signal: int = 4
+
+    # 布林带（F-19）
+    boll_period: int = 20                 # 中轨周期（=20 时复用 MA20）
+    boll_std_mult: float = 2.0            # 上下轨标准差倍数
+    boll_bandwidth_lookback: int = 40     # 带宽百分位回溯窗口
+    boll_squeeze_percentile: float = 20.0 # ≤ 此百分位 → 收窄
+    boll_expansion_percentile: float = 80.0  # ≥ 此百分位 → 扩张
 
 
 @dataclass
@@ -593,8 +616,8 @@ class LegacyRefScorer(BullTrendScorer):
 | P1 | `add-realtime-overlay` | 实时行情融合（F-16） | 待建 |
 | P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20） | 待建 |
 | P2 | `add-chip-distribution` | 筹码分布（F-17） | ✅ 已实现 |
-| V2 | `add-pattern-recognition` | K 线形态识别（F-18） | 待建 |
-| V2 | `add-bollinger-bands` | 布林带（F-19） | 待建 |
+| V2 | `add-pattern-recognition` | K 线形态识别（F-18） | ✅ |
+| V2 | `add-bollinger-bands` | 布林带（F-19） | ✅ |
 
 ### 10.3 与双轨分析的集成点
 

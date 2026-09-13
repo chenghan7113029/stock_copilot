@@ -4,9 +4,9 @@
 TBD - created by archiving change add-tech-analyzer-core. Update Purpose after archive.
 ## Requirements
 ### Requirement: TechAnalyzer.analyze(code) 完整分析流程
-`TechAnalyzer.analyze(code, use_realtime=False, offline=False)` SHALL 完整执行：K 线获取 → 日线指标计算 → 周线指标计算 → 筹码分布获取 → 评分 → 组装 `TechAnalysisResult`。日线分析完成后，SHALL 自动基于同一份 DataFrame 调用 `IndicatorCalculator.calculate_weekly()` 追加周线分析。随后 SHALL 调用 `ChipDistributionProvider.get_latest(code, offline=offline)` 获取最新筹码分布数据并合并进结果；筹码分布获取失败或无缓存时，相关字段保持 `None`，`warnings` 追加原因，**不**影响其余字段计算与 `buy_signal`。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
+`TechAnalyzer.analyze(code, use_realtime=False, offline=False)` SHALL 完整执行：K 线获取 → 日线指标计算 → 周线指标计算 → K 线形态识别 → 评分 → 组装 `TechAnalysisResult`。日线分析完成后，SHALL 自动基于同一份 DataFrame 调用 `IndicatorCalculator.calculate_weekly()` 追加周线分析，并调用 `PatternRecognizer.recognize(df, pattern_params)` 追加形态识别；形态识别结果 SHALL 直接赋值给 `TechAnalysisResult.candlestick_patterns`，**不经过** `ScoringEngine.score()`，不影响 `signal_score`/`buy_signal`/`signal_reasons`/`risk_factors` 的计算结果。输入为 6 位 A 股代码字符串；返回 `TechAnalysisResult` 数据类，非 A 股代码 SHALL 抛出 `UnsupportedMarketError`。
 
-`use_realtime=True` 时，SHALL 透传至 `KlineProvider.get_kline()`，并将返回的 `quote_mode` 赋值给 `TechAnalysisResult.quote_mode`。`offline=True` 时，SHALL 透传至 `ChipDistributionProvider.get_latest()`，确保筹码分布获取同样严格离线。
+`use_realtime=True` 时，SHALL 透传至 `KlineProvider.get_kline()`，并将返回的 `quote_mode` 赋值给 `TechAnalysisResult.quote_mode`。
 
 #### Scenario: 正常分析流程（含周线，EOD 模式）
 - **WHEN** `analyze("600519")` 被调用且数据充足（≥ 25 日线）
@@ -28,13 +28,9 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 - **WHEN** `KlineProvider.get_kline()` 抛出 `KlineUnavailableError`
 - **THEN** `TechAnalysisResult` 中 `buy_signal = WAIT`，`risk_factors` 包含数据获取失败原因，不抛出异常
 
-#### Scenario: 筹码分布获取成功并合并
-- **WHEN** `analyze("600519", offline=True)` 被调用且本地有筹码分布缓存
-- **THEN** `TechAnalysisResult.winner_ratio`/`avg_cost`/`concentration_90`/`concentration_70`/`chip_status` 均为非 `None` 值，`trap_ratio = 100 - winner_ratio`
-
-#### Scenario: 筹码分布获取失败不影响其余字段
-- **WHEN** `ChipDistributionProvider.get_latest()` 返回 `(None, warnings)`（无缓存或获取失败）
-- **THEN** `TechAnalysisResult` 的筹码字段均为 `None`，`warnings` 追加相应说明，`trend_status`/`buy_signal`/`signal_score` 等既有字段不受影响，不抛出异常
+#### Scenario: 形态识别结果不影响打分
+- **WHEN** `analyze("600519")` 被调用且最新 K 线命中「看涨吞没」形态
+- **THEN** `TechAnalysisResult.candlestick_patterns` 包含对应 `PatternSignal`，且 `signal_score`/`buy_signal` 与「假设未命中任何形态」时的计算结果完全一致
 
 ---
 
@@ -83,8 +79,8 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 - **MACD**：`macd_dif/dea/bar`（float）、`macd_status`（MACDStatus 枚举）、`macd_signal`（str）
 - **RSI**：`rsi_6/12/24`（float）、`rsi_status`（RSIStatus 枚举）、`rsi_signal`（str）
 - **KDJ**：`kdj_k/d/j`（float）、`kdj_status`（KDJStatus 枚举）、`kdj_signal`（str）
-- **筹码分布**（F-17，新增）：`winner_ratio`（float | None，获利比例 %）、`trap_ratio`（float | None，套牢比例 %，代码派生 `100 - winner_ratio`）、`avg_cost`（float | None，平均成本）、`concentration_90`（float | None）、`concentration_70`（float | None）、`chip_status`（ChipStatus | None，4 级枚举）——数据不可用时全部为 `None`，不抛异常
-- **信号**：`buy_signal`（BuySignal 枚举）、`signal_score`（int 0~100）、`signal_reasons`（list[str]）、`risk_factors`（list[str]）——筹码分布相关文案追加进本组，**不参与** `signal_score` 计算（V1 范围）
+- **K 线形态**（F-18，新增）：`candlestick_patterns`（list[PatternSignal]，默认空列表）——每个 `PatternSignal` 含 `pattern`（CandlestickPattern 枚举）、`direction`（str，"看多"/"看空"）、`trade_date`（str）、`description`（str）；本字段**不参与** `signal_score`/`buy_signal` 计算，也不写入 `signal_reasons`/`risk_factors`
+- **信号**：`buy_signal`（BuySignal 枚举）、`signal_score`（int 0~100）、`signal_reasons`（list[str]）、`risk_factors`（list[str]）
 - **周线**（F-20）：`weekly_trend_status`（WeeklyTrendStatus | None）、`weekly_ma_alignment`（str）、`weekly_macd_signal`（str）、`weekly_rsi_6`（float | None）、`weekly_ma5/10/20`（float | None）
 - **价格时效**（F-16）：`quote_mode`（str，`"eod"` / `"realtime"` / `"eod_fallback"`）
 - **元数据**：`warnings`（list[str]）、`data_timestamp`（datetime | None）
@@ -105,9 +101,9 @@ TBD - created by archiving change add-tech-analyzer-core. Update Purpose after a
 - **WHEN** 周线计算跳过（数据不足）
 - **THEN** 日线所有字段正常，`weekly_*` 字段为 None 或默认字符串
 
-#### Scenario: 筹码字段结构化输出且不参与打分
-- **WHEN** 筹码分布数据可用，`concentration_90 = 8.2`
-- **THEN** `chip_status = ChipStatus.HIGHLY_CONCENTRATED`，`signal_score` 计算过程不读取任何筹码字段（回归对比启用/未启用筹码分布时 `signal_score` 数值不变）
+#### Scenario: 无形态命中时字段为空列表
+- **WHEN** 最新 K 线不满足任何已实现形态的判定条件
+- **THEN** `candlestick_patterns = []`，不为 `None`，不抛出异常
 
 ### Requirement: TechAnalysisConfig 可配置
 `TechAnalysisConfig` SHALL 包含 `IndicatorParams`（指标计算参数）和 `ScoringParams`（评分权重与阈值），所有参数 SHALL 有合理默认值，支持部分覆盖（传入只覆盖指定字段，其余保持默认）。

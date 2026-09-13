@@ -36,6 +36,12 @@ class IndicatorParams:
     chip_concentration_strong: float = 10.0
     chip_concentration_weak: float = 30.0
 
+    boll_period: int = 20
+    boll_std_mult: float = 2.0
+    boll_bandwidth_lookback: int = 40
+    boll_squeeze_percentile: float = 20.0
+    boll_expansion_percentile: float = 80.0
+
 
 @dataclass
 class ScoringParams:
@@ -59,7 +65,15 @@ class ScoringParams:
 
 
 @dataclass
+class PatternParams:
+    doji_body_ratio_max: float = 0.1
+    hammer_shadow_ratio_min: float = 2.0
+    hammer_upper_shadow_ratio_max: float = 1.0
+
+
+@dataclass
 class TechAnalysisConfig:
     indicator_params: IndicatorParams = field(default_factory=IndicatorParams)
     scoring_params: ScoringParams = field(default_factory=ScoringParams)
+    pattern_params: PatternParams = field(default_factory=PatternParams)
     kline_days: int = 90

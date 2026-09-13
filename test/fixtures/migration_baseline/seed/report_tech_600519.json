@@ -3,7 +3,15 @@
   "bias_ma10": 0.28727361422640824,
   "bias_ma20": -1.4437063675543538,
   "bias_ma5": 0.0224421403102734,
+  "boll_bandwidth": 0.09042586799513086,
+  "boll_lower": 1157.1512776644868,
+  "boll_mid": 1211.946955366,
+  "boll_percentile": 63.1578947368421,
+  "boll_signal": "布林带正常（带宽百分位 63%）",
+  "boll_status": "正常",
+  "boll_upper": 1266.7426330675135,
   "buy_signal": "买入",
+  "candlestick_patterns": [],
   "chip_status": null,
   "code": "600519",
   "concentration_70": null,
@@ -59,6 +67,7 @@
   "volume_trend": "缩量回调，洗盘特征明显（好）",
   "warnings": [
     "MA60 数据不足，以 MA20 替代",
+    "布林带带宽历史样本不足，百分位基于 19 个交易日计算",
     "周线 MA20 数据不足，以可用窗口替代",
     "无筹码分布缓存"
   ],

@@ -98,6 +98,13 @@ def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str
             f"- 量能: {result.volume_status.value} (5日量比 {_fmt_num(result.volume_ratio_5d)})",
             f"- Bias: MA5={_fmt_num(result.bias_ma5)}% MA10={_fmt_num(result.bias_ma10)}% "
             f"MA20={_fmt_num(result.bias_ma20)}%",
+            "",
+            "--- 布林带 ---",
+            (
+                f"中轨={_fmt_num(result.boll_mid)} 上轨={_fmt_num(result.boll_upper)} "
+                f"下轨={_fmt_num(result.boll_lower)} | 带宽={result.boll_bandwidth:.2%} "
+                f"(百分位 {_fmt_num(result.boll_percentile, 0)}%) | {result.boll_status.value}"
+            ),
         ]
     )
 
@@ -124,6 +131,13 @@ def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str
                 f"{_fmt_num(result.concentration_90, 1)}/{_fmt_num(result.concentration_70, 1)} | {chip_status}",
             ]
         )
+
+    if result.candlestick_patterns:
+        lines.extend(["", "--- K 线形态 ---", ""])
+        for signal in result.candlestick_patterns:
+            lines.append(
+                f"{signal.trade_date} {signal.pattern.value}（{signal.direction}）：{signal.description}"
+            )
 
     if result.signal_reasons:
         lines.extend(["", "## 信号理由", "", *_bullet_lines(result.signal_reasons)])

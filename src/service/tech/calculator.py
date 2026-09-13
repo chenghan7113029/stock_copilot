@@ -8,6 +8,7 @@ import pandas as pd
 
 from service.tech.config import IndicatorParams
 from service.tech.models.tech_result import (
+    BollingerStatus,
     KDJStatus,
     MACDStatus,
     RSIStatus,
@@ -62,6 +63,14 @@ class TechIndicators:
     kdj_j: float = 0.0
     kdj_status: KDJStatus = KDJStatus.NEUTRAL
     kdj_signal: str = ""
+
+    boll_mid: float = 0.0
+    boll_upper: float = 0.0
+    boll_lower: float = 0.0
+    boll_bandwidth: float = 0.0
+    boll_percentile: float | None = None
+    boll_status: BollingerStatus = BollingerStatus.NORMAL
+    boll_signal: str = ""
 
     warnings: list[str] = field(default_factory=list)
 
@@ -135,6 +144,7 @@ class IndicatorCalculator:
         work = self._calculate_macd(work, params)
         work = self._calculate_rsi(work, params)
         work = self._calculate_kdj(work, params)
+        work = self._calculate_bollinger(work, params)
 
         latest = work.iloc[-1]
         result.df = work
@@ -154,6 +164,7 @@ class IndicatorCalculator:
         self._analyze_macd(work, result, params)
         self._analyze_rsi(work, result, params)
         self._analyze_kdj(work, result, params)
+        self._analyze_bollinger(work, result, params)
 
         return result
 
@@ -214,6 +225,20 @@ class IndicatorCalculator:
         df["KDJ_K"] = k_values
         df["KDJ_D"] = d_values
         df["KDJ_J"] = 3 * df["KDJ_K"] - 2 * df["KDJ_D"]
+        return df
+
+    def _calculate_bollinger(
+        self, df: pd.DataFrame, params: IndicatorParams
+    ) -> pd.DataFrame:
+        if params.boll_period == 20 and "MA20" in df.columns:
+            mid = df["MA20"]
+        else:
+            mid = df["close"].rolling(window=params.boll_period).mean()
+        std = df["close"].rolling(window=params.boll_period).std()
+        df["BOLL_MID"] = mid
+        df["BOLL_UPPER"] = mid + params.boll_std_mult * std
+        df["BOLL_LOWER"] = mid - params.boll_std_mult * std
+        df["BOLL_BANDWIDTH"] = (df["BOLL_UPPER"] - df["BOLL_LOWER"]) / df["BOLL_MID"]
         return df
 
     @staticmethod
@@ -445,6 +470,63 @@ class IndicatorCalculator:
         elif result.kdj_j < 0:
             result.kdj_status = KDJStatus.OVERSOLD
             result.kdj_signal += f"；J值超界({result.kdj_j:.1f}<0)"
+
+    def _analyze_bollinger(
+        self, df: pd.DataFrame, result: TechIndicators, params: IndicatorParams
+    ) -> None:
+        if len(df) < params.boll_period:
+            result.boll_signal = "数据不足"
+            result.warnings.append("布林带数据不足")
+            return
+
+        if "BOLL_BANDWIDTH" not in df.columns:
+            result.boll_signal = "数据不足"
+            result.warnings.append("布林带数据不足")
+            return
+
+        latest = df.iloc[-1]
+        result.boll_mid = float(latest["BOLL_MID"])
+        result.boll_upper = float(latest["BOLL_UPPER"])
+        result.boll_lower = float(latest["BOLL_LOWER"])
+        result.boll_bandwidth = float(latest["BOLL_BANDWIDTH"])
+
+        valid_bw = df["BOLL_BANDWIDTH"].dropna()
+        available = len(valid_bw)
+        if available == 0:
+            result.boll_signal = "数据不足"
+            result.warnings.append("布林带数据不足")
+            return
+
+        window = min(params.boll_bandwidth_lookback, available)
+        bw_window = valid_bw.iloc[-window:]
+        percentile = float(bw_window.rank(pct=True).iloc[-1]) * 100.0
+        result.boll_percentile = percentile
+
+        if available < params.boll_bandwidth_lookback:
+            result.warnings.append(
+                f"布林带带宽历史样本不足，百分位基于 {window} 个交易日计算"
+            )
+
+        close = result.current_price
+        if close > result.boll_upper:
+            result.boll_status = BollingerStatus.UPPER_BREAKOUT
+            result.boll_signal = "收盘价突破布林带上轨"
+        elif close < result.boll_lower:
+            result.boll_status = BollingerStatus.LOWER_BREAKOUT
+            result.boll_signal = "收盘价跌破布林带下轨"
+        elif percentile <= params.boll_squeeze_percentile:
+            result.boll_status = BollingerStatus.SQUEEZE
+            result.boll_signal = (
+                f"布林带收窄（带宽百分位 {percentile:.0f}%），波动率处于近期低位"
+            )
+        elif percentile >= params.boll_expansion_percentile:
+            result.boll_status = BollingerStatus.EXPANSION
+            result.boll_signal = (
+                f"布林带扩张（带宽百分位 {percentile:.0f}%），波动率处于近期高位"
+            )
+        else:
+            result.boll_status = BollingerStatus.NORMAL
+            result.boll_signal = f"布林带正常（带宽百分位 {percentile:.0f}%）"
 
     def calculate_weekly(
         self,

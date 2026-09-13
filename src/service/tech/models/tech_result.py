@@ -75,6 +75,30 @@ class ChipStatus(Enum):
     DISPERSED = "筹码分散"
 
 
+class BollingerStatus(Enum):
+    SQUEEZE = "收窄"
+    EXPANSION = "扩张"
+    UPPER_BREAKOUT = "上轨突破"
+    LOWER_BREAKOUT = "下轨突破"
+    NORMAL = "正常"
+
+
+class CandlestickPattern(Enum):
+    DOJI = "十字星"
+    HAMMER = "锤头线"
+    HANGING_MAN = "吊颈线"
+    BULLISH_ENGULFING = "看涨吞没"
+    BEARISH_ENGULFING = "看跌吞没"
+
+
+@dataclass
+class PatternSignal:
+    pattern: CandlestickPattern
+    direction: str
+    trade_date: str
+    description: str
+
+
 @dataclass
 class TechAnalysisResult:
     code: str
@@ -120,6 +144,14 @@ class TechAnalysisResult:
     kdj_status: KDJStatus = KDJStatus.NEUTRAL
     kdj_signal: str = ""
 
+    boll_mid: float = 0.0
+    boll_upper: float = 0.0
+    boll_lower: float = 0.0
+    boll_bandwidth: float = 0.0
+    boll_percentile: float | None = None
+    boll_status: BollingerStatus = BollingerStatus.NORMAL
+    boll_signal: str = ""
+
     buy_signal: BuySignal = BuySignal.WAIT
     signal_score: int = 0
     signal_reasons: list[str] = field(default_factory=list)
@@ -144,3 +176,5 @@ class TechAnalysisResult:
     concentration_90: float | None = None
     concentration_70: float | None = None
     chip_status: ChipStatus | None = None
+
+    candlestick_patterns: list[PatternSignal] = field(default_factory=list)

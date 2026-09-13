@@ -1,6 +1,6 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-08-29  
+> 最后更新：2026-09-13  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
 > 数据源迁移（三阶段 + 测试基线）：[features/data-source-migration.md](features/data-source-migration.md)  
@@ -12,6 +12,8 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-09-13 | F-19 布林带：`IndicatorCalculator` 计算中/上/下轨与带宽百分位，`BollingerStatus` 五态；文案追加至 signal_reasons/risk_factors，不参与 `signal_score`（`add-bollinger-bands`） |
+| 2026-09-13 | F-18 K 线形态识别：`add-pattern-recognition` 落地（十字星/锤头/吊颈/吞没；独立 `candlestick_patterns`，不参与打分） |
 | 2026-08-29 | `add-confrontation-narrate-api` 在分支 `feat/decision-audit-v2` 实现：`report confront [--narrate]`、numbered evidence、`ConfrontationRecord` |
 | 2026-08-29 | `fix-migration-baseline-as-of`：L3 门禁钉 `as_of`，与墙钟解耦并 re-baseline |
 | 2026-08-29 | `add-confrontation-declaration`：`confront declare/show` + checklist/trade `--confrontation-id` |
@@ -168,8 +170,8 @@ report trade-review                         → 复盘
 | ID | 功能 | 优先级 | 说明 | 建议 OpenSpec | 状态 |
 |----|------|--------|------|---------------|------|
 | F-17 | 筹码分布 | P2 | AKShare `stock_cyq_em`；获利/套牢比例 | `add-chip-distribution` | [x] 已实现 |
-| F-18 | K 线形态识别 | V2 | 锤头、吞没、十字星等 | `add-pattern-recognition` | [ ] 待建 |
-| F-19 | 布林带 | V2 | 均值 ± N×σ；波动率收缩/扩张 | `add-bollinger-bands` | [ ] 待建 |
+| F-18 | K 线形态识别 | V2 | 锤头、吞没、十字星等 | `add-pattern-recognition` | [x] 已实现 |
+| F-19 | 布林带 | V2 | 均值 ± N×σ；波动率收缩/扩张 | `add-bollinger-bands` | [x] 已实现 |
 | — | 月 K 线 | — | D-7 已决策：**暂不实现** | — | 已决策不做 |
 
 ### 3.1 技术面对外交付（与产品 PO-08 重叠）

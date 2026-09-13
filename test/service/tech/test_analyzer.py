@@ -11,7 +11,14 @@ import pytest
 from common.exceptions import KlineUnavailableError, UnsupportedMarketError
 from service.tech.analyzer import TechAnalyzer
 from service.tech.config import ScoringParams, TechAnalysisConfig
-from service.tech.models.tech_result import BuySignal, ChipStatus, TechAnalysisResult, TrendStatus, WeeklyTrendStatus
+from service.tech.models.tech_result import (
+    BollingerStatus,
+    BuySignal,
+    ChipStatus,
+    TechAnalysisResult,
+    TrendStatus,
+    WeeklyTrendStatus,
+)
 from service.tech.scorer import BullTrendScorer
 
 
@@ -263,3 +270,123 @@ def test_analyze_keeps_technical_result_when_chip_unavailable():
     assert result.chip_status is None
     assert result.signal_score >= 0
     assert any("筹码分布数据不可用" in warning for warning in result.warnings)
+
+
+def _kline_with_bullish_engulfing(n: int = 60) -> pd.DataFrame:
+    """构造末两日为看涨吞没的充足 K 线。"""
+    df = _sample_kline(n)
+    df.loc[df.index[-2], ["open", "high", "low", "close"]] = [10.5, 10.6, 9.9, 10.0]
+    df.loc[df.index[-1], ["open", "high", "low", "close"]] = [9.9, 10.8, 9.8, 10.7]
+    return df
+
+
+def test_analyze_candlestick_patterns_do_not_affect_scoring(monkeypatch):
+    from service.tech import analyzer as analyzer_mod
+    from service.tech.models.tech_result import CandlestickPattern
+
+    provider = MagicMock()
+    provider.get_kline.return_value = (_kline_with_bullish_engulfing(), [], "eod")
+    analyzer = TechAnalyzer(kline_provider=provider)
+
+    with_patterns = analyzer.analyze("600519")
+    assert with_patterns.candlestick_patterns
+    assert any(
+        s.pattern == CandlestickPattern.BULLISH_ENGULFING
+        for s in with_patterns.candlestick_patterns
+    )
+
+    monkeypatch.setattr(
+        analyzer_mod.PatternRecognizer,
+        "recognize",
+        staticmethod(lambda *args, **kwargs: []),
+    )
+    without_patterns = analyzer.analyze("600519")
+
+    assert without_patterns.candlestick_patterns == []
+    assert with_patterns.signal_score == without_patterns.signal_score
+    assert with_patterns.buy_signal == without_patterns.buy_signal
+    assert with_patterns.signal_reasons == without_patterns.signal_reasons
+    assert with_patterns.risk_factors == without_patterns.risk_factors
+
+
+def test_analyze_candlestick_patterns_empty_when_no_match():
+    provider = MagicMock()
+    # 大实体阳线，无十字星/锤头/吞没
+    df = _sample_kline(60)
+    df.loc[df.index[-2], ["open", "high", "low", "close"]] = [10.0, 10.2, 9.9, 10.1]
+    df.loc[df.index[-1], ["open", "high", "low", "close"]] = [10.0, 10.5, 9.95, 10.45]
+    provider.get_kline.return_value = (df, [], "eod")
+    analyzer = TechAnalyzer(kline_provider=provider)
+
+    result = analyzer.analyze("600519")
+
+    assert result.candlestick_patterns == []
+
+
+class _BollStatusCalculator:
+    """包装真实计算器，仅覆盖 boll_status/boll_signal 供文案回归。"""
+
+    def __init__(self, status: BollingerStatus, signal: str) -> None:
+        from service.tech.calculator import IndicatorCalculator
+
+        self._inner = IndicatorCalculator()
+        self._status = status
+        self._signal = signal
+
+    def calculate(self, *args, **kwargs):
+        indicators = self._inner.calculate(*args, **kwargs)
+        indicators.boll_status = self._status
+        indicators.boll_signal = self._signal
+        return indicators
+
+    def calculate_weekly(self, *args, **kwargs):
+        return self._inner.calculate_weekly(*args, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("status", "signal", "in_reasons", "in_risks"),
+    [
+        (BollingerStatus.SQUEEZE, "布林带收窄，波动率处于近期低位", True, False),
+        (BollingerStatus.EXPANSION, "布林带扩张，波动率处于近期高位", True, False),
+        (BollingerStatus.UPPER_BREAKOUT, "收盘价突破布林带上轨", True, False),
+        (BollingerStatus.LOWER_BREAKOUT, "收盘价跌破布林带下轨", False, True),
+    ],
+)
+def test_analyze_appends_bollinger_notes_by_status(status, signal, in_reasons, in_risks):
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
+    analyzer = TechAnalyzer(
+        kline_provider=provider,
+        calculator=_BollStatusCalculator(status, signal),
+    )
+    result = analyzer.analyze("600519")
+
+    if in_reasons:
+        assert any(signal in r for r in result.signal_reasons)
+    else:
+        assert all(signal not in r for r in result.signal_reasons)
+    if in_risks:
+        assert any(signal in r for r in result.risk_factors)
+    else:
+        assert all(signal not in r for r in result.risk_factors)
+
+
+def test_analyze_bollinger_notes_do_not_change_score():
+    provider = MagicMock()
+    provider.get_kline.return_value = (_sample_kline(), [], "eod")
+
+    squeeze = TechAnalyzer(
+        kline_provider=provider,
+        calculator=_BollStatusCalculator(
+            BollingerStatus.SQUEEZE, "布林带收窄，波动率处于近期低位"
+        ),
+    ).analyze("600519")
+    normal = TechAnalyzer(
+        kline_provider=provider,
+        calculator=_BollStatusCalculator(BollingerStatus.NORMAL, "布林带正常"),
+    ).analyze("600519")
+
+    assert squeeze.signal_score == normal.signal_score
+    assert squeeze.buy_signal == normal.buy_signal
+    assert any("布林带收窄" in r for r in squeeze.signal_reasons)
+    assert all("布林带收窄" not in r for r in normal.signal_reasons)
