@@ -1,10 +1,10 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-09-13  
+> 最后更新：2026-09-27  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
 > 数据源迁移（三阶段 + 测试基线）：[features/data-source-migration.md](features/data-source-migration.md)  
-> OpenSpec 活跃 change：见 `openspec list`
+> OpenSpec 活跃 change（2026-09-27）：**无** — `openspec list` 返回 `No active changes found.`，51 个 change 全部归档
 
 ---
 
@@ -12,6 +12,9 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-09-27 | add-governance-flow-events：治理事件 + 北向资金落地 — `service/event/`、`data_provider/event/`、6 张事件/北向表、`report events` 子命令、dual/dashboard 独立「治理/事件面」区块；PO-11 治理+流动性部分标为已实现 |
+| 2026-09-27 | add-stock-margin-fundflow：个股资金面（两融 `margin_detail` + 主力资金流 `moneyflow`）落地 — `service/fundflow/`、`data_provider/fundflow/`、`stock_margin_detail`/`stock_moneyflow` 表、`report fundflow` 子命令、dual/dashboard 独立「个股资金面」区块；PO-12 标为已实现 |
+| 2026-09-27 | 文档对齐：全量核对 `openspec list` + `src/` + git 分支，修正本文与 `propose_list.md`、`features/tech-analysis.md`、`features/value-analysis.md`、`product-overview.md` 中滞后于代码的状态；队列已清空（0 活跃 change） |
 | 2026-09-13 | Briefing HTML UX：10 交易日价格情境（公允虚线+高低点）、多空左右分栏、点击「？」讲解、版心 1240 + 冷静金融主题（`polish-html-briefing-ux`） |
 | 2026-09-13 | HTML Briefing Pack：`report briefing` 周末深复盘自包含 HTML（默认 LLM narrate + persona；`--no-narrate` 离线；优雅降级）（`add-html-briefing-report`） |
 | 2026-09-13 | F-19 布林带：`IndicatorCalculator` 计算中/上/下轨与带宽百分位，`BollingerStatus` 五态；文案追加至 signal_reasons/risk_factors，不参与 `signal_score`（`add-bollinger-bands`） |
@@ -57,7 +60,7 @@ etire-akshare-default |
 
 ### 1.1 价值面
 
-- [x] 23 种估值方法（Phase 0–8，`src/service/value/valuation/`）
+- [x] 28 种估值方法（Phase 0–8 的 23 + V2 的 `scenario_dcf`/`cyclical_pe`/`cyclical_fcf`/`defense_orders`/`insurance_ev`；`src/service/value/valuation/`）
 - [x] `ValueAnalyzer` + `Aggregator` + `PrototypeRouter`（`add-value-analyzer-core`）
 - [x] 数据层：`ValueDataProvider`、Baostock/AKShare/Tushare、SQLite 持久化
 
@@ -71,7 +74,7 @@ etire-akshare-default |
 
 - [x] `DualTrackAnalyzer` + `SignalFusion` + `DualTrackReport`（`add-dual-track-analyzer`）
 - [x] `analyze_offline` + `EvidenceBucketer` + `report dual` + 红蓝对抗 Cursor Skill（`add-red-blue-confrontation` V1）
-- [ ] 红蓝对抗 V2：API narrate + 结构化 declare + persona 压力测试（见 §2.4）
+- [x] 红蓝对抗 V2：`report confront [--narrate]`（API 互驳 + numbered evidence）+ `confront declare` 结构化留痕 + `report persona-stress` 压力测试（见 §2.4，均已归档 2026-08-29）
 
 ### 1.4 尚未交付（产品级入口）
 
@@ -81,7 +84,8 @@ etire-akshare-default |
 - [x] LLM 综合报告（`report summary [--narrate]`，`add-llm-comprehensive-report`）
 - [x] 情绪面 V1（涨跌停家数比 + 恐慌贪婪代理指数 + 三维联合解读）
 - [x] 决策护航 V1（首开仓评估、Checklist、红蓝 Skill 版已交付）
-- [ ] 决策护航 V2（API 互驳叙事、declare 留痕、persona、ID 关联；见 §2.4）
+- [x] 决策护航 V1（首开仓评估、Checklist、红蓝 Skill 版已交付）
+- [x] 决策护航 V2（API 互驳叙事、declare 留痕、persona、ID 关联；见 §2.4，三个 change 均已归档）
 - [x] 飞书 dual 推送（`feishu push`，经 lark-cli；`add-feishu-watchlist-push`）
 
 ---
@@ -96,7 +100,7 @@ etire-akshare-default |
 |----|------|------|------|
 | PO-01 | 多维立体看板 | 单票一页：价值 + 技术 + 情绪 + 综合摘要 | [x] CLI 版已实现（`report dashboard`）；Web 待建 |
 | PO-02 | LLM 综合报告 | 确定性结果 → ContextPack → 可读叙述；**数值以计算模块为准** | [x] 已实现（`report summary [--narrate]`） |
-| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [~] V1 Skill ✅；**narrate-api / declaration 已归档**；CLI `confront declare` |
+| PO-03 | 红蓝军对抗 | 多空报告互攻；用户须声明采纳方及理由 | [x] V1 Skill ✅；`report confront [--narrate]`（API 主路径）、`confront declare/show` 均**已归档**（2026-08-29）；Skill 降为 fallback |
 | PO-03b | Persona 压力测试 | 同 evidence 多 lens，对抗单框架思维 | [x] `report persona-stress [--narrate]`；已归档 `add-confrontation-persona-stress-test` |
 | PO-04 | 结构化 Checklist | 价值理由 ≥2、技术面、情绪位、止损止盈；不合规拦截 | [x] 已实现；支持 `--confrontation-id` 软链 |
 | PO-05 | 假设今日首开仓 | 隐藏持仓成本/盈亏比例，对抗沉没成本 | [x] 已实现（`entry-check`）；**PO-05b** 用户回答落库见 §2.4 |
@@ -105,7 +109,7 @@ etire-akshare-default |
 
 | ID | 能力 | 说明 | 状态 |
 |----|------|------|------|
-| PO-06 | **情绪面量化（V1）** | 涨跌停家数比、恐慌贪婪代理指数；须与技术+价值联合解读 | [x] 已实现；个股融资余额、龙虎榜、社媒文本挖掘见 PO-12～14 |
+| PO-06 | **情绪面量化（V1）** | 涨跌停家数比、恐慌贪婪代理指数；须与技术+价值联合解读 | [x] 已实现；龙虎榜、社媒文本挖掘见 PO-13～14（个股资金面 PO-12 已实现） |
 | PO-07 | 锚定防御 | 模糊区间概率估值，减少盯成本/历史高点 | [x] 已实现（`add-anchor-defense`，2026-08-10 归档） |
 | PO-08 | Web / CLI | 发起分析、看板、Checklist、红蓝对抗 | [x] CLI 部分（`report dashboard` 等）已实现；Web 部分待建 |
 
@@ -115,8 +119,8 @@ etire-akshare-default |
 |----|------|------|------|
 | PO-09 | 复盘归因 | FIFO 胜率、Badcase 软引用归因、人工阅读统计 | [x] 已实现；**PO-09b** 规则反哺建议见 §2.4 |
 | PO-10 | 组合级相关性 | 持仓集中度 + 原始行业文本暴露度粗估；不含协方差矩阵或组合优化 | [x] `report portfolio` 已实现；持仓来源为 `add-trade-review-attribution` 的 `TradeRecord` |
-| PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [ ] 待规划 |
-| PO-12 | 个股融资融券余额 | 个股级 `(code, trade_date)` 情绪数据与分析 | [ ] 待建 |
+| PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [x] 治理 + 流动性已实现（`add-governance-flow-events`：增减持/回购/解禁/质押/大宗 + 北向资金）；宏观政策事件仍待规划 |
+| PO-12 | 个股融资融券余额 | 个股级 `(code, trade_date)` 情绪数据与分析 | [x] 已实现（`add-stock-margin-fundflow`：两融 + 主力资金流，`report fundflow` 深看 + dual/dashboard 独立区块） |
 | PO-13 | 龙虎榜情绪信号 | 席位、净买入与异常交易行为 | [ ] 待建 |
 | PO-14 | 社媒/新闻文本情绪 | 非结构化文本挖掘，需独立评估 NLP/LLM 管线 | [ ] 待建 |
 
@@ -126,15 +130,15 @@ etire-akshare-default |
 
 > 背景：[competitive-reference.md](competitive-reference.md) §4.1；主使用场景 **CLI + LLM API**；**不做**编排式 `decision audit` 单命令；命令分散，仅 **关联 ID** 串联审计链。
 
-### 2.4.1 已立项（OpenSpec 活跃）
+### 2.4.1 已立项（全部已归档 · 2026-08-29）
 
 | Change | 能力 | 依赖 | 状态 |
 |--------|------|------|------|
 | `add-confrontation-narrate-api` | `report confront [--narrate]`；numbered evidence；grounded 互驳 JSON；`ConfrontationRecord` | `llm-narrative-core` ✅ | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-narrate-api`） |
 | `add-confrontation-declaration` | `confront declare` 结构化 schema + evidence ref 校验；`checklist/trade --confrontation-id` | narrate-api | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-declaration`） |
-| `add-confrontation-persona-stress-test` | `report persona-stress`（value_quality / trend_momentum / risk_governor） | narrate-api | 已 propose，待 apply |
+| `add-confrontation-persona-stress-test` | `report persona-stress`（value_quality / trend_momentum / risk_governor） | narrate-api | **已归档**（`openspec/changes/archive/2026-08-29-add-confrontation-persona-stress-test`）；CLI 落地见 `src/apps/cli.py` `run_report_persona_stress` |
 
-**推荐实施顺序：** narrate-api → declaration → persona（可并行 declaration 与 persona 设计，但 declare 依赖 confrontation_id）。
+**实施顺序（已完成）：** narrate-api → declaration → persona。
 
 **典型 CLI 链路（分散命令）：**
 
@@ -180,8 +184,8 @@ report trade-review                         → 复盘
 
 | 项 | 说明 | 状态 |
 |----|------|------|
-| Tech API/CLI | 暴露 `TechAnalyzer.analyze(code, offline=True)` | [x] CLI `report tech` |
-| 双轨入口 | 暴露 `DualTrackAnalyzer.analyze(code)` | [ ] 待建 |
+| Tech API/CLI | 暴露 `TechAnalyzer.analyze(code, offline=True)` | [x] CLI `report tech`（REST API 仍缺，见 §4.2 E） |
+| 双轨入口 | 暴露 `DualTrackAnalyzer.analyze(code)` | [x] CLI `report dual` / `report dashboard` / `report briefing`（`src/apps/cli.py`） |
 
 ---
 
@@ -193,7 +197,7 @@ report trade-review                         → 复盘
 
 | ID | 项 | 说明 | 建议 change | 状态 |
 |----|-----|------|-------------|------|
-| T-1 | 安全边际按原型差异化 | 当前统一 MOS 阈值；按原型表迁移中（bank/high_dividend 12/-12，value_growth 20/-10） | `add-mos-thresholds-by-prototype` | [~] 进行中 |
+| T-1 | 安全边际按原型差异化 | 当前统一 MOS 阈值；按原型表迁移中（bank/high_dividend 12/-12，value_growth 20/-10） | `add-mos-thresholds-by-prototype` | [x] 已实现并归档（`archive/2026-08-15-add-mos-thresholds-by-prototype`） |
 | T-2 | value_trap High 专项提示 | `value_trap_alert` 独立高危区块 + confidence 一级降级；摘要仍保留 warnings | `add-value-trap-high-alert` | [x] 已实现 |
 | T-3 | 银行指标 E2E 验证 | 净息差/不良率等完整度 | value-bank-e2e | [x] 路由+聚合 ✅；专项指标 🔧 常 missing |
 | T-7 | 行业→原型映射 Router | Tushare `stock_basic.industry` 简化行业 → 原型；非 SW/CS 多级代码 | `add-industry-prototype-router` | [x] 已实现；保险高杠杆不再误判 bank |
@@ -208,13 +212,13 @@ report trade-review                         → 复盘
 | D-F | FCF 推导链 | operCashTTM → CFOToOR×revenue → net_income×fcf_rate | `fix-baostock-data-quality` | [x] 已实现 |
 | D-G | 聚合可信度守卫 | 核心方法全 N/A 时标「不可信」 | `fix-baostock-data-quality` | [x] 已实现 |
 | D-H | Tushare 财报补全 | income/cashflow/balance → 真实财报字段 | `add-tushare-financials` | [x] 已实现 |
-| E | REST API | `POST /api/v1/analysis/value` 等 | `add-value-api`（待定） | [ ] 待建 |
+| E | REST API | `POST /api/v1/analysis/value` 等 | `add-value-api`（待定） | [ ] 待建；`src/controller/` 目前仅 `__init__.py` docstring 占位 |
 | F | CLI / 看板 | `python -m apps.cli sync/report ...` | 与 PO-08 合并 | [x] CLI 核心 |
 | G | LLM ContextPack | 价值面块注入双轨 + LLM 叙述 | 与 PO-02 合并 | [x] 已实现（`build_dual_track_evidence` + `narrate_comprehensive_report`） |
 
 ### 5.2 数据质量修复（fix-baostock-data-quality）
 
-> OpenSpec change：`openspec/changes/fix-baostock-data-quality/`  
+> OpenSpec change：`openspec/changes/archive/2026-07-04-fix-baostock-data-quality/`  
 > 状态：✅ 已实现
 
 | 修复项 | 说明 | 验证（600519） |
@@ -234,7 +238,7 @@ report trade-review                         → 复盘
 
 ### 5.3 Tushare 财报接入（add-tushare-financials）
 
-> OpenSpec change：`openspec/changes/add-tushare-financials/`  
+> OpenSpec change：`openspec/changes/archive/2026-07-04-add-tushare-financials/`  
 > 状态：✅ 数据层已实现（2026-07-04）
 
 | 能力 | 说明 |
@@ -283,9 +287,9 @@ report trade-review                         → 复盘
 | T-5 | 军工·订单驱动模型 | 中船科技 | [x] V2 P3（`defense_orders`；本分支） |
 | T-6 | 成长（科技）PEG/PS/Rule of 40 | 华测导航 | [x] V2 P5（`growth_tech` 路由接线；本分支） |
 | — | 成长 + 制造周期情景 DCF | 比亚迪 | [x] V2 P1（`growth_manufacturing` + 浅情景 DCF；本分支） |
-| — | 周期 + 资产重估 | 北大荒 | [ ] V2 |
+| — | 周期 + 资产重估 | 北大荒 | [ ] V2（未实现：`PrototypeRouter` 无该原型，`_PROTOTYPE_METHODS` 无对应方法集） |
 | — | 现金流 + 广告周期 | 分众传媒 | [x] V2 P2（`cashflow_ad_cycle` + cyclical 子集；本分支） |
-| T-12 | Cyclical 4 方法 + `CyclicalStock` 数据模型 | — | [~] P2 已落地 pe/fcf + 字段扩展；pb/dividend 待增量 |
+| T-12 | Cyclical 4 方法 + `CyclicalStock` 数据模型 | — | [~] 已落地 `cyclical_pe` / `cyclical_fcf` + 字段扩展；**`pb` / `dividend` 未实现**（`valuation/engine.py` 未注册） |
 
 ---
 
@@ -302,19 +306,19 @@ report trade-review                         → 复盘
 | **C3** | 估值假设层修复 | TTM EPS、β-CAPM、growth floor；聚合中位对齐 LLM | ✅ fix-valuation-assumptions |
 | **C4** | 离线年报 FCF 合并 | Q1 快照不再覆盖 1231 年报 FCF | ✅ fix-offline-annual-fcf |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ✅ 已实现 |
-| **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股融资、龙虎榜、文本情绪待后续 change |
+| **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股资金面（PO-12）已实现；龙虎榜、文本情绪待后续 change |
 | **F** | 决策护航 V1（PO-03~05） | Checklist / 红蓝 Skill / 首开仓 | ✅ 已交付 |
-| **F2** | 决策护航 V2 | API confront + declare + persona + ID 链 | 🟨 已 propose（§2.4） |
-| **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web 待立项 |
-| **G'** | 飞书 dual 推送 | watchlist dual.md → lark-cli 文档+消息 | ✅ `feishu push` |
-| **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | ⬜ 待立项 |
+| **F2** | 决策护航 V2 | API confront + declare + persona + ID 链 | ✅ 已交付并归档（2026-08-29 三个 change） |
+| **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web + REST API 仍未立项（唯一阻塞产品级入口的缺口） |
+| **G'** | 飞书 dual 推送 | watchlist dual.md → lark-cli 文档+消息 | ✅ `feishu push`（含 confront / persona-stress 定时槽） |
+| **H** | 价值 V2 原型 / 技术 V2 指标 | 非 V1 阻塞 | 🟨 技术 V2（F-18 形态 / F-19 布林带）✅ 已交付；价值 V2 余「周期+资产重估」与 T-12 的 pb/dividend 未立项 |
 
 ---
 
 ### 5.1 CLI 核心设计（add-cli-core）
 
-> OpenSpec change：`openspec/changes/add-cli-core/`  
-> 状态：✅ 已实现（运行 `/opsx-archive add-cli-core` 归档）
+> OpenSpec change：`openspec/changes/archive/2026-06-28-add-cli-core/`  
+> 状态：✅ 已实现并归档
 
 #### 命令签名
 
@@ -360,13 +364,15 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 
 ## 6. 文档与代码对齐提醒
 
-以下 MRD 段落**可能滞后于代码**，更新功能后请同步：
+2026-09-27 已完成一轮全量对齐（本文件 + `propose_list.md` + `features/tech-analysis.md` §10 + `features/value-analysis.md` §11/§13/§14 + `features/data-source-migration.md` §12.2/§12.7 + `product-overview.md` §5.2/§5.3/§8.1）。**当前仍待同步的已知项：**
 
-| 文档 | 位置 | 已知滞后 |
-|------|------|----------|
-| [tech-analysis.md](features/tech-analysis.md) | §10 路线图 | F-16/F-20/双轨仍标「待建」，实际已 ✅ |
-| [product-overview.md](product-overview.md) | 最后更新 2026-05-31 | 双轨 Facade 已交付，情绪/LLM/看板仍待建 |
-| [value-analysis.md](features/value-analysis.md) | §14 待实现 | 部分 T-* 项状态需随实现更新 |
+| 文档 | 位置 | 已知滞后 / 真实缺口 |
+|------|------|---------------------|
+| [features/data-source-migration.md](features/data-source-migration.md) | §12.2 L1 / L2 | 仍标「待建」，且**确实未建**：无 `test/data_provider/test_*_contract.py`，无 `test/fixtures/data_provider/<source>/`。L3/L5/S5/情绪 等其余门禁已交付，文档已改 |
+| [features/data-source-migration.md](features/data-source-migration.md) | §12.7 | 同上：契约测试与录制 fixture 两类工件仍未补齐 |
+| [product-overview.md](product-overview.md) | §5.3 多维立体看板 | 「Web 待建（依赖 REST API）」准确，属真实缺口而非文档滞后 |
+
+> 维护规则：状态以 `src/` 代码与 `openspec list` 为准；本文件的 `[x]` 只有在代码或已归档 change 中可验证时才可勾选。
 
 ---
 
@@ -383,22 +389,19 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 
 ---
 
-## 8. 统计摘要（2026-06-28）
+## 8. 统计摘要（2026-09-27）
 
-| 类别 | 已交付（核心） | 待办（粗计） |
-|------|----------------|--------------|
-| 产品级 P0 | 双轨 Facade、红蓝对抗 V1（Skill） | 4 项（看板、LLM、Checklist、首开仓） |
-| 产品级 P1 | — | 3 项（情绪、锚定、Web/CLI） |
-| 技术面 V1.x | F-16、F-20 | 3 项（F-17~19，含 V2） |
-| 价值面 V1.x 增强 | 编排 P0 | ~6 项（T-1/2/3/7/8/15 + D-E） |
-| 价值面 V2 | — | 7+ 项（原型与方法扩展） |
+| 类别 | 已交付 | 待办 |
+|------|--------|------|
+| 产品级 P0 | 双轨 Facade、多维看板（CLI）、LLM 综合报告、Checklist、首开仓、红蓝对抗 V1+V2、HTML 简报 | Web 看板 |
+| 产品级 P1 | 情绪面 V1、锚定防御、飞书推送 | 龙虎榜（PO-13）、社媒文本（PO-14）（个股资金面 PO-12 已实现） |
+| 产品级 P2 | 复盘归因、组合相关性 | 宏观/政策事件层（PO-11 仍待规划）、entry-check 落库（PO-05b）、复盘规则建议（PO-09b）、decision-history、Level 2 辩论 |
+| 技术面 | F-01~F-20 全量（含 F-18 形态、F-19 布林带） | 无（月 K 已决策不做） |
+| 价值面 V1.x | T-1/2/3/7/8/15、D-E/F/G 编排与 CLI/LLM 集成 | REST API（T-13 剩余）、T-11 ValueScore |
+| 价值面 V2 | P1–P5 专用原型方法 | 周期 + 资产重估（北大荒）、T-12 的 `pb`/`dividend` |
 
-**OpenSpec 队列（2026-08-29）：**
+**取值口径：** 28 个 method_key（Phase 0–8 的 23 + V2 的 5）；8 个 tech capability spec；90 个 openspec capability 全部有实现。
 
-| 优先级 | Change | 说明 |
-|--------|--------|------|
-| P0 | `add-confrontation-narrate-api` | PO-03 API 主路径 |
-| P0 | `add-confrontation-declaration` | declare + ID 关联 |
-| P1 | `add-confrontation-persona-stress-test` | PO-03b |
-| P2 | `add-entry-check-response` / `add-trade-review-rule-hints` | 待 propose |
-| — | `add-pattern-recognition` / `add-bollinger-bands` | 技术面 V2（进行中） |
+**OpenSpec 队列（2026-09-27）：** **空** — `openspec list` 返回 `No active changes found.`，51 个 change 全部归档，0 个待 apply。
+
+下批候选（均需先 propose，排序建议见 `propose_list.md` D 区）：龙虎榜 > REST API + Web 看板 > 宏观事件层 / 文本情绪。

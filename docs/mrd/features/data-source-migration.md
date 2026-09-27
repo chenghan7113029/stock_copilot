@@ -17,7 +17,7 @@
 | 2026-08-09 | 阶段 B align-tushare-coverage：Tushare K 线/rt_k、Baostock 财报收敛、情绪 Tushare 替代、字段矩阵、bootstrap priority=1；S2 baseline 绿；关闭 Issue #1 |
 | 2026-08-09 | 阶段 A unify-data-source-router 已实现：Router/Failover/去 override、migration baseline 门禁；§5.A.3 验收勾选 |
 | 2026-08-09 | OpenSpec 立项三 change：unify-data-source-router / lign-tushare-coverage / 
-etire-akshare-default（artifacts 齐全，待 apply） |
+etire-akshare-default（artifacts 齐全；后续 2026-08-09～10 全部实现并归档） |
 | 2026-08-09 | Owner 确认 §12：迁移以「结构可改、离线报告结果不变」为验收口径；补充 §12.0 Owner 原则与三阶段门禁对照表 |
 | 2026-08-09 | 补充 §12 三阶段测试方案：分层门禁、迁移基线（golden baseline）、一致性维度与分阶段验收；§5 各阶段验收交叉引用 §12；本地交接见 docs/dev/data-source-migration-handoff.md |
 | 2026-08-08 | 初稿：三阶段拆分（架构统一 / Tushare 对齐 / AKShare 退役）；对齐 Owner 对多源合并、实时 
@@ -366,11 +366,11 @@ flowchart LR
 
 ## 10. 建议 OpenSpec 立项顺序
 
-1. `/opsx-propose unify-data-source-router` — 阶段 A → **已立项**（`openspec/changes/unify-data-source-router/`）  
-2. `/opsx-propose align-tushare-coverage` — 阶段 B（含 Issue #1）→ **已立项**（`openspec/changes/align-tushare-coverage/`）  
-3. `/opsx-propose retire-akshare-default` — 阶段 C → **已立项**（`openspec/changes/retire-akshare-default/`）  
+1. ~~`/opsx-propose unify-data-source-router` — 阶段 A~~ ✅ **已归档**（`openspec/changes/archive/2026-08-09-unify-data-source-router/`）  
+2. ~~`/opsx-propose align-tushare-coverage` — 阶段 B（含 Issue #1）~~ ✅ **已归档**（`openspec/changes/archive/2026-08-09-align-tushare-coverage/`）  
+3. ~~`/opsx-propose retire-akshare-default` — 阶段 C~~ ✅ **已归档**（`openspec/changes/archive/2026-08-10-retire-akshare-default/`）  
 
-下一步：按序 `/opsx-apply unify-data-source-router`（先采集 migration baseline）。
+下一步：三阶段均已合入 `release`/`main`；后续数据源工作面见各文档「待建测试工件」（§12.2 L1/L2 契约与 fixture、§12.7）。
 
 每个 change 归档时合并 delta 至：
 
@@ -451,7 +451,7 @@ flowchart TB
 | **L0** | `pytest -q -m "not network"` | 每次 commit | **门禁** | **门禁** | **门禁** |
 | **L1** | `test/data_provider/test_*_contract.py`（待建） | 每次 commit | 新增 Router/协议 | +Tushare 新接口 schema | AKShare 可选 |
 | **L2** | `test/fixtures/data_provider/<source>/`（待建） | 每次 commit | Router 回放 | +kline/rt_k 录制 | 去 AK 录制 |
-| **L3** | `scripts/compare_migration_baseline.py`（待建） | 每阶段 PR 前 | **门禁** | **门禁** | **门禁** |
+| **L3** | `scripts/compare_migration_baseline.py` | 每阶段 PR 前 | **门禁** | **门禁** | **门禁** |
 | **L4** | `pytest -m network test/e2e/` | 有 Token/网络时 | 可选 | **门禁** | **门禁** |
 | **L5** | `python scripts/trial_cli_workflow.py` | 阶段末 Owner | 可选 | 推荐 | **门禁** |
 
@@ -527,13 +527,13 @@ test/fixtures/migration_baseline/
 | **L1** | `fetch_kline` / `fetch_realtime_quote` 输出契约 | 与 Baostock/AKShare 列对齐 |
 | **L2 录制** | `test/fixtures/data_provider/tushare/600519_kline.parquet`（或 json） | Router failover 回放结果稳定 |
 | **Issue #1** | mock：Baostock K 线失败 → Tushare 成功 | `get_kline` 非空且 `upsert` 被调用 |
-| **S5 联网 E2E** | `test/e2e/test_tushare_kline_pipeline.py`（待建） | `tushare-only` config 写入 K 线缓存 |
+| **S5 联网 E2E** | `test/e2e/test_tushare_kline_pipeline.py` | `tushare-only` config 写入 K 线缓存 |
 | **S5 联网 E2E** | 扩展 `test/e2e/test_tushare_pipeline.py` | 6 样本股 `source=tushare` 快照仍 OK |
 | **S5 联网 E2E** | `test/e2e/test_value_data_pipeline.py` 在 `tushare(1)+baostock(2)` config 下 | **字段覆盖集 ⊇ 阶段 A 末 baseline 覆盖集**（允许数值不同，blocked 字段不增加） |
 | **S5 价值面** | `600519`：`industry`、银行指标来源为 `tushare` | `field_sources` 断言 |
 | **Baostock 收敛** | `test/data_provider/test_baostock_fetcher.py` | `FINANCIAL_STATEMENT_FIELDS` **不出现在** `fetch_fundamentals` 输出 |
 | **S2 离线** | `compare_migration_baseline.py` | **仍通过**（seed 未变） |
-| **情绪** | `test/data_provider/sentiment/test_tushare_sentiment_fetcher.py`（待建） | mock margin + daily 聚合；允许与 AKShare golden **数值不同** |
+| **情绪** | `test/data_provider/sentiment/test_tushare_sentiment_fetcher.py` | mock margin + daily 聚合；允许与 AKShare golden **数值不同** |
 | **S6** | `sync market` 后 `report sentiment` / `report dual` | 结构一致；分量缺失时 `warnings` 含明确降级文案 |
 | **rt_k** | `verify_rt_k_access()` 探测 | 无权限：单测 skip + CLI 警告；**不得** silent fallback 到 `daily` |
 

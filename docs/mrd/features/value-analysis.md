@@ -1,7 +1,7 @@
 # 价值面分析模块 — 需求细则（MRD）
 
-> 最后更新：2026-06-21  
-> 状态：细则 v3（方法论库 Phase 0–8 ✅；编排层 P0 ✅；上层集成 API/CLI/LLM 待建）  
+> 最后更新：2026-09-27  
+> 状态：细则 v3（方法论库 Phase 0–8 ✅；编排层 P0 ✅；CLI `report value` / 双轨 ContextPack / LLM 综合报告 ✅；**REST API 与 Web 待建**）  
 > 上级文档：[product-overview.md](../product-overview.md) §5.1.1  
 > 关联设计：[value-analysis-integration.md](../design/value-analysis-integration.md)  
 > 参考实现：`valueinvest/`、`FinanceToolkit/`
@@ -27,6 +27,9 @@
 | 2026-08-01 | add-value-trap-high-alert | value_trap High 生成独立高危警示并将 confidence 降一级；不改变 assessment 语义 |
 | 2026-08-01 | add-prototype-override-persistence | 人工原型覆盖持久化：`prototype_overrides` + `value override` CLI；人工覆盖优先于行业与启发式判定 |
 | 2026-07-05 | value-bank-e2e | `stock_basic` 写入 `industry`；Router 行业「银行」分类；Tushare 银行指标字段映射（NIM/NPL/拨备）；601398 offline report 银行原型 E2E |
+| 2026-08-15 | add-mos-thresholds-by-prototype | T-1 落地：`src/service/value/mos_thresholds.py` + `config/app.example.yaml` `mos_thresholds_by_proto`；MOS 分档按原型差异化 |
+| 2026-08-15 | add-value-v2-prototype-methods | 价值 V2 P1–P5：`growth_manufacturing` / `cashflow_ad_cycle` / `defense_orders` / `insurance` / `growth_tech` 专用方法接线 |
+| 2026-09-27 | 文档对齐 | 修正 §11 TODO 表与 §13.2/§14 状态句中滞后于代码的条目（T-1/T-8/T-13/T-14）；队列已清空（0 活跃 change） |
 
 ---
 
@@ -197,7 +200,7 @@
 
 - **VA-OUT-1**：区间须由"该原型路由命中的多个方法"的可靠结果聚合，单一方法不得直接作为区间；
 - **VA-OUT-2**：剔除明显不适用 / 数据缺失的方法结果后再聚合；
-- **VA-OUT-3**：安全边际阈值**按原型可差异化**（如银行/高股息容忍度与成长股不同）；T-1 进行中（`add-mos-thresholds-by-prototype`）：
+- **VA-OUT-3**：安全边际阈值**按原型可差异化**（如银行/高股息容忍度与成长股不同）；已由 `add-mos-thresholds-by-prototype` 落地（`src/service/value/mos_thresholds.py` + `mos_thresholds_by_proto`）：
   - `bank` / `high_dividend`：`>12` 低估，`>3` 合理偏低，`>-3` 合理，`>-12` 合理偏高，否则高估；
   - `value_growth`：`>20` 低估，`>5` 合理偏低，`>-5` 合理，`>-20` 合理偏高，否则高估；
   - 双轨 ValueRating：`bank`/`high_dividend` 用 `12/-12`，`value_growth` 用 `20/-10`（保持现有高估侧口径）。
@@ -388,20 +391,20 @@ pytest -m network test/e2e/ -v -s
 
 | 编号 | 项 | 阶段 | 状态 |
 |------|----|------|------|
-| T-1 | 安全边际阈值按原型差异化（§6.2 VA-OUT-3） | V1.x | 🔧 进行中：`add-mos-thresholds-by-prototype`（V1 统一阈值正在迁移） |
+| T-1 | 安全边际阈值按原型差异化（§6.2 VA-OUT-3） | V1.x | ✅ `add-mos-thresholds-by-prototype`（2026-08-15 归档）：`mos_thresholds.py` 按原型分档 |
 | T-2 | value_trap High → 独立专项提示 + 降低 confidence | V1.x | ✅ `add-value-trap-high-alert`：独立 `value_trap_alert` + confidence 一级降级；摘要仍保留 warnings |
 | T-3 | 银行专用指标（净息差/不良率等）数据完整度 E2E 验证 | V1.x | 🔧 路由+聚合 ✅；Tushare 专项字段常 missing |
 | T-4 | 保险内含价值（EV/NBV）模型 | V2 | ✅ P4（`insurance_ev`；配置/手工 EV） |
 | T-5 | 军工·订单驱动估值模型 | V2 | ✅ P3（`defense_orders`；配置/手工订单输入） |
 | T-6 | 历史 PE/PB fetcher（Tushare `daily_basic`，§13.1 D-E） | P1 | ✅ `add-historical-multiples-5yr`（5 年季末采样 20 点） |
 | T-7 | 行业→原型映射路由（PrototypeRouter V2；Tushare 简化行业） | P1 | ✅ `add-industry-prototype-router`；复用 `stock_basic.industry`，非 SW/CS 官方多级代码 |
-| T-8 | 人工覆盖原型持久化（VA-CLS-2，落 dao） | P1 | 未开始 |
+| T-8 | 人工覆盖原型持久化（VA-CLS-2，落 dao） | P1 | ✅ `add-prototype-override-persistence`（2026-08-10 归档）：`prototype_overrides` + `PrototypeOverrideRepo` + `value override` CLI |
 | T-9 | ValueAnalyzer Facade | P0 | ✅ `src/service/value/analyzer.py` |
 | T-10 | 区间聚合 Aggregator | P0 | ✅ `src/service/value/aggregator.py` |
 | T-11 | ValueScore 综合评分（估值40+质量30+护城河20+风险10） | P1 | 字段预留，算法未实现 |
-| T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | [~] P2：`cyclical_pe`/`cyclical_fcf` + StockData 周期字段；pb/dividend 待增量 |
-| T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 未开始 |
-| T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | 未开始 |
+| T-12 | Cyclical 4 种方法 + `CyclicalStock` 数据模型 | V2 | 🔧 `cyclical_pe`/`cyclical_fcf` + StockData 周期字段已落地（`valuation/cyclical.py`）；**`pb`/`dividend` 未实现** |
+| T-13 | controller API + CLI 入口（§14.2-E/F） | P2 | 🔧 CLI ✅（`report value`，`add-cli-core`）；**controller REST API 未建**（`src/controller/` 仅占位） |
+| T-14 | 与技术面双轨集成 + LLM ContextPack 扩展 | P2 | ✅ `build_dual_track_evidence`（`service/report/context_pack.py`）+ `narrate_comprehensive_report`（`report summary --narrate`） |
 | T-15 | V2 原型显式降级提示（§10 场景 5） | V1.x→诚实层 | ✅ 诚实层；P1–P5 样本可毕业，其他保险/军工与输入不足仍压制 |
 
 ---
@@ -410,7 +413,7 @@ pytest -m network test/e2e/ -v -s
 
 | MRD 需求 | stock_copilot 现状 | 缺口 |
 |----------|---------------------|------|
-| 方法论计算库（23 method_key） | ✅ `src/service/value/valuation/`（Phase 0–8） | Cyclical 4 种（V2 待 port） |
+| 方法论计算库（28 method_key） | ✅ `src/service/value/valuation/`（Phase 0–8 + V2） | Cyclical 4 种中 `pb`/`dividend` 未 port |
 | 数据模型 | ✅ `src/common/models/stock_data.py` | 历史 PE/PB 填充（Tushare D-E）；CyclicalStock（V2） |
 | 数据获取 | ✅ `src/data_provider/`（AKShare/Baostock/Tushare） | 部分字段覆盖率待 E2E 确认（prior_*、银行专项指标） |
 | 价值面编排 Facade | ✅ `src/service/value/analyzer.py` | value_trap High 专项 ✅（T-2）；V2 原型降级（T-15） |
@@ -502,7 +505,7 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 
 ### 13.2 实现 Phase 划分
 
-> **状态（2026-06-21）**：Phase 0–8 方法论库已全部交付（23 method_key）；编排层 P0（ValueAnalyzer / Aggregator / Router）已在 `add-value-analyzer-core` 交付。上层集成（§14.2 E/F/G）待建。
+> **状态（2026-09-27 复核）**：Phase 0–8 方法论库已全部交付（23 method_key）；编排层 P0（ValueAnalyzer / Aggregator / Router）已交付。上层集成中 **F（CLI `report value`）与 G（LLM ContextPack / `report summary --narrate`）已交付**；**E（REST API）仍未建**。
 
 #### Phase 0 — 基础设施 ✅
 
@@ -582,13 +585,13 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 
 #### Phase 8 — 后置（非 V1 阻塞项）（ValueTrap + SBC 已完成；Cyclical 延迟至 V2）
 
-> **状态（2026-06-21）**：`ValueTrapDetector`（value_trap）和 `SBCAnalysis`（sbc）已在 `add-valuation-methods-phase8` 实现。`default_engine()` 共注册 **23 个** method_key。Cyclical 4 种方法因依赖 V2 `CyclicalStock` 延迟至独立 change。
+> **状态（2026-09-27 复核）**：`ValueTrapDetector`（value_trap）和 `SBCAnalysis`（sbc）已在 `add-valuation-methods-phase8` 实现。当时 `default_engine()` 注册 **23 个** method_key；此后 V2 增补 `scenario_dcf`、`cyclical_pe`、`cyclical_fcf`、`defense_orders`、`insurance_ev`，**现共 28 个**（`src/service/value/valuation/engine.py`）。
 
 | 任务 | 文件 | 说明 | 状态 |
 |------|------|------|------|
 | Port `ValueTrapDetector` | `valuation/value_trap.py` | 5 维度陷阱检测 | 完成 |
 | Port `SBCAnalysis` | `valuation/sbc.py` | 股权激励稀释分析 | 完成 |
-| Cyclical 4 种方法 | `valuation/cyclical.py` | 依赖独立 `CyclicalStock`，V2 | V2 待做 |
+| Cyclical 4 种方法 | `valuation/cyclical.py` | 依赖独立 `CyclicalStock`，V2 | 🔧 2/4 完成（`cyclical_pe` / `cyclical_fcf`）；`pb` / `dividend` 未实现 |
 
 ### 13.3 V1 三原型冒烟清单（路由后置时的手动验证）
 
@@ -600,12 +603,23 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | 高股息（长江电力 600900） | `ddm`, `two_stage_ddm`, `epv`, `owner_earnings`, `graham_number`, `value_trap` |
 | 价值成长（茅台 600519） | `dcf`, `epv`, `owner_earnings`, `graham_formula`, `ev_ebitda`, `piotroski_f`, `beneish_m`, `value_trap` |
 
+**V2 原型（2026-08-15 `add-value-v2-prototype-methods` 落地，完整路由见 `src/service/value/router.py` `_PROTOTYPE_METHODS`）：**
+
+| 原型 | method_key |
+|------|------------|
+| 成长制造（比亚迪 002594） | `scenario_dcf`, `altman_z`, `piotroski_f`, `value_trap` |
+| 现金流广告周期（分众 002027） | `cyclical_fcf`, `cyclical_pe`, `altman_z`, `value_trap` |
+| 军工订单（中船科技 600072） | `defense_orders`, `altman_z`, `value_trap` |
+| 保险（中国平安 601318） | `insurance_ev`, `altman_z`, `value_trap` |
+| 成长科技（华测导航 300627） | `peg`, `garp`, `rule_of_40`, `ev_ebitda`, `dcf`, `piotroski_f`, `value_trap` |
+| 周期 + 资产重估（北大荒） | ❌ 未实现（无该原型） |
+
 ---
 
 ## 14. 实现现状与待完善 Feature
 
-> 本节整合 2026-06-21 探索结论，对照 [product-overview.md](../product-overview.md) §5.1.1 与当前代码库，
-> 明确**已交付**与**待建**边界。方法论库（§13 Phase 0–8）+ 编排层 P0 均已完成；价值面**可对外交付**尚缺 API/CLI 入口与 LLM 集成。
+> 本节整合 2026-06-21 探索结论，并经 2026-09-27 复核，对照 [product-overview.md](../product-overview.md) §5.1.1 与当前代码库，
+> 明确**已交付**与**待建**边界。方法论库（§13 Phase 0–8）+ 编排层 P0 均已完成；CLI 入口（`report value`）与 LLM 集成（`report summary --narrate`）亦已交付；**仍缺 REST API**。
 
 ### 14.1 已交付能力总览
 
@@ -614,15 +628,15 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | 数据模型 | `StockData` | `src/common/models/stock_data.py` | ✅ 含 historical_pe/pb、sbc 等预留字段 |
 | 数据获取 | 多源 Provider | `src/data_provider/` | ✅ AKShare / Baostock / Tushare |
 | 持久化 | DAO + SQLite | `src/dao/` | ✅ |
-| 方法论库 | 23 种估值方法 | `src/service/value/valuation/` | ✅ `default_engine()` 全量注册 |
+| 方法论库 | 28 种估值方法 | `src/service/value/valuation/` | ✅ `default_engine()` 全量注册（Phase 0–8 的 23 + V2 的 5） |
 | 编排 Facade | `ValueAnalyzer` | `src/service/value/analyzer.py` | ✅ `analyze(code) → ValueAnalysisResult` |
 | 区间聚合 | `ValuationAggregator` | `src/service/value/aggregator.py` | ✅ 中位数 + IQR 过滤 |
 | 原型路由 | `PrototypeRouter` | `src/service/value/router.py` | ✅ 硬编码覆盖 + 财务特征启发 |
 | V2 原型降级提示 | `describe_unimplemented_industry()` + `ValueAnalyzer` | `src/service/value/router.py`、`analyzer.py` | ✅ 复用行业识别字典，保险/军工提示具体暂缺方法论；其他 unknown 原型保留通用提示 |
 | 分析结果模型 | `ValueAnalysisResult` | `src/service/value/models/analysis_result.py` | ✅ |
-| 单元测试 | 91 用例 | `test/service/value/` | ✅ 离线可跑 |
+| 单元测试 | 170 用例 | `test/service/value/` | ✅ 离线可跑（`pytest --collect-only` 实测，2026-09-27） |
 
-**23 个 method_key 分组：**
+**28 个 method_key 分组：**
 
 | 分组 | method_key |
 |------|------------|
@@ -630,17 +644,18 @@ Port 时必须改为：`None` = 缺失，`0.0` = 真实零值。
 | 银行 | `pb`, `residual_income` |
 | 股息 | `ddm`, `two_stage_ddm` |
 | 盈利力 | `epv`, `owner_earnings` |
-| DCF | `dcf`, `reverse_dcf` |
+| DCF | `dcf`, `reverse_dcf`, `scenario_dcf` |
 | 质量/风险 | `altman_z`, `piotroski_f`, `beneish_m`, `value_trap`, `sbc` |
 | 成长/相对 | `peg`, `garp`, `rule_of_40`, `ev_ebitda`, `magic_formula`, `pe_relative`, `pb_relative` |
+| V2 专用 | `cyclical_pe`, `cyclical_fcf`, `defense_orders`, `insurance_ev` |
 
 ### 14.2 分层缺口地图
 
 ```text
 用户 ──▶ apps/ ──▶ controller/ ──▶ service/value/
-         ❌           ❌              ✅ valuation/（23 方法）
-         CLI/Web      API 端点        ✅ analyzer / aggregator / router
-         看板         请求路由        ✅ data_provider（via 外部调用）
+         ✅           ❌              ✅ valuation/（28 方法）
+         CLI/飞书     API 端点        ✅ analyzer / aggregator / router
+         看板/简报    请求路由        ✅ data_provider（via 外部调用）
 ```
 
 #### A. ValueAnalyzer Facade（P0，✅ 已交付）
@@ -793,10 +808,10 @@ V2（后置）
 | 顺序 | Change 名称 | 范围 | 状态 |
 |------|-------------|------|------|
 | 1 | `add-value-analyzer-core` | Facade + Aggregator + Router + ValueAnalysisResult | ✅ 已归档（2026-06-21） |
-| 2 | `add-historical-multiples-provider` | Tushare `daily_basic` → historical_pe/pb（T-6） | 待开始 |
-| 3 | `add-value-api-cli` | controller REST + CLI 最小入口（T-13） | 待开始（依赖 #1） |
-| 4 | `add-dual-track-llm-integration` | ContextPack 价值面 block + 双轨决策矩阵（T-14） | 待开始（依赖 #1 + 技术面） |
-| 5 | `add-cyclical-valuation`（V2） | CyclicalStock + 4 方法（T-12） | V2，待开始 |
+| 2 | `add-historical-multiples-provider` | Tushare `daily_basic` → historical_pe/pb（T-6） | ✅ 已交付为 `add-historical-multiples-5yr`（2026-07-05 归档） |
+| 3 | `add-value-api-cli` | controller REST + CLI 最小入口（T-13） | 🔧 CLI ✅（`add-cli-core`，`report value`）；**REST 待开始** |
+| 4 | `add-dual-track-llm-integration` | ContextPack 价值面 block + 双轨决策矩阵（T-14） | ✅ 已交付（`build_dual_track_evidence` + `report summary --narrate`） |
+| 5 | `add-cyclical-valuation`（V2） | CyclicalStock + 4 方法（T-12） | 🔧 2/4（`cyclical_pe`/`cyclical_fcf`）；`pb`/`dividend` 待做 |
 
 ### 14.5 设计决策记录
 
@@ -806,16 +821,17 @@ V2（后置）
 | 原型路由 V1 策略 | 硬编码覆盖表优先 + 财务特征启发兜底 | ✅ 已实现（`router.py`）；行业代码映射 P1 后置 |
 | ValueAnalyzer 边界 | 直接持有 `StockDataProvider`，由 `from_config()` 封装生产构造路径 | ✅ 已定稿 |
 | ValueScore 权重 | V1 预留字段（`value_score=None`），算法后置 | 待 T-11 决策 |
-| 安全边际阈值 | V1 统一阈值（>20%低估 / >5%合理偏低 / >-5%合理 / >-20%合理偏高 / ≤-20%高估） | ✅ 已实现；原型差异化 T-1 后置 |
+| 安全边际阈值 | V1 统一阈值（>20%低估 / >5%合理偏低 / >-5%合理 / >-20%合理偏高 / ≤-20%高估） | ✅ 已实现；原型差异化 T-1 已由 `add-mos-thresholds-by-prototype` 落地 |
 
 ---
 
 ## 15. 下一步
 
-1. ~~方法论库 Phase 0–8~~ ✅ 已完成（23 method_key）
+1. ~~方法论库 Phase 0–8~~ ✅ 已完成（Phase 0–8 的 23 个 method_key；含 V2 增补现共 28 个）
 2. ~~编排层 P0~~ ✅ 已完成（`add-value-analyzer-core` 归档）
-3. **当前优先**：`add-historical-multiples-provider` — 解锁 pe_relative / pb_relative（T-6）
-4. **V1 三原型端到端验收**：工行 / 长电 / 茅台，对照 §10 场景 1–3 + §13.3 冒烟清单（需真实 data_provider，非 mock）
-5. **上层集成**：`add-value-api-cli`（T-13）→ `add-dual-track-llm-integration`（T-14）
-6. **P1 编排细化**：行业代码映射（T-7）、人工覆盖（T-8）
-7. **文档同步**：将 §14 摘要合并回 [product-overview.md](../product-overview.md) §5.1.1
+3. ~~`add-historical-multiples-provider` — 解锁 pe_relative / pb_relative（T-6）~~ ✅ 已完成（`add-historical-multiples-5yr`）
+4. ~~V1 三原型端到端验收~~ ✅ 三原型路由 + V2 P1–P5 原型均已交付（`add-mos-thresholds-by-prototype` / `add-value-v2-prototype-methods`）
+5. ~~上层集成：`add-value-api-cli`（T-13）→ `add-dual-track-llm-integration`（T-14）~~ 🔧 CLI 与 LLM 集成 ✅；**REST API 仍未建**
+6. ~~P1 编排细化：行业代码映射（T-7）、人工覆盖（T-8）~~ ✅ 均已归档（2026-08-01 / 2026-08-10）
+7. **当前开口**：REST API（T-13 剩余）、「周期 + 资产重估」原型、T-12 的 `pb`/`dividend`、T-11 ValueScore
+8. **文档同步**：§14 摘要已回写 [product-overview.md](../product-overview.md) §5.1.1 与 [../roadmap-todo.md](../roadmap-todo.md)

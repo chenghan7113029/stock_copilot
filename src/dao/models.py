@@ -195,6 +195,176 @@ class ChipDistribution(Base):
         return f"<ChipDistribution code={self.code} date={self.trade_date}>"
 
 
+class StockMarginDetail(Base):
+    """个股两融明细（margin_detail）缓存。金额单位为元，数量单位为股。"""
+
+    __tablename__ = "stock_margin_detail"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    rzye: Mapped[float | None] = mapped_column(Float)  # 融资余额（元）
+    rqye: Mapped[float | None] = mapped_column(Float)  # 融券余额（元）
+    rzrqye: Mapped[float | None] = mapped_column(Float)  # 融资融券余额（元）
+    rzmre: Mapped[float | None] = mapped_column(Float)  # 融资买入额（元）
+    rzche: Mapped[float | None] = mapped_column(Float)  # 融资偿还额（元）
+    rqyl: Mapped[float | None] = mapped_column(Float)  # 融券余量（股）
+    rqmcl: Mapped[float | None] = mapped_column(Float)  # 融券卖出量（股）
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_stock_margin_detail_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<StockMarginDetail code={self.code} date={self.trade_date}>"
+
+
+class StockMoneyFlow(Base):
+    """个股主力资金流（moneyflow）缓存。金额单位为万元。"""
+
+    __tablename__ = "stock_moneyflow"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    net_mf_amount: Mapped[float | None] = mapped_column(Float)  # 主力净流入额（万元）
+    buy_elg_amount: Mapped[float | None] = mapped_column(Float)  # 特大单买入额（万元）
+    sell_elg_amount: Mapped[float | None] = mapped_column(Float)  # 特大单卖出额（万元）
+    buy_lg_amount: Mapped[float | None] = mapped_column(Float)  # 大单买入额（万元）
+    sell_lg_amount: Mapped[float | None] = mapped_column(Float)  # 大单卖出额（万元）
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_stock_moneyflow_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<StockMoneyFlow code={self.code} date={self.trade_date}>"
+
+
+class HolderTrade(Base):
+    """股东增减持（stk_holdertrade）缓存。change_vol 单位股，change_ratio 为百分比。"""
+
+    __tablename__ = "holder_trade"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    ann_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    holder_name: Mapped[str | None] = mapped_column(String(100))
+    holder_type: Mapped[str | None] = mapped_column(String(20))
+    in_de: Mapped[str | None] = mapped_column(String(4))  # IN 增持 / DE 减持
+    change_vol: Mapped[float | None] = mapped_column(Float)  # 股
+    change_ratio: Mapped[float | None] = mapped_column(Float)  # %
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_holder_trade_code_date", "code", "ann_date"),)
+
+    def __repr__(self) -> str:
+        return f"<HolderTrade code={self.code} ann_date={self.ann_date}>"
+
+
+class Repurchase(Base):
+    """股票回购（repurchase）缓存。vol 单位股，amount 单位元。"""
+
+    __tablename__ = "repurchase"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    ann_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    proc: Mapped[str | None] = mapped_column(String(20))  # 进度（实施/完成/董事会预案等）
+    vol: Mapped[float | None] = mapped_column(Float)  # 股
+    amount: Mapped[float | None] = mapped_column(Float)  # 元
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_repurchase_code_date", "code", "ann_date"),)
+
+    def __repr__(self) -> str:
+        return f"<Repurchase code={self.code} ann_date={self.ann_date}>"
+
+
+class ShareFloat(Base):
+    """限售股解禁（share_float）缓存。float_share 单位股，float_ratio 为百分比。"""
+
+    __tablename__ = "share_float"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    ann_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    float_date: Mapped[str] = mapped_column(String(10), nullable=False)  # 解禁日
+    float_share: Mapped[float | None] = mapped_column(Float)  # 股
+    float_ratio: Mapped[float | None] = mapped_column(Float)  # %
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_share_float_code_date", "code", "float_date"),)
+
+    def __repr__(self) -> str:
+        return f"<ShareFloat code={self.code} float_date={self.float_date}>"
+
+
+class PledgeStat(Base):
+    """股权质押（pledge_stat）日度快照。unrest_pledge/total_share 单位万股，pledge_ratio 为百分比。"""
+
+    __tablename__ = "pledge_stat"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    end_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    pledge_ratio: Mapped[float | None] = mapped_column(Float)  # %
+    unrest_pledge: Mapped[float | None] = mapped_column(Float)  # 万股
+    total_share: Mapped[float | None] = mapped_column(Float)  # 万股
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_pledge_stat_code_date", "code", "end_date"),)
+
+    def __repr__(self) -> str:
+        return f"<PledgeStat code={self.code} end_date={self.end_date}>"
+
+
+class BlockTrade(Base):
+    """大宗交易（block_trade）缓存。price 元、vol 万股、amount 万元、discount 为折价百分比（派生）。"""
+
+    __tablename__ = "block_trade"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    trade_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    price: Mapped[float | None] = mapped_column(Float)  # 元
+    vol: Mapped[float | None] = mapped_column(Float)  # 万股
+    amount: Mapped[float | None] = mapped_column(Float)  # 万元
+    discount: Mapped[float | None] = mapped_column(Float)  # 相对收盘价折价（%）
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_block_trade_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<BlockTrade code={self.code} trade_date={self.trade_date}>"
+
+
+class NorthboundFlow(Base):
+    """沪深港通北向资金（moneyflow_hsgt）市场级日度缓存。north_money/south_money 为原始数值。"""
+
+    __tablename__ = "northbound_flow"
+
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    north_money: Mapped[float | None] = mapped_column(Float)
+    south_money: Mapped[float | None] = mapped_column(Float)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<NorthboundFlow trade_date={self.trade_date}>"
+
+
 class LLMNarrateCache(Base):
     """LLM narrate() 幂等缓存。"""
 

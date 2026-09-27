@@ -582,7 +582,7 @@ class LegacyRefScorer(BullTrendScorer):
 
 ### 10.1 实现现状与待完善 Feature
 
-> 对照 [product-overview.md](../product-overview.md) §5.1.2 与当前代码库。P0 技术面核心**已交付**；可对外交付（API/CLI/看板）与双轨 Facade **待建**。
+> 对照 [product-overview.md](../product-overview.md) §5.1.2 与当前代码库（2026-09-27 复核）。P0 技术面核心**已交付**；CLI 入口（`report tech` / `report dual`）、双轨 Facade、F-16~F-20 均已交付；**仍缺 REST API 与 Web 看板**。
 
 #### 已交付能力总览
 
@@ -590,21 +590,26 @@ class LegacyRefScorer(BullTrendScorer):
 |------|------|------|------|
 | 异常 | `KlineUnavailableError` | `src/common/exceptions.py` | ✅ |
 | 持久化 | `Kline` + `KlineRepo` | `src/dao/` | ✅ SQLite `kline` 表 |
-| 数据获取 | K 线 Provider | `src/data_provider/kline_provider.py` | ✅ Baostock 主 / AKShare 备 |
+| 数据获取 | K 线 Provider | `src/data_provider/kline_provider.py` | ✅ Router 驱动：`tushare(1) + baostock(2)`；AKShare 仅紧急回滚 |
 | 指标计算 | `IndicatorCalculator` | `src/service/tech/calculator.py` | ✅ MA/MACD/RSI/KDJ/量能/支撑 |
 | 评分 | `BullTrendScorer` | `src/service/tech/scorer.py` | ✅ 6 维度 100 分 |
 | 编排 Facade | `TechAnalyzer` | `src/service/tech/analyzer.py` | ✅ `analyze(code) → TechAnalysisResult` |
 | 结果模型 | `TechAnalysisResult` | `src/service/tech/models/tech_result.py` | ✅ 含 warnings / data_timestamp |
-| 单元测试 | 27 用例 | `test/service/tech/` | ✅ 离线可跑；含 ref ±0.1% |
-| OpenSpec | 主 spec ×3 | `openspec/specs/tech-*/` | ✅ 已从 change sync |
+| 实时融合 | `RealtimeOverlayProvider` | `src/data_provider/realtime_overlay_provider.py` | ✅ F-16（`add-realtime-overlay`，2026-06-28） |
+| 周 K 线 | `WeeklyKlineAggregator` | `src/service/tech/calculator.py` | ✅ F-20（`add-weekly-kline`，2026-06-28） |
+| 筹码分布 | `ChipDistributionProvider` + 获利/套牢比例分档 | `src/data_provider/chip_distribution_provider.py` | ✅ F-17（`add-chip-distribution`，2026-08-10） |
+| K 线形态 | `PatternRecognizer` | `src/service/tech/pattern_recognizer.py` | ✅ F-18（`add-pattern-recognition`，2026-09-13）；独立 `candlestick_patterns`，不参与 `signal_score` |
+| 布林带 | 中/上/下轨 + 带宽百分位 | `src/service/tech/calculator.py` | ✅ F-19（`add-bollinger-bands`，2026-09-13）；`BollingerStatus` 五态，不参与 `signal_score` |
+| 单元测试 | 71 用例 | `test/service/tech/` | ✅ 离线可跑；含 ref ±0.1%（`pytest --collect-only` 实测，2026-09-27） |
+| OpenSpec | 主 spec ×8 | `openspec/specs/tech-*/` | ✅ 已从 change sync |
 
 #### 分层缺口地图
 
 ```text
 用户 ──▶ apps/ ──▶ controller/ ──▶ service/dual_track/ ──▶ service/{value,tech}/
-         ❌           ❌              ✅ DualTrackAnalyzer           ✅ 各轨 Facade
-         CLI/Web      API 端点        ✅ SignalFusion / DualTrackReport
-         双轨看板     请求路由        ❌ LLM 报告 / Web 看板（待建）
+         ✅           ❌              ✅ DualTrackAnalyzer           ✅ 各轨 Facade
+         CLI/飞书     API 端点        ✅ SignalFusion / DualTrackReport
+         看板/简报    请求路由        ✅ LLM 报告 / 简报；❌ Web 看板（待建）
 ```
 
 ### 10.2 优先级路线图
@@ -613,8 +618,8 @@ class LegacyRefScorer(BullTrendScorer):
 |--------|---------------------|------|------|
 | P0 | `add-tech-analyzer-core` | F-01~F-15 全量实现 | ✅ 已归档 2026-06-21 |
 | P1 | `add-dual-track-analyzer` | 价值面 + 技术面 Facade → `DualTrackReport` | ✅ 已交付 2026-06-21 |
-| P1 | `add-realtime-overlay` | 实时行情融合（F-16） | 待建 |
-| P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20） | 待建 |
+| P1 | `add-realtime-overlay` | 实时行情融合（F-16） | ✅ 已归档 2026-06-28 |
+| P1 | `add-weekly-kline` | 周 K 线趋势分析（F-20） | ✅ 已归档 2026-06-28 |
 | P2 | `add-chip-distribution` | 筹码分布（F-17） | ✅ 已实现 |
 | V2 | `add-pattern-recognition` | K 线形态识别（F-18） | ✅ |
 | V2 | `add-bollinger-bands` | 布林带（F-19） | ✅ |

@@ -8,6 +8,8 @@
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-09-27 | add-governance-flow-events | 新增 `service/event/`（治理事件 + 北向资金确定性分析）、`data_provider/event/`（`stk_holdertrade`/`repurchase`/`share_float`/`pledge_stat`/`block_trade`/`moneyflow_hsgt`）、6 张事件/北向表与 Repo；`sync` 追加治理事件、`sync market` 追加北向、`report events` 子命令、dual/dashboard 独立「治理/事件面」区块 |
+| 2026-09-27 | add-stock-margin-fundflow | 新增 `service/fundflow/`（两融 + 主力资金流确定性分析）、`data_provider/fundflow/`（`margin_detail` + `moneyflow`）、`stock_margin_detail`/`stock_moneyflow` 表与 Repo；`sync` 追加资金面、`report fundflow` 子命令、dual/dashboard 独立「个股资金面」区块 |
 | 2026-09-13 | add-html-briefing-report | `report briefing`：BriefingComposer + HtmlBriefingRenderer；默认 narrate；自包含 HTML |
 | 2026-08-15 | add-feishu-watchlist-push | 新增 `src/service/feishu/`（lark-cli publisher + dual 管道）；CLI `feishu push` |
 | 2026-06-13 | merge-arch | 合并原 architecture.md 与工程约定；确立 ref/、flat src/、reports/、三层防御 LLM 规范 |
@@ -108,6 +110,8 @@ stock_copilot/                    # 本 git 仓库根
 | `service/value/` | 价值面：估值方法论计算（`valuation/`）、原型路由、区间聚合 |
 | `service/tech/` | 技术面：指标、趋势信号 |
 | `service/sentiment/` | 情绪面：市场级情绪快照的确定性评分、分档与联合解读输入 |
+| `service/fundflow/` | 个股资金面：两融（`margin_detail`）+ 主力资金流（`moneyflow`）的确定性分析（杠杆方向、融券突增、主力净流入累计） |
+| `service/event/` | 治理/事件面：增减持/回购/解禁/质押/大宗 + 北向资金的确定性事实 flag 聚合 |
 | `service/dual_track/` | 双轨 Facade、`EvidenceBucketer`（红蓝 Level 0 证据分桶） |
 | `service/report/` | 报告 Context 打包、内嵌讲解（`explainers.py`）、LLM 编排、Briefing Pack（`briefing_composer` + `html_briefing_renderer` → 自包含 HTML）、写入 reports/ |
 | `service/guard/` | 决策护航：Checklist 等（红蓝 Level 1 叙事当前由 Cursor Skill 承接） |

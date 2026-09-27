@@ -8,6 +8,8 @@ from common.exceptions import StockCopilotError
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.dual_track.models.report import DualTrackReport
+from service.event.models.event_result import EventResult
+from service.fundflow.models.fund_flow_result import FundFlowResult
 from service.report.explainers import format_mos_percent_points
 from service.report.models.dashboard_view import DashboardView
 from service.tech.analyzer import TechAnalyzer
@@ -75,6 +77,54 @@ def _format_tech_section(tech: TechAnalysisResult | None) -> str:
     return "\n".join(lines)
 
 
+def _format_fund_flow_section(result: FundFlowResult | None) -> str:
+    if result is None:
+        return "资金面数据缺失（请先运行 sync）"
+
+    def pct(v: float | None) -> str:
+        return f"{v:+.1f}%" if v is not None else "N/A"
+
+    def wan(v: float | None) -> str:
+        return f"{v:+.0f} 万元" if v is not None else "N/A"
+
+    direction = result.leverage_direction.value if result.leverage_direction is not None else "N/A"
+    lines = [
+        f"两融余额变化率（近 5 日）: {pct(result.margin_balance_change_pct)}",
+        f"融券余额变化率（近 5 日）: {pct(result.short_balance_change_pct)}",
+        f"主力资金净流入（近 5 日）: {wan(result.main_net_inflow_5d)}",
+        f"杠杆方向: {direction}",
+    ]
+    if result.reasons:
+        lines.append("依据: " + "；".join(result.reasons))
+    lines.append("提示: 资金面数据为观察维度，不构成买卖建议")
+    return "\n".join(lines)
+
+
+def _format_event_section(result: EventResult | None) -> str:
+    if result is None:
+        return "治理事件数据缺失（请先运行 sync）"
+
+    lines: list[str] = []
+    if result.holder_net_sell_90d is not None:
+        direction = "减持" if result.holder_net_sell_90d >= 0 else "增持"
+        lines.append(f"近 90 日股东净{direction}: {abs(result.holder_net_sell_90d) / 10000:g} 万股")
+    if result.repurchase_active:
+        lines.append("回购: 近 90 日实施/完成")
+    if result.upcoming_unlock_30d is not None:
+        lines.append(f"未来 30 日解禁占比: {result.upcoming_unlock_30d:g}%")
+    if result.pledge_ratio is not None:
+        lines.append(f"质押比例: {result.pledge_ratio:g}%")
+    if result.block_trade_discount is not None:
+        label = "折价" if result.block_trade_discount >= 0 else "溢价"
+        lines.append(f"近 30 日大宗平均{label}: {abs(result.block_trade_discount):g}%")
+    if result.northbound_net_inflow_5d is not None:
+        lines.append(f"北向近 5 日净流入: {result.northbound_net_inflow_5d:+.0f}（市场级）")
+    if result.reasons:
+        lines.append("依据: " + "；".join(result.reasons))
+    lines.append("提示: 事件面数据为观察维度，不构成买卖建议")
+    return "\n".join(lines)
+
+
 def _format_combined_summary(
     report: DualTrackReport,
     bull_count: int,
@@ -137,6 +187,8 @@ class DashboardBuilder:
             code=code,
             value_section=_format_value_section(report.value_result),
             tech_section=_format_tech_section(report.tech_result),
+            fund_flow_section=_format_fund_flow_section(report.fund_flow_result),
+            event_section=_format_event_section(report.event_result),
             sentiment_section=_SENTIMENT_PLACEHOLDER,
             checklist_section=_CHECKLIST_PLACEHOLDER,
             combined_summary=_format_combined_summary(

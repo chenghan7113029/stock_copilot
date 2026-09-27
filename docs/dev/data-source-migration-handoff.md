@@ -1,9 +1,11 @@
 # 数据源迁移 — 本地 Cursor 交接文档
 
+> ⚠️ **历史文档（2026-09-27 标注）**：本文记录 2026-08-09 交接时的状态，**其「未做事项」已全部完成**——阶段 A/B/C 三个 change 均已实现并归档，`capture_migration_baseline.py` / `compare_migration_baseline.py` 已交付，Issue #1 已随阶段 B 处理。当前状态请以 `docs/mrd/features/data-source-migration.md` 与 `openspec list` 为准。
+
 > 最后更新：2026-08-09  
 > 交接方：Cursor Cloud Agent  
 > 接手方：本地 Cursor / Owner  
-> **状态：仅文档已交付，零生产代码改动**
+> **状态：仅文档已交付，零生产代码改动**（交接时）
 
 ---
 

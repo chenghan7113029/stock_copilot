@@ -8,6 +8,8 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
+from service.event.models.event_result import EventResult
+from service.fundflow.models.fund_flow_result import FundFlowResult
 from service.guard.models.fresh_entry_view import FreshEntryView
 from service.portfolio.models.portfolio_result import PortfolioAnalysisResult
 from service.report.explainers import (
@@ -58,6 +60,18 @@ def _dump_json(obj: Any) -> str:
 
 def _bullet_lines(items: list[str]) -> list[str]:
     return [f"- {item}" for item in items]
+
+
+def _fmt_pct(v: float | None, digits: int = 1) -> str:
+    if v is None:
+        return "N/A"
+    return f"{v:+.{digits}f}%"
+
+
+def _fmt_signed_wan(v: float | None) -> str:
+    if v is None:
+        return "N/A"
+    return f"{v:+.0f} 万元"
 
 
 def format_tech_report(result: TechAnalysisResult, as_json: bool = False) -> str:
@@ -480,6 +494,8 @@ def format_dual_report(
     sentiment_result: SentimentAnalysisResult | None = None,
     value_result: ValueAnalysisResult | None = None,
     tech_result: TechAnalysisResult | None = None,
+    fund_flow_result: FundFlowResult | None = None,
+    event_result: EventResult | None = None,
 ) -> str:
     """红蓝对抗 Level 0：证据分桶输出；JSON 含稳定 1-based index。"""
     payload = {
@@ -529,6 +545,24 @@ def format_dual_report(
     if tech_result is not None:
         lines.extend(["", "## 技术面讲解（与 report tech 同源）"])
         lines.extend(render_tech_explanations(tech_result))
+
+    lines.extend(["", "## 个股资金面", ""])
+    if fund_flow_result is not None:
+        lines.extend(_fund_flow_block_lines(fund_flow_result))
+        if fund_flow_result.reasons:
+            lines.extend(["", *_bullet_lines(fund_flow_result.reasons)])
+        lines.extend(["", "> 资金面数据为观察维度，不构成买卖建议"])
+    else:
+        lines.append("- 资金面数据缺失（请先运行 sync）")
+
+    lines.extend(["", "## 治理/事件面", ""])
+    if event_result is not None:
+        lines.extend(_event_block_lines(event_result))
+        if event_result.reasons:
+            lines.extend(["", *_bullet_lines(event_result.reasons)])
+        lines.extend(["", "> 事件面数据为观察维度，不构成买卖建议"])
+    else:
+        lines.append("- 治理事件数据缺失（请先运行 sync）")
 
     return "\n".join(lines)
 
@@ -776,6 +810,83 @@ def format_sentiment_report(result: SentimentAnalysisResult, as_json: bool = Fal
     return "\n".join(lines)
 
 
+def _fund_flow_block_lines(result: FundFlowResult) -> list[str]:
+    direction = (
+        result.leverage_direction.value if result.leverage_direction is not None else "N/A"
+    )
+    return [
+        f"- 两融余额变化率（近 5 日）: {_fmt_pct(result.margin_balance_change_pct)}",
+        f"- 融券余额变化率（近 5 日）: {_fmt_pct(result.short_balance_change_pct)}",
+        f"- 主力资金净流入（近 5 日）: {_fmt_signed_wan(result.main_net_inflow_5d)}",
+        f"- 杠杆方向: {direction}",
+    ]
+
+
+def format_fund_flow_report(result: FundFlowResult, as_json: bool = False) -> str:
+    """个股资金面报告（严格离线）。文本模式固定追加观察维度提示。"""
+    disclaimer = "资金面数据为观察维度，不构成买卖建议"
+    if as_json:
+        payload = _to_json_serializable(result)
+        payload["disclaimer"] = disclaimer
+        return _dump_json(payload)
+
+    lines = [
+        f"# 个股资金面报告 {result.code}",
+        "",
+        "[严格离线] 两融 + 主力资金流（T+1 日度数据）",
+        "",
+        *_fund_flow_block_lines(result),
+    ]
+    if result.reasons:
+        lines.extend(["", "## 依据", "", *_bullet_lines(result.reasons)])
+    if result.warnings:
+        lines.extend(["", "## 警告", "", *_bullet_lines(result.warnings)])
+    lines.extend(["", f"> ⚠ {disclaimer}"])
+    return "\n".join(lines)
+
+
+def _event_block_lines(result: EventResult) -> list[str]:
+    lines: list[str] = []
+    if result.holder_net_sell_90d is not None:
+        direction = "减持" if result.holder_net_sell_90d >= 0 else "增持"
+        lines.append(f"- 近 90 日股东净{direction}: {abs(result.holder_net_sell_90d) / 10000:g} 万股")
+    if result.repurchase_active:
+        lines.append("- 回购: 近 90 日实施/完成")
+    if result.upcoming_unlock_30d is not None:
+        lines.append(f"- 未来 30 日解禁占比: {result.upcoming_unlock_30d:g}%")
+    if result.pledge_ratio is not None:
+        lines.append(f"- 质押比例: {result.pledge_ratio:g}%")
+    if result.block_trade_discount is not None:
+        label = "折价" if result.block_trade_discount >= 0 else "溢价"
+        lines.append(f"- 近 30 日大宗平均{label}: {abs(result.block_trade_discount):g}%")
+    if result.northbound_net_inflow_5d is not None:
+        lines.append(f"- 北向近 5 日净流入: {result.northbound_net_inflow_5d:+.0f}（市场级）")
+    return lines
+
+
+def format_event_report(result: EventResult, as_json: bool = False) -> str:
+    """治理/事件面报告（严格离线）。文本模式固定追加观察维度提示。"""
+    disclaimer = "事件面数据为观察维度，不构成买卖建议"
+    if as_json:
+        payload = _to_json_serializable(result)
+        payload["disclaimer"] = disclaimer
+        return _dump_json(payload)
+
+    lines = [
+        f"# 治理/事件面报告 {result.code}",
+        "",
+        "[严格离线] 增减持/回购/解禁/质押/大宗 + 北向资金",
+        "",
+        *_event_block_lines(result),
+    ]
+    if result.reasons:
+        lines.extend(["", "## 依据", "", *_bullet_lines(result.reasons)])
+    if result.warnings:
+        lines.extend(["", "## 警告", "", *_bullet_lines(result.warnings)])
+    lines.extend(["", f"> ⚠ {disclaimer}"])
+    return "\n".join(lines)
+
+
 def format_dashboard_report(view: DashboardView, as_json: bool = False) -> str:
     """多维看板汇总输出（Markdown / JSON）。"""
     if as_json:
@@ -793,6 +904,14 @@ def format_dashboard_report(view: DashboardView, as_json: bool = False) -> str:
         "## 技术面",
         "",
         view.tech_section or "（空）",
+        "",
+        "## 个股资金面",
+        "",
+        view.fund_flow_section or "（空）",
+        "",
+        "## 治理/事件面",
+        "",
+        view.event_section or "（空）",
         "",
         "## 情绪面",
         "",
