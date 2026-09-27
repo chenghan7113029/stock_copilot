@@ -10,6 +10,8 @@ from data_provider.base import is_a_share
 from service.dual_track.config import DualTrackConfig
 from service.dual_track.models.report import DualTrackReport, ValueRating
 from service.dual_track.signal_fusion import SignalFusion
+from service.fundflow.analyzer import FundFlowAnalyzer
+from service.fundflow.models.fund_flow_result import FundFlowResult
 from service.sentiment.analyzer import SentimentAnalyzer
 from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.analyzer import TechAnalyzer
@@ -91,12 +93,14 @@ class DualTrackAnalyzer:
         config: DualTrackConfig | None = None,
         signal_fusion: SignalFusion | None = None,
         sentiment_analyzer: SentimentAnalyzer | None = None,
+        fund_flow_analyzer: FundFlowAnalyzer | None = None,
     ) -> None:
         self._value_analyzer = value_analyzer
         self._tech_analyzer = tech_analyzer
         self._config = config or DualTrackConfig()
         self._signal_fusion = signal_fusion or SignalFusion(self._config)
         self._sentiment_analyzer = sentiment_analyzer
+        self._fund_flow_analyzer = fund_flow_analyzer
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DualTrackAnalyzer":
@@ -105,6 +109,7 @@ class DualTrackAnalyzer:
             tech_analyzer=TechAnalyzer.from_config(config),
             config=DualTrackConfig(),
             sentiment_analyzer=SentimentAnalyzer.from_config(config),
+            fund_flow_analyzer=FundFlowAnalyzer.from_config(config),
         )
 
     def analyze(self, raw_code: str) -> DualTrackReport:
@@ -118,6 +123,7 @@ class DualTrackAnalyzer:
         value_result: ValueAnalysisResult | None = None
         tech_result: TechAnalysisResult | None = None
         sentiment_result: SentimentAnalysisResult | None = None
+        fund_flow_result: FundFlowResult | None = None
 
         try:
             value_result = self._value_analyzer.analyze(code)
@@ -141,6 +147,13 @@ class DualTrackAnalyzer:
                 warnings.extend(sentiment_result.warnings)
             except Exception as exc:
                 warnings.append(f"情绪面分析失败: {exc}")
+
+        if self._fund_flow_analyzer is not None:
+            try:
+                fund_flow_result = self._fund_flow_analyzer.analyze(code)
+                warnings.extend(fund_flow_result.warnings)
+            except Exception as exc:
+                warnings.append(f"资金面分析失败: {exc}")
 
         combined_signal, value_rating = self._signal_fusion.fuse(
             value_result, tech_result
@@ -166,6 +179,7 @@ class DualTrackAnalyzer:
             value_result=value_result,
             tech_result=tech_result,
             sentiment_result=sentiment_result,
+            fund_flow_result=fund_flow_result,
             combined_signal=combined_signal,
             value_rating=value_rating,
             analysis_summary=analysis_summary,
@@ -194,6 +208,7 @@ class DualTrackAnalyzer:
         value_result: ValueAnalysisResult | None = None
         tech_result: TechAnalysisResult | None = None
         sentiment_result: SentimentAnalysisResult | None = None
+        fund_flow_result: FundFlowResult | None = None
 
         try:
             value_result = self._value_analyzer.analyze_offline(code)
@@ -224,6 +239,16 @@ class DualTrackAnalyzer:
             except Exception as exc:
                 warnings.append(f"情绪面分析失败: {exc}")
 
+        if self._fund_flow_analyzer is not None:
+            try:
+                fund_flow_result = self._fund_flow_analyzer.analyze_offline(code)
+                if fund_flow_result is None:
+                    warnings.append("资金面无本地缓存，请先运行 sync")
+                else:
+                    warnings.extend(fund_flow_result.warnings)
+            except Exception as exc:
+                warnings.append(f"资金面分析失败: {exc}")
+
         combined_signal, value_rating = self._signal_fusion.fuse(
             value_result, tech_result
         )
@@ -248,6 +273,7 @@ class DualTrackAnalyzer:
             value_result=value_result,
             tech_result=tech_result,
             sentiment_result=sentiment_result,
+            fund_flow_result=fund_flow_result,
             combined_signal=combined_signal,
             value_rating=value_rating,
             analysis_summary=analysis_summary,

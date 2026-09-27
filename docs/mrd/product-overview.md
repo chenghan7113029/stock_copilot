@@ -1,13 +1,18 @@
 # stock_copilot 产品总览（MRD）
 
-> 最后更新：2026-05-31  
-> 状态：已完善（基于用户故事）  
+> 最后更新：2026-09-27  
+> 状态：已完善（基于用户故事；2026-09-27 完成一轮与代码的状态对齐）  
 > 原始素材：[user_story.md](../user_story.md)
 
 ## 变更记录
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-09-27 | 文档对齐 | 修正 §5.2 确认偏差与 §8.1 验收项中滞后于代码的状态；全量核对后 OpenSpec 队列为空（0 活跃 change） |
+| 2026-09-13 | add-html-briefing-report / polish-html-briefing-ux | 周末深复盘自包含 HTML 简报（`report briefing`，默认 LLM narrate + persona）与 UX 打磨 |
+| 2026-09-13 | add-pattern-recognition / add-bollinger-bands | 技术面 V2：K 线形态（F-18）与布林带（F-19），独立字段展示，不参与 `signal_score` |
+| 2026-08-29 | add-confrontation-narrate-api / declaration / persona-stress-test | 决策护航 V2：`report confront [--narrate]`、`confront declare/show`、`report persona-stress`，ID 关联审计链 |
+| 2026-08-15 | add-mos-thresholds-by-prototype / add-value-v2-prototype-methods | 价值面：MOS 按原型差异化阈值；V2 P1–P5 专用方法（保险/军工/成长科技等） |
 | 2026-08-15 | add-feishu-watchlist-push | 交付通道：`feishu push` 只推 dual.md，经 lark-cli 新建文档并立即发「今日研报_名称_日期_时段」链接 |
 | 2026-08-01 | add-trade-review-attribution | PO-09 交易记录、FIFO 胜率与严格离线复盘报告已实现；完整 Badcase 归因消费 PO-04 Checklist 软引用 |
 | 2026-08-01 | add-portfolio-correlation | PO-10 持仓集中度与行业暴露度粗估已实现；明确不包含协方差矩阵或组合优化 |
@@ -146,7 +151,7 @@
 | **方法论范围** | 衍生指标（融资融券、涨跌停与连板、VIX/认沽认购比、恐慌贪婪指数等）；文本挖掘（社媒、新闻情感）；龙虎榜与席位 |
 | **已知短板** | 情绪过热/过冷可持续较久（情绪钝化），单独使用易被打脸 |
 | **缓解策略** | **强制**在报告中标注：须结合技术面反转确认 + 价值面底价支撑；禁止单独作为买卖唯一依据 |
-| **实现优先级** | P1（V1 已实现：涨跌停家数比 + 恐慌贪婪代理指数；个股融资余额、龙虎榜、社媒文本挖掘待后续迭代） |
+| **实现优先级** | P1（V1 已实现：涨跌停家数比 + 恐慌贪婪代理指数；个股资金面（两融 + 主力资金流，PO-12）已实现；龙虎榜、社媒文本挖掘待后续迭代） |
 
 ### 5.2 决策护航模块（认知偏差审计）
 
@@ -154,7 +159,7 @@
 
 | 偏差 | 表现 | Copilot 机制 | 优先级 |
 |------|------|--------------|--------|
-| **确认偏差** | 持仓后只看好消息 | **红蓝军对抗**：多空角色基于同一公开信息各出报告并互相攻击；用户须声明拒绝哪方及理由。**V1（Skill 版）已实现**：`report dual` 证据分桶 + Cursor Skill 互驳叙事；用户声明留痕与 Web + 独立 LLM API 版待建（依赖已冻结的 `add-llm-narrative-core`） | P0 |
+| **确认偏差** | 持仓后只看好消息 | **红蓝军对抗**：多空角色基于同一公开信息各出报告并互相攻击；用户须声明拒绝哪方及理由。**V1（Skill 版）**：`report dual` 证据分桶 + Cursor Skill；**V2 已实现**：`report confront [--narrate]`（LLM 互驳叙事 + numbered evidence）、`confront declare/show` 结构化声明留痕、`report persona-stress` persona 压力测试，经 `--confrontation-id` 与 checklist/trade 关联（2026-08-29 三个 change 归档）。仅 **Web** 部分待建 | P0 |
 | **沉没成本谬误** | 被套不舍割、盲目加仓摊薄 | **假设今日首开仓（已实现）**：CLI `position set` 录入最小当前持仓，严格离线 `entry-check` 隐藏持仓成本/盈亏比例，提问「若无仓位今日是否仍愿买入」；否 → 减仓/止损提醒 | P0 |
 | **锚定效应** | 盯历史最高价或买入成本 | **V1 已实现：**分位定性分档呈现 + 历史最高价默认隐藏（需 `--show-anchor-price` 显式展示）；成本价隐藏留给 `add-fresh-entry-check` 复用本 change 的护栏惯例 | P1 |
 | **路径依赖 / 可得性** | 只用曾经赚钱的一招；因昨晚爆款文章就想买 | **结构化 Checklist（已实现）**：CLI `checklist submit/show` 强制填写价值理由 ≥2、技术面配合、情绪位置、止损止盈；仅单条「新闻感觉」→ **硬拦截**，不合规尝试仍留痕 | P0 |
@@ -205,7 +210,7 @@
 | **Phase 0（当前）** | 文档与架构 | MRD、Design、OpenSpec 流程、模块骨架 |
 | **Phase 1** | 双轨分析 | 价值面 + 技术面并行分析、LLM 综合报告、基础看板 |
 | **Phase 2** | 决策护航 | 红蓝对抗、Checklist、假设首开仓评估 |
-| **Phase 3** | 情绪量化 | V1 已实现：涨跌停家数比、恐慌贪婪代理指数与三维联合解读；其余指标待迭代 |
+| **Phase 3** | 情绪量化 | V1 已实现：涨跌停家数比、恐慌贪婪代理指数与三维联合解读；个股资金面（两融 + 主力资金流，PO-12）已实现；龙虎榜、社媒文本挖掘待迭代 |
 | **Phase 4** | 复盘进化 | FIFO 胜率统计与交易后归因已实现；持仓集中度与行业暴露度粗估已实现；完整 Badcase 归因依赖 PO-04 Checklist 关联数据，规则反哺仍为人工阅读统计 |
 
 **优先级汇总：**
@@ -223,12 +228,13 @@
 ### 8.1 产品级
 
 - [x] 单票一次请求可获得**价值 + 技术**分项报告及汇总看板（Phase 1 — CLI：`report tech/value/dashboard`；LLM 综合解读：`report summary --narrate`）
-- [ ] 价值面输出含**估值区间、安全边际、价值陷阱风险提示**
-- [ ] 技术面输出含**趋势判断、关键位、止损建议**
+- [x] 价值面输出含**估值区间、安全边际、价值陷阱风险提示**（`report value` / `report dashboard`；T-2 `value_trap_alert` 独立高危区块）
+- [x] 技术面输出含**趋势判断、关键位、止损建议**（`report tech`：趋势评分、支撑/压力、止损位）
 - [x] 买入/卖出意图触发 Checklist，缺字段或仅可得性原因时**系统拒绝提交**（Phase 2 — CLI `checklist submit`；不合规提交留痕）
-- [x] 红蓝对抗报告对同一标的给出可对比的多空论述（Phase 2 — V1 Skill 版：`report dual` + Cursor Skill；Web/用户声明留痕待建）
+- [x] 红蓝对抗报告对同一标的给出可对比的多空论述（`report dual` Skill 版 + V2 `report confront [--narrate]`、`confront declare`；仅 Web 展示待建）
 - [x] 交易记录可生成 FIFO 胜率与平均已实现收益率；关联合规 Checklist 时可识别 Badcase（Phase 4 — `trade record` / `report trade-review`）
 - [x] 情绪指标出现时，报告内**必须**含与技术/价值的联合解读段落（Phase 3 — `report dual`）
+- [x] 个股资金面（两融 + 主力资金流）作为**独立观察维度**呈现（`report fundflow` 深看 + `report dual`/`report dashboard`「个股资金面」区块；不参与 `combined_signal` 数值融合）
 
 ### 8.2 工程与文档
 

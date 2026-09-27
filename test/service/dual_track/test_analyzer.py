@@ -10,6 +10,7 @@ import pytest
 from common.exceptions import UnsupportedMarketError
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.models.report import CombinedSignal, ValueRating
+from service.fundflow.models.fund_flow_result import FundFlowResult, LeverageDirection
 from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus
 from service.value.models.analysis_result import ValueAnalysisResult
@@ -254,3 +255,79 @@ def test_analyze_offline_explains_missing_sentiment_without_affecting_fusion():
     assert report.sentiment_result is None
     assert "情绪面数据缺失，本次报告仅基于价值+技术双维" in report.analysis_summary
     assert report.combined_signal == CombinedSignal.STRONG_BUY
+
+
+def _make_fund_flow_result() -> FundFlowResult:
+    return FundFlowResult(
+        code="600519",
+        margin_balance_change_pct=10.0,
+        short_balance_change_pct=1.0,
+        main_net_inflow_5d=800.0,
+        leverage_direction=LeverageDirection.ADD_LEVERAGE,
+        reasons=["两融余额近 5 个交易日变化 +10.0%"],
+    )
+
+
+def test_analyze_offline_populates_fund_flow_result():
+    value = _make_value_result()
+    tech = _make_tech_result()
+    fund_flow_analyzer = MagicMock()
+    fund_flow_analyzer.analyze_offline.return_value = _make_fund_flow_result()
+    analyzer = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        fund_flow_analyzer=fund_flow_analyzer,
+    )
+    analyzer._tech_analyzer.analyze.return_value = tech
+
+    report = analyzer.analyze_offline("600519")
+
+    assert report.fund_flow_result is not None
+    assert report.fund_flow_result.main_net_inflow_5d == 800.0
+    assert report.combined_signal == CombinedSignal.STRONG_BUY
+    fund_flow_analyzer.analyze_offline.assert_called_once_with("600519")
+
+
+def test_analyze_offline_missing_fund_flow_degrades_without_blocking():
+    value = _make_value_result()
+    tech = _make_tech_result()
+    fund_flow_analyzer = MagicMock()
+    fund_flow_analyzer.analyze_offline.return_value = None
+    analyzer = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        fund_flow_analyzer=fund_flow_analyzer,
+    )
+    analyzer._tech_analyzer.analyze.return_value = tech
+
+    report = analyzer.analyze_offline("600519")
+
+    assert report.fund_flow_result is None
+    assert any("资金面无本地缓存" in w for w in report.warnings)
+    assert report.combined_signal == CombinedSignal.STRONG_BUY
+    assert report.value_rating == ValueRating.UNDERVALUED
+
+
+def test_analyze_offline_fund_flow_does_not_change_fusion_regression():
+    value = _make_value_result()
+    tech = _make_tech_result()
+
+    without_fund_flow = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value), MagicMock()
+    )
+    without_fund_flow._tech_analyzer.analyze.return_value = tech
+    baseline = without_fund_flow.analyze_offline("600519")
+
+    fund_flow_analyzer = MagicMock()
+    fund_flow_analyzer.analyze_offline.return_value = _make_fund_flow_result()
+    with_fund_flow = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        fund_flow_analyzer=fund_flow_analyzer,
+    )
+    with_fund_flow._tech_analyzer.analyze.return_value = tech
+    report = with_fund_flow.analyze_offline("600519")
+
+    assert report.fund_flow_result is not None
+    assert report.combined_signal == baseline.combined_signal
+    assert report.value_rating == baseline.value_rating

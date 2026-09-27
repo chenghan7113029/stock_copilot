@@ -2,7 +2,7 @@
 
 > 面向：**实际使用本工具分析 A 股的个人投资者**（非开发者文档）  
 > 当前入口：**命令行（CLI）**；Web 界面仍在规划中
-> 最后更新：2026-08-30
+> 最后更新：2026-09-27
 
 ---
 
@@ -33,6 +33,7 @@
 | 周末深度复盘 Briefing（自包含 HTML） | `python -m apps.cli report briefing <代码> [-o *.html]`（默认 LLM；见 §4.4c） |
 | 对抗立场声明与历史 | `python -m apps.cli confront declare/show`（见 §4.8） |
 | 市场情绪 V1 | `python -m apps.cli sync market` 后执行 `report sentiment <代码>` 或 `report dual <代码>` |
+| 个股资金面（两融 + 主力资金流） | `sync <代码>` 已含资金面拉取；`report fundflow <代码>` 深看；`report dual`/`report dashboard` 含「个股资金面」区块（见 §4.4d） |
 | 决策清单（提交 / 历史） | `python -m apps.cli checklist submit/show <代码>`（见 §4.7） |
 | 无仓位视角入场检查 | `position set` + `entry-check`（见附录） |
 | 人工覆盖估值原型 | `value override <代码> <原型> --reason ...`（见附录） |
@@ -44,7 +45,7 @@
 
 ### 1.2 尚未交付（请勿期待）
 
-Web 界面、个股融资余额/龙虎榜/社媒文本情绪、协方差组合优化等仍在路线图中。详见 [mrd/roadmap-todo.md](mrd/roadmap-todo.md)。
+Web 界面、龙虎榜、社媒文本情绪、协方差组合优化等仍在路线图中（个股资金面已交付，见 §4.4d）。详见 [mrd/roadmap-todo.md](mrd/roadmap-todo.md)。
 
 > **说明：** CLI「多维看板 / Checklist / 情绪 / 复盘」已可用；Web 版仍待建。
 ### 1.3 免责声明
@@ -175,7 +176,7 @@ $env:LLM_API_KEY = "你的key"
 ## 3. 核心工作流（每天怎么用）
 
 ```text
-sync（联网拉数） → report dashboard / summary / tech / value / dual（离线读库出报告）
+sync（联网拉数） → report dashboard / summary / tech / value / dual / fundflow（离线读库出报告）
 ```
 
 **原则：**
@@ -355,6 +356,7 @@ python -m apps.cli sync --watchlist [--realtime] [--quiet]
 
 - 价值面快照（价、财报字段、估值所需输入等）
 - 日 K 线缓存（默认约 90 个交易日）
+- 个股资金面（两融明细 + 主力资金流，近 5 个交易日；拉取失败不阻断整次 sync）
 
 **全市场情绪（与单票 sync 分开）：**
 
@@ -434,6 +436,8 @@ python -m apps.cli report dual --watchlist [-o 目录] [--json] [--quiet]
 
 `--json` 方便复制给脚本或 Cursor Skill（fallback）。
 
+报告末尾含「个股资金面」区块（两融余额变化、融券余额变化、主力资金近 5 日净流入、杠杆方向）；无资金面缓存时该区块显式提示「资金面数据缺失（请先运行 sync）」。资金面为**独立观察维度**，不参与 `combined_signal` 数值融合。
+
 ### 4.4a `report confront` — 红蓝对抗报告（离线 Level 0；可选 LLM Level 1）
 
 ```text
@@ -510,18 +514,38 @@ py -m apps.cli report briefing 600519 -o reports/600519_briefing.html
 py -m apps.cli report briefing 600519 --no-narrate -o reports/600519_briefing.html
 ```
 
+### 4.4d `report fundflow` — 个股资金面（两融 + 主力资金流，严格离线）
+
+```text
+python -m apps.cli report fundflow <代码> [--json] [-o 文件] [--quiet]
+```
+
+严格离线，读取 `sync <代码>` 时写入的资金面缓存，输出该股近 5 个交易日的资金面快照：
+
+| 指标 | 含义 |
+|------|------|
+| 两融余额变化率（近 5 日） | 融资融券余额相对 5 个交易日前的变化百分比 |
+| 融券余额变化率（近 5 日） | 融券余额相对 5 个交易日前的变化百分比 |
+| 主力资金净流入（近 5 日） | 主力资金（大单 + 特大单）近 5 个交易日净流入累计，单位**万元** |
+| 杠杆方向 | 加杠杆 / 去杠杆 / 平稳（由两融余额变化幅度判定） |
+
+报告固定附带提示：**资金面数据为观察维度，不构成买卖建议**。无本地资金面缓存时会提示「未找到 <代码> 的资金面数据，请先运行 sync」并以非 0 退出码结束。
+
+术语白话见末尾「附录：个股资金面」。
+
 ### 4.5 `report dashboard` — 多维看板（离线）
 
 ```text
 python -m apps.cli report dashboard <代码> [--json] [-o 文件] [--quiet]
 ```
 
-一页汇总，大致包含五个分区：
+一页汇总，大致包含六个分区：
 
 | 分区 | 内容 |
 |------|------|
 | 价值面 | 原型、现价、评估、公允价区间、安全边际等摘要 |
 | 技术面 | 趋势、信号、评分、信号理由/风险摘要 |
+| 个股资金面 | 两融余额变化、融券余额变化、主力资金近 5 日净流入、杠杆方向；无缓存时提示缺失 |
 | 情绪面 | 最近一次 `sync market` 的市场情绪摘要；无快照时降级提示 |
 | Checklist | 本地该票最近决策清单摘要；无记录时提示可 `checklist submit` |
 | 综合摘要 | 双轨综合信号 + 红蓝证据条数（多方 N / 空方 M） |
@@ -990,6 +1014,7 @@ py -m apps.cli report dual 600519
 py -m apps.cli report confront 600519 --narrate
 py -m apps.cli report persona-stress 600519 --narrate
 py -m apps.cli report sentiment 600519
+py -m apps.cli report fundflow 600519
 py -m apps.cli report trade-review
 py -m apps.cli report portfolio
 py -m apps.cli report value --watchlist -o reports/watchlist
@@ -1226,3 +1251,32 @@ py -m apps.cli report dual 600519
 - **三维联合解读**：情绪“极度恐慌”且价值面“低估”时，报告会提示可关注逆向机会，但仍需技术面企稳确认；情绪“极度贪婪”且技术面强势时，报告会提示过热和回调风险。
 
 > **重要：** 情绪面结论不得单独作为买卖依据。必须结合 `report dual <代码>` 的价值、技术、情绪三维联合解读，并自行承担投资决策后果。
+
+---
+
+## 附录：个股资金面（两融 + 主力资金流）
+
+个股资金面是**独立观察维度**：它回答「这只股票的杠杆资金在加仓还是去杠杆、主力在吸筹还是派发」，但**不参与**综合信号（`combined_signal`）打分，也不构成买卖建议。
+
+先同步，再严格离线查看：
+
+```powershell
+# 联网：sync 会在价值面 + K 线 + 筹码之后，追加拉取个股两融与主力资金流
+py -m apps.cli sync 600519
+
+# 严格离线：个股资金面深看
+py -m apps.cli report fundflow 600519
+py -m apps.cli report fundflow 600519 --json -o reports/600519_fundflow.json
+```
+
+资金面数据缺失时（尚未 sync 或拉取失败），`report dual` / `report dashboard` 会显式提示「资金面数据缺失（请先运行 sync）」，且不影响价值面/技术面与综合信号的计算。
+
+### 术语说明
+
+- **两融余额变化率（近 5 日）**：融资融券余额（`rzye + rqye`）相对 5 个交易日前的百分比变化。正值表示杠杆资金净增加，负值表示净减少。数据不足两日或基期值为 0 时显示 `N/A`。
+- **融券余额变化率（近 5 日）**：融券余额（`rqye`）相对 5 个交易日前的百分比变化。融券余额显著增加（默认阈值 +50%）时，报告仅陈述「融券余额较 5 个交易日前增加 X%」这一事实，不做看空结论。
+- **主力资金净流入（近 5 日）**：近 5 个交易日 `net_mf_amount`（主力净流入额，单位万元）的累计值。正数表示主力净流入，负数表示净流出。
+- **杠杆方向**：由两融余额变化幅度判定——加杠杆 / 去杠杆 / 平稳（变化幅度较小时为平稳）。
+- **单位约定**：两融余额为**元**、融券余量为**股**；主力资金流金额为**万元**。报告中已按此标注。
+
+> **重要：** 资金面数据为观察维度，不构成买卖建议；请结合价值、技术、情绪三维解读，并自行承担投资决策后果。

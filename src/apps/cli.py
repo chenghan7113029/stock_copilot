@@ -17,6 +17,7 @@ from apps.formatters import (
     format_dashboard_report,
     format_dual_report,
     format_entry_check_report,
+    format_fund_flow_report,
     format_persona_stress_report,
     format_portfolio_report,
     format_sentiment_report,
@@ -46,6 +47,7 @@ from dao.confrontation_repo import (
     ConfrontationRepo,
 )
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
+from dao.fund_flow_repo import StockMarginDetailRepo, StockMoneyFlowRepo
 from dao.kline_repo import KlineRepo
 from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
 from dao.market_sentiment_repo import MarketSentimentRepo
@@ -57,6 +59,8 @@ from dao.models import (  # noqa: F401 — register ORM models
     MarketSentimentSnapshot,
     PositionRecord,
     PrototypeOverrideRecord,
+    StockMarginDetail,
+    StockMoneyFlow,
     TradeRecord,
 )
 from dao.position_repo import PositionRepo
@@ -65,6 +69,7 @@ from dao.stock_snapshot_repo import StockSnapshotRepo
 from dao.trade_record_repo import TradeRecordRepo
 from data_provider.base import is_a_share
 from data_provider.chip_distribution_provider import ChipDistributionProvider
+from data_provider.fundflow.provider import FundFlowProvider, FundFlowRepos
 from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
 from data_provider.sentiment.provider import MarketSentimentProvider
@@ -73,6 +78,7 @@ from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.feishu.paths import feishu_md_path
 from service.feishu.pipeline import FeishuPushDocument, reports_root, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError
+from service.fundflow.analyzer import FundFlowAnalyzer
 from service.guard.checklist_validator import ChecklistValidator
 from service.guard.confrontation_declaration_validator import ConfrontationDeclarationValidator
 from service.guard.confrontation_narrator import ConfrontationNarrator
@@ -197,6 +203,23 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
         progress.emit("正在提交筹码分布…")
         session.commit()
 
+        try:
+            fundflow_provider = FundFlowProvider.from_config(
+                cfg,
+                FundFlowRepos(
+                    margin=StockMarginDetailRepo(session),
+                    moneyflow=StockMoneyFlowRepo(session),
+                ),
+            )
+            _, fundflow_warnings = fundflow_provider.get_latest(
+                code, offline=False, on_progress=progress_cb
+            )
+            progress.emit("正在提交资金面…")
+            session.commit()
+        except Exception as exc:  # 资金面失败不阻断 sync（回滚仅资金面未提交变更）
+            session.rollback()
+            fundflow_warnings = [f"资金面同步失败: {exc}"]
+
         kline_status = f"K线 {len(df)}行 OK"
         if realtime:
             kline_status += f" (quote_mode: {quote_mode})"
@@ -205,9 +228,14 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
                 print(f"[warn] {w}", file=sys.stderr)
         for w in chip_warnings:
             print(f"[warn] {w}", file=sys.stderr)
+        for w in fundflow_warnings:
+            print(f"[warn] {w}", file=sys.stderr)
 
         chip_status = "筹码分布 OK" if not chip_warnings else "筹码分布已降级"
-        progress.emit(f"完成：value snapshot OK | {kline_status} | {chip_status}")
+        fundflow_status = "资金面 OK" if not fundflow_warnings else "资金面已降级"
+        progress.emit(
+            f"完成：value snapshot OK | {kline_status} | {chip_status} | {fundflow_status}"
+        )
     except Exception as exc:
         session.rollback()
         print(f"[error] 数据拉取失败：{exc}", file=sys.stderr)
@@ -265,6 +293,19 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
 
 def _format_optional(value: Any) -> str:
     return f"{float(value):.1f}" if value is not None else "N/A"
+
+
+def _fund_flow_analyzer(cfg: dict[str, Any], session: Any) -> FundFlowAnalyzer:
+    """基于同一 session 构建资金面分析器（复用离线缓存连接）。"""
+    return FundFlowAnalyzer(
+        FundFlowProvider.from_config(
+            cfg,
+            FundFlowRepos(
+                margin=StockMarginDetailRepo(session),
+                moneyflow=StockMoneyFlowRepo(session),
+            ),
+        )
+    )
 
 
 def run_report_tech(
@@ -361,6 +402,29 @@ def run_report_sentiment(
         session.close()
 
 
+def run_report_fundflow(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线生成个股资金面报告。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        analyzer = _fund_flow_analyzer(cfg, session)
+        result = analyzer.analyze_offline(code)
+        if result is None:
+            print(f"[error] 未找到 {code} 的资金面数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+        _emit_report(format_fund_flow_report(result, as_json=as_json), output)
+    finally:
+        session.close()
+
+
 def run_report_dual(
     code: str,
     as_json: bool = False,
@@ -393,6 +457,7 @@ def run_report_dual(
             sentiment_analyzer=SentimentAnalyzer(
                 MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
             ),
+            fund_flow_analyzer=_fund_flow_analyzer(cfg, session),
         )
         report = dual.analyze_offline(code)
 
@@ -414,6 +479,7 @@ def run_report_dual(
             sentiment_result=report.sentiment_result,
             value_result=report.value_result,
             tech_result=report.tech_result,
+            fund_flow_result=report.fund_flow_result,
         )
         _emit_report(text, output, progress)
     finally:
@@ -723,7 +789,12 @@ def run_report_dashboard(
             override_repo=PrototypeOverrideRepo(session),
         )
         tech_analyzer = TechAnalyzer.from_config(cfg)
-        builder = DashboardBuilder(value_analyzer, tech_analyzer, config=cfg)
+        dual = DualTrackAnalyzer(
+            value_analyzer,
+            tech_analyzer,
+            fund_flow_analyzer=_fund_flow_analyzer(cfg, session),
+        )
+        builder = DashboardBuilder(value_analyzer, tech_analyzer, config=cfg, dual_analyzer=dual)
         try:
             view = builder.build(code)
         except LocalDataMissingError as exc:
@@ -1439,6 +1510,11 @@ def build_parser() -> argparse.ArgumentParser:
     sentiment_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
     sentiment_report_parser.add_argument("--output", "-o", help="输出文件路径")
     sentiment_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    fundflow_report_parser = report_sub.add_parser("fundflow", help="个股资金面报告（严格离线）")
+    fundflow_report_parser.add_argument("code", help="股票代码")
+    fundflow_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    fundflow_report_parser.add_argument("--output", "-o", help="输出文件路径")
+    fundflow_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
     _add_report_common(report_sub.add_parser("dashboard", help="多维看板汇总（离线）"))
     summary_parser = report_sub.add_parser(
         "summary", help="综合摘要（默认离线；--narrate 联网 LLM 叙事）"
@@ -1829,6 +1905,7 @@ def main(argv: list[str] | None = None) -> None:
                 "persona-stress": (run_report_persona_stress, "persona-stress"),
                 "briefing": (run_report_briefing, "briefing"),
                 "sentiment": (run_report_sentiment, "sentiment"),
+                "fundflow": (run_report_fundflow, "fundflow"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
             }

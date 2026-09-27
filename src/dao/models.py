@@ -195,6 +195,52 @@ class ChipDistribution(Base):
         return f"<ChipDistribution code={self.code} date={self.trade_date}>"
 
 
+class StockMarginDetail(Base):
+    """个股两融明细（margin_detail）缓存。金额单位为元，数量单位为股。"""
+
+    __tablename__ = "stock_margin_detail"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    rzye: Mapped[float | None] = mapped_column(Float)  # 融资余额（元）
+    rqye: Mapped[float | None] = mapped_column(Float)  # 融券余额（元）
+    rzrqye: Mapped[float | None] = mapped_column(Float)  # 融资融券余额（元）
+    rzmre: Mapped[float | None] = mapped_column(Float)  # 融资买入额（元）
+    rzche: Mapped[float | None] = mapped_column(Float)  # 融资偿还额（元）
+    rqyl: Mapped[float | None] = mapped_column(Float)  # 融券余量（股）
+    rqmcl: Mapped[float | None] = mapped_column(Float)  # 融券卖出量（股）
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_stock_margin_detail_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<StockMarginDetail code={self.code} date={self.trade_date}>"
+
+
+class StockMoneyFlow(Base):
+    """个股主力资金流（moneyflow）缓存。金额单位为万元。"""
+
+    __tablename__ = "stock_moneyflow"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    net_mf_amount: Mapped[float | None] = mapped_column(Float)  # 主力净流入额（万元）
+    buy_elg_amount: Mapped[float | None] = mapped_column(Float)  # 特大单买入额（万元）
+    sell_elg_amount: Mapped[float | None] = mapped_column(Float)  # 特大单卖出额（万元）
+    buy_lg_amount: Mapped[float | None] = mapped_column(Float)  # 大单买入额（万元）
+    sell_lg_amount: Mapped[float | None] = mapped_column(Float)  # 大单卖出额（万元）
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_stock_moneyflow_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<StockMoneyFlow code={self.code} date={self.trade_date}>"
+
+
 class LLMNarrateCache(Base):
     """LLM narrate() 幂等缓存。"""
 
