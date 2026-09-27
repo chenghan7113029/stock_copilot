@@ -17,6 +17,7 @@ from apps.formatters import (
     format_dashboard_report,
     format_dual_report,
     format_entry_check_report,
+    format_event_report,
     format_fund_flow_report,
     format_persona_stress_report,
     format_portfolio_report,
@@ -47,18 +48,32 @@ from dao.confrontation_repo import (
     ConfrontationRepo,
 )
 from dao.engine import Base, create_db_engine, ensure_sqlite_schema, make_session_factory
+from dao.event_repo import (
+    BlockTradeRepo,
+    HolderTradeRepo,
+    NorthboundFlowRepo,
+    PledgeStatRepo,
+    RepurchaseRepo,
+    ShareFloatRepo,
+)
 from dao.fund_flow_repo import StockMarginDetailRepo, StockMoneyFlowRepo
 from dao.kline_repo import KlineRepo
 from dao.llm_narrate_cache_repo import LLMNarrateCacheRepo
 from dao.market_sentiment_repo import MarketSentimentRepo
 from dao.models import (  # noqa: F401 — register ORM models
+    BlockTrade,
     ChecklistRecord,
     ChipDistribution,
     ConfrontationRecord,
+    HolderTrade,
     Kline,
     MarketSentimentSnapshot,
+    NorthboundFlow,
+    PledgeStat,
     PositionRecord,
     PrototypeOverrideRecord,
+    Repurchase,
+    ShareFloat,
     StockMarginDetail,
     StockMoneyFlow,
     TradeRecord,
@@ -69,6 +84,7 @@ from dao.stock_snapshot_repo import StockSnapshotRepo
 from dao.trade_record_repo import TradeRecordRepo
 from data_provider.base import is_a_share
 from data_provider.chip_distribution_provider import ChipDistributionProvider
+from data_provider.event.provider import EventProvider, EventRepos
 from data_provider.fundflow.provider import FundFlowProvider, FundFlowRepos
 from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
@@ -78,6 +94,7 @@ from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.feishu.paths import feishu_md_path
 from service.feishu.pipeline import FeishuPushDocument, reports_root, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError
+from service.event.analyzer import EventAnalyzer
 from service.fundflow.analyzer import FundFlowAnalyzer
 from service.guard.checklist_validator import ChecklistValidator
 from service.guard.confrontation_declaration_validator import ConfrontationDeclarationValidator
@@ -220,6 +237,25 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             session.rollback()
             fundflow_warnings = [f"资金面同步失败: {exc}"]
 
+        try:
+            event_provider = EventProvider.from_config(
+                cfg,
+                EventRepos(
+                    holder_trade=HolderTradeRepo(session),
+                    repurchase=RepurchaseRepo(session),
+                    share_float=ShareFloatRepo(session),
+                    pledge_stat=PledgeStatRepo(session),
+                    block_trade=BlockTradeRepo(session),
+                    northbound=NorthboundFlowRepo(session),
+                ),
+            )
+            event_warnings = event_provider.sync(code, on_progress=progress_cb)
+            progress.emit("正在提交治理事件…")
+            session.commit()
+        except Exception as exc:  # 治理事件失败不阻断 sync
+            session.rollback()
+            event_warnings = [f"治理事件同步失败: {exc}"]
+
         kline_status = f"K线 {len(df)}行 OK"
         if realtime:
             kline_status += f" (quote_mode: {quote_mode})"
@@ -230,11 +266,14 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             print(f"[warn] {w}", file=sys.stderr)
         for w in fundflow_warnings:
             print(f"[warn] {w}", file=sys.stderr)
+        for w in event_warnings:
+            print(f"[warn] {w}", file=sys.stderr)
 
         chip_status = "筹码分布 OK" if not chip_warnings else "筹码分布已降级"
         fundflow_status = "资金面 OK" if not fundflow_warnings else "资金面已降级"
+        event_status = "治理事件 OK" if not event_warnings else "治理事件已降级"
         progress.emit(
-            f"完成：value snapshot OK | {kline_status} | {chip_status} | {fundflow_status}"
+            f"完成：value snapshot OK | {kline_status} | {chip_status} | {fundflow_status} | {event_status}"
         )
     except Exception as exc:
         session.rollback()
@@ -269,7 +308,19 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
         snapshot = MarketSentimentProvider.from_config(
             cfg, MarketSentimentRepo(session)
         ).fetch_and_persist_today()
+
+        # 北向资金（市场级，治理/事件面组成部分）；失败不阻断市场情绪同步
+        northbound_warnings: list[str] = []
+        try:
+            event_provider = EventProvider.from_config(cfg, _event_repos(session))
+            northbound_warnings = event_provider.fetch_northbound_flow()
+        except Exception as exc:  # noqa: BLE001
+            northbound_warnings = [f"北向资金同步失败: {exc}"]
+
         session.commit()
+        for warning in northbound_warnings:
+            print(f"[warn] {warning}", file=sys.stderr)
+
         message = (
             "市场情绪同步完成："
             f"涨停 {snapshot.get('limit_up_count', 'N/A')} | "
@@ -306,6 +357,23 @@ def _fund_flow_analyzer(cfg: dict[str, Any], session: Any) -> FundFlowAnalyzer:
             ),
         )
     )
+
+
+def _event_repos(session: Any) -> EventRepos:
+    """基于同一 session 构建治理事件 Repo 集合。"""
+    return EventRepos(
+        holder_trade=HolderTradeRepo(session),
+        repurchase=RepurchaseRepo(session),
+        share_float=ShareFloatRepo(session),
+        pledge_stat=PledgeStatRepo(session),
+        block_trade=BlockTradeRepo(session),
+        northbound=NorthboundFlowRepo(session),
+    )
+
+
+def _event_analyzer(cfg: dict[str, Any], session: Any) -> EventAnalyzer:
+    """基于同一 session 构建治理事件面分析器（复用离线缓存连接）。"""
+    return EventAnalyzer(EventProvider.from_config(cfg, _event_repos(session)))
 
 
 def run_report_tech(
@@ -425,6 +493,29 @@ def run_report_fundflow(
         session.close()
 
 
+def run_report_events(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线生成治理/事件面报告。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        analyzer = _event_analyzer(cfg, session)
+        result = analyzer.analyze_offline(code)
+        if result is None:
+            print(f"[error] 未找到 {code} 的治理事件数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+        _emit_report(format_event_report(result, as_json=as_json), output)
+    finally:
+        session.close()
+
+
 def run_report_dual(
     code: str,
     as_json: bool = False,
@@ -458,6 +549,7 @@ def run_report_dual(
                 MarketSentimentProvider.from_config(cfg, MarketSentimentRepo(session))
             ),
             fund_flow_analyzer=_fund_flow_analyzer(cfg, session),
+            event_analyzer=_event_analyzer(cfg, session),
         )
         report = dual.analyze_offline(code)
 
@@ -480,6 +572,7 @@ def run_report_dual(
             value_result=report.value_result,
             tech_result=report.tech_result,
             fund_flow_result=report.fund_flow_result,
+            event_result=report.event_result,
         )
         _emit_report(text, output, progress)
     finally:
@@ -793,6 +886,7 @@ def run_report_dashboard(
             value_analyzer,
             tech_analyzer,
             fund_flow_analyzer=_fund_flow_analyzer(cfg, session),
+            event_analyzer=_event_analyzer(cfg, session),
         )
         builder = DashboardBuilder(value_analyzer, tech_analyzer, config=cfg, dual_analyzer=dual)
         try:
@@ -1515,6 +1609,11 @@ def build_parser() -> argparse.ArgumentParser:
     fundflow_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
     fundflow_report_parser.add_argument("--output", "-o", help="输出文件路径")
     fundflow_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    events_report_parser = report_sub.add_parser("events", help="治理/事件面报告（严格离线）")
+    events_report_parser.add_argument("code", help="股票代码")
+    events_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    events_report_parser.add_argument("--output", "-o", help="输出文件路径")
+    events_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
     _add_report_common(report_sub.add_parser("dashboard", help="多维看板汇总（离线）"))
     summary_parser = report_sub.add_parser(
         "summary", help="综合摘要（默认离线；--narrate 联网 LLM 叙事）"
@@ -1906,6 +2005,7 @@ def main(argv: list[str] | None = None) -> None:
                 "briefing": (run_report_briefing, "briefing"),
                 "sentiment": (run_report_sentiment, "sentiment"),
                 "fundflow": (run_report_fundflow, "fundflow"),
+                "events": (run_report_events, "events"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
             }

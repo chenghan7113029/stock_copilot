@@ -235,3 +235,78 @@ def test_sync_fundflow_failure_does_not_block(
     assert session.commit.call_count >= 2
     assert session.rollback.called
     assert "资金面同步失败" in capsys.readouterr().err
+
+
+@patch("apps.cli.load_app_config")
+@patch("apps.cli.create_db_engine")
+@patch("apps.cli.make_session_factory")
+@patch("apps.cli.StockDataProvider")
+@patch("apps.cli.KlineProvider")
+@patch("apps.cli.ChipDistributionProvider")
+@patch("apps.cli.FundFlowProvider")
+@patch("apps.cli.EventProvider")
+def test_sync_events_success_marks_ok(
+    mock_event_cls,
+    mock_fundflow_cls,
+    mock_chip_cls,
+    mock_kline_cls,
+    mock_value_cls,
+    mock_sf,
+    mock_engine,
+    mock_cfg,
+    capsys,
+):
+    mock_cfg.return_value = _cfg(logging={"cli_progress": True})
+    session = MagicMock()
+    mock_sf.return_value = MagicMock(return_value=session)
+    mock_value_cls.from_config.return_value.get_stock_data.return_value = StockData(
+        code="600519", exchange="SH"
+    )
+    kline = MagicMock()
+    kline.get_kline.return_value = (pd.DataFrame({"date": ["2025-06-01"]}), [], "eod")
+    mock_kline_cls.from_config.return_value = kline
+    mock_chip_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_fundflow_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_event_cls.from_config.return_value.sync.return_value = []
+
+    run_sync("600519")
+    assert "治理事件 OK" in capsys.readouterr().out
+
+
+@patch("apps.cli.load_app_config")
+@patch("apps.cli.create_db_engine")
+@patch("apps.cli.make_session_factory")
+@patch("apps.cli.StockDataProvider")
+@patch("apps.cli.KlineProvider")
+@patch("apps.cli.ChipDistributionProvider")
+@patch("apps.cli.FundFlowProvider")
+@patch("apps.cli.EventProvider")
+def test_sync_events_failure_does_not_block(
+    mock_event_cls,
+    mock_fundflow_cls,
+    mock_chip_cls,
+    mock_kline_cls,
+    mock_value_cls,
+    mock_sf,
+    mock_engine,
+    mock_cfg,
+    capsys,
+):
+    mock_cfg.return_value = _cfg()
+    session = MagicMock()
+    mock_sf.return_value = MagicMock(return_value=session)
+    mock_value_cls.from_config.return_value.get_stock_data.return_value = StockData(
+        code="600519", exchange="SH"
+    )
+    kline = MagicMock()
+    kline.get_kline.return_value = (pd.DataFrame({"date": ["2025-06-01"]}), [], "eod")
+    mock_kline_cls.from_config.return_value = kline
+    mock_chip_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_fundflow_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_event_cls.from_config.return_value.sync.side_effect = RuntimeError("events down")
+
+    run_sync("600519")  # 不抛异常，退出码保持 0
+
+    assert session.commit.call_count >= 2
+    assert session.rollback.called
+    assert "治理事件同步失败" in capsys.readouterr().err

@@ -82,3 +82,21 @@
 > 单位归一约定：`stock_margin_detail` 金额列为**元**、数量列为**股**；`stock_moneyflow` 金额列统一为**万元**。  
 > 变化率为无量纲百分比；`main_net_inflow_5d` 为 `net_mf_amount` 近 5 交易日累计，单位为**万元**。  
 > baostock / akshare 均 **unsupported**（本能力仅 tushare 路径，无 AKShare 兜底）。
+
+## 治理/事件面（增减持/回购/解禁/质押/大宗 + 北向资金）
+
+> 2000 积分档实测（2026-09-27，`scripts/verify_governance_events_tushare.py`）。  
+> 治理事件接口均支持 `ts_code` + `start_date`/`end_date`（或 `ann_date=最近交易日`）；`moneyflow_hsgt` 为市场级，须传 `trade_date=最近交易日`。
+
+| 内部字段 | tushare 源字段 | 单位 | 说明 |
+|----------|----------------|------|------|
+| holder_trade | `stk_holdertrade` | — | 股东增减持；`in_de`（IN/DE）、`change_vol`（股）、`change_ratio`（%）、`ann_date` |
+| repurchase | `repurchase` | — | 回购；`proc`（进度）、`vol`（股）、`amount`（元）、`ann_date` |
+| share_float | `share_float` | — | 解禁；`float_date`（解禁日）、`float_share`（股）、`float_ratio`（%）、`ann_date` |
+| pledge_stat | `pledge_stat` | — | 质押日度快照；`end_date`、`pledge_ratio`（%）、`unrest_pledge`/`total_share`（万股） |
+| block_trade | `block_trade` | — | 大宗；`trade_date`、`price`（元）、`vol`（万股）、`amount`（万元）；`discount` 由收盘价**推导** |
+| northbound_flow | `moneyflow_hsgt` | 万元（字符串列，需转 float） | 市场级北向资金；`north_money` = `hgt` + `sgt`，`south_money` = `ggt_ss` + `ggt_sz` |
+
+> 单位归一约定：治理事件数量列（`change_vol`/`vol`/`float_share`）为**股**；`pledge_stat` 的 `unrest_pledge`/`total_share` 为**万股**、`pledge_ratio` 为**百分比**；`block_trade.vol` 为**万股**、`amount` 为**万元**、`price` 为**元**；`northbound_flow.north_money`/`south_money` 为 Tushare 原始数值（字符串列，写入前转 float）。  
+> `block_trade.discount`（相对当日收盘价折溢价，%）为**派生字段**：`(close - price) / close * 100`，需用 `daily` 收盘价交叉计算，缺收盘价时为 `None`。  
+> baostock / akshare 均 **unsupported**（本能力仅 tushare 路径）。

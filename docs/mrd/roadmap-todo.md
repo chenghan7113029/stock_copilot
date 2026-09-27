@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-09-27 | add-governance-flow-events：治理事件 + 北向资金落地 — `service/event/`、`data_provider/event/`、6 张事件/北向表、`report events` 子命令、dual/dashboard 独立「治理/事件面」区块；PO-11 治理+流动性部分标为已实现 |
 | 2026-09-27 | add-stock-margin-fundflow：个股资金面（两融 `margin_detail` + 主力资金流 `moneyflow`）落地 — `service/fundflow/`、`data_provider/fundflow/`、`stock_margin_detail`/`stock_moneyflow` 表、`report fundflow` 子命令、dual/dashboard 独立「个股资金面」区块；PO-12 标为已实现 |
 | 2026-09-27 | 文档对齐：全量核对 `openspec list` + `src/` + git 分支，修正本文与 `propose_list.md`、`features/tech-analysis.md`、`features/value-analysis.md`、`product-overview.md` 中滞后于代码的状态；队列已清空（0 活跃 change） |
 | 2026-09-13 | Briefing HTML UX：10 交易日价格情境（公允虚线+高低点）、多空左右分栏、点击「？」讲解、版心 1240 + 冷静金融主题（`polish-html-briefing-ux`） |
@@ -118,7 +119,7 @@ etire-akshare-default |
 |----|------|------|------|
 | PO-09 | 复盘归因 | FIFO 胜率、Badcase 软引用归因、人工阅读统计 | [x] 已实现；**PO-09b** 规则反哺建议见 §2.4 |
 | PO-10 | 组合级相关性 | 持仓集中度 + 原始行业文本暴露度粗估；不含协方差矩阵或组合优化 | [x] `report portfolio` 已实现；持仓来源为 `add-trade-review-attribution` 的 `TradeRecord` |
-| PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [ ] 待规划 |
+| PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [x] 治理 + 流动性已实现（`add-governance-flow-events`：增减持/回购/解禁/质押/大宗 + 北向资金）；宏观政策事件仍待规划 |
 | PO-12 | 个股融资融券余额 | 个股级 `(code, trade_date)` 情绪数据与分析 | [x] 已实现（`add-stock-margin-fundflow`：两融 + 主力资金流，`report fundflow` 深看 + dual/dashboard 独立区块） |
 | PO-13 | 龙虎榜情绪信号 | 席位、净买入与异常交易行为 | [ ] 待建 |
 | PO-14 | 社媒/新闻文本情绪 | 非结构化文本挖掘，需独立评估 NLP/LLM 管线 | [ ] 待建 |
@@ -394,7 +395,7 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 |------|--------|------|
 | 产品级 P0 | 双轨 Facade、多维看板（CLI）、LLM 综合报告、Checklist、首开仓、红蓝对抗 V1+V2、HTML 简报 | Web 看板 |
 | 产品级 P1 | 情绪面 V1、锚定防御、飞书推送 | 龙虎榜（PO-13）、社媒文本（PO-14）（个股资金面 PO-12 已实现） |
-| 产品级 P2 | 复盘归因、组合相关性 | 宏观/政策/治理事件层（PO-11，待规划）、entry-check 落库（PO-05b）、复盘规则建议（PO-09b）、decision-history、Level 2 辩论 |
+| 产品级 P2 | 复盘归因、组合相关性 | 宏观/政策事件层（PO-11 仍待规划）、entry-check 落库（PO-05b）、复盘规则建议（PO-09b）、decision-history、Level 2 辩论 |
 | 技术面 | F-01~F-20 全量（含 F-18 形态、F-19 布林带） | 无（月 K 已决策不做） |
 | 价值面 V1.x | T-1/2/3/7/8/15、D-E/F/G 编排与 CLI/LLM 集成 | REST API（T-13 剩余）、T-11 ValueScore |
 | 价值面 V2 | P1–P5 专用原型方法 | 周期 + 资产重估（北大荒）、T-12 的 `pb`/`dividend` |

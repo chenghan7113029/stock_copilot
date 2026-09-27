@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
+from service.event.models.event_result import EventResult
 from service.fundflow.models.fund_flow_result import FundFlowResult
 from service.tech.models.tech_result import TechAnalysisResult
 from service.value.models.analysis_result import ValueAnalysisResult
@@ -35,6 +36,7 @@ class DualTrackReport:
     tech_result: TechAnalysisResult | None = None
     sentiment_result: SentimentAnalysisResult | None = None
     fund_flow_result: FundFlowResult | None = None
+    event_result: EventResult | None = None
     combined_signal: CombinedSignal = CombinedSignal.WAIT
     value_rating: ValueRating | None = None
     analysis_summary: str = ""
