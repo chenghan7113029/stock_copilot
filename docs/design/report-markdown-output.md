@@ -1,6 +1,6 @@
 # 报告 Markdown 输出
 
-> 来源：`openspec/changes/switch-reports-to-markdown`  
+> 来源：`openspec/changes/archive/2026-08-02-switch-reports-to-markdown`  
 > 状态：已实现（默认落盘 `.md` + formatters Markdown 结构）
 
 ## 摘要
