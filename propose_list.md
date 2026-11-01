@@ -1,6 +1,6 @@
 # Propose List（OpenSpec change 清单）
 
-> 最后梳理：2026-09-27（对照 `openspec list`、`openspec/changes/`、`src/` 代码与 git 分支全量核对）
+> 最后梳理：2026-11-01（`add-top-list-sentiment` 归档后核对 `openspec list`、`openspec/changes/`、`src/` 与 git 分支）
 > 对照：`docs/mrd/roadmap-todo.md`、`docs/mrd/features/*`
 > 用法：待实现 → `/opsx-propose <change-name>` → `/opsx-apply <change-name>` → `/opsx-archive <change-name>`
 
@@ -9,20 +9,20 @@
 ## 当前结论（一句话）
 
 **OpenSpec 队列已清空——没有「已 propose 待实现」的 change。**  
-`openspec list` 返回 `No active changes found.`；51 个 change 全部归档，90 个 capability spec 均有对应实现；`release` 与 `main` 无差异，所有分支均已合入。
+`openspec list` 返回 `No active changes found.`；54 个 change 全部归档，99 个 capability spec 均有对应实现；`release` 与 `main` 的差异为后续合并事项（`feature/add-top-list-sentiment` 待合入）。
 
 **仍未实现的能力都还没立项**（无 proposal），清单见 D 区。
 
 ---
 
-## A. 队列状态核对（2026-09-27）
+## A. 队列状态核对（2026-11-01）
 
 | 项 | 值 |
 |---|---|
 | `openspec list` | `No active changes found.` |
 | `openspec/changes/` | 仅 `archive/`，无活跃 change 目录 |
-| 已归档 change | 51 |
-| `openspec/specs/` capability | 90 |
+| 已归档 change | 54 |
+| `openspec/specs/` capability | 99 |
 | 分支 | `release` == `main`；`git branch --no-merged release` 为空 |
 
 ---
@@ -42,6 +42,7 @@
 | `add-pattern-recognition` | F-18 K 线形态（十字星/锤头/吊颈/吞没） | `archive/2026-09-13-add-pattern-recognition` |
 | `add-bollinger-bands` | F-19 布林带 + `BollingerStatus` | `archive/2026-09-13-add-bollinger-bands` |
 | `polish-html-briefing-ux` | HTML briefing UX（价格情境、多空分栏、讲解） | `archive/2026-09-13-polish-html-briefing-ux` |
+| `add-top-list-sentiment` | PO-13 龙虎榜：`service/toplist/` + `data_provider/toplist/`（`top_list` + `top_inst`）、`report toplist`、`sync` 当日榜单、`sync market --top-list-days` 回填 | `archive/2026-11-01-add-top-list-sentiment` |
 
 ---
 
@@ -60,8 +61,6 @@
 | ID | 能力 | 现状 | 建议 change |
 |---|---|---|---|
 | PO-11 | 宏观 / 政策 / 治理事件层 | 待规划，范围未定 | —（需先澄清） |
-| PO-12 | 个股融资融券余额 | 未建；现有情绪仅市场级两融（`macro_china_market_margin_sh/sz`） | `add-stock-margin-data`（待定） |
-| PO-13 | 龙虎榜情绪信号 | 未建；`src/` 无 `top_list`/`top_inst` 相关代码 | `add-top-list-sentiment`（待定） |
 | PO-14 | 社媒 / 新闻文本情绪 | 未建，需独立评估 NLP/LLM 管线 | —（需先澄清） |
 | PO-08 / E | REST API + Web 看板 | 未建；`src/controller/` 仅有 docstring 占位 | `add-value-api`（待定） |
 | PO-05b | entry-check 回答落库 | 未建（「今日仍愿买吗」Y/N + 理由未持久化） | `add-entry-check-response` |
@@ -91,5 +90,7 @@
 - **行业路由链**：Router → Override → Fallback 文案，三段均已落地。
 - **飞书推送**：只消费既有 sync/report/watchlist/summary/confront/persona-stress；**不**把 Cursor Skill 红蓝互驳塞进定时管道。
 - **形态 / 布林带**：已交付，独立字段展示，**不参与** `signal_score`。
+- **龙虎榜（PO-13）**：市场级日快照语义（`top_list`/`top_inst` 必传 `trade_date`），按交易日整日替换写入；净买额只取**主导事件**（同日多理由不可相加），机构口径按 `(exalter, buy, sell, reason)` 去重；覆盖水位区分「未上榜」与「未拉取」；**不参与** `signal_score`/`combined_signal`/LLM。
 - **S2 真源**：同一份 seed DB → tech/value/dual 零漂移（迁移后仍适用）。
 - **Web / REST API 是唯一阻塞产品级入口的缺口**：`src/controller/` 空，PO-01 Web 看板与 PO-08 Web 均依赖它。
+- **龙虎榜席位无唯一键**：`top_inst` 用代理主键 + 整日替换，勿改成 `(code, trade_date, side, exalter)` 主键（会把多个「机构专用」席位塌缩成一行）。

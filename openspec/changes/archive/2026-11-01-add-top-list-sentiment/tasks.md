@@ -69,5 +69,5 @@
 ## 9. 归档
 
 - [x] 9.1 确认 1–8 全部完成，`pytest -q -m "not network"` 与 `python scripts/compare_migration_baseline.py` 门禁通过（输出已留存）
-- [ ] 9.2 运行 `openspec archive add-top-list-sentiment`，确认 `openspec/specs/` 同步新增 `top-list-data-provider`/`top-list-analyzer`/`cli-report-toplist` 并更新 `cli-sync`/`cli-sync-market`/`dual-track-analyzer`
-- [ ] 9.3 合并 delta spec 到 `docs/mrd/roadmap-todo.md` 与 `docs/design/top-list-sentiment.md`，并在 `propose_list.md` D 区移除已交付项
+- [x] 9.2 运行 `openspec archive add-top-list-sentiment`，确认 `openspec/specs/` 同步新增 `top-list-data-provider`/`top-list-analyzer`/`cli-report-toplist` 并更新 `cli-sync`/`cli-sync-market`/`dual-track-analyzer`
+- [x] 9.3 合并 delta spec 到 `docs/mrd/roadmap-todo.md` 与 `docs/design/top-list-sentiment.md`，并在 `propose_list.md` D 区移除已交付项
