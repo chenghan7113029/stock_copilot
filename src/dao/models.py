@@ -482,3 +482,86 @@ class ConfrontationRecord(Base):
             f"status={self.narrate_status}>"
         )
 
+
+class StockTopList(Base):
+    """龙虎榜每日明细（top_list）缓存。金额单位为元，涨跌幅/换手率为百分比。
+
+    一行 = 一次上榜事件：同一股票同一交易日可因多条上榜理由出现多行，
+    且各行金额是该理由下前五席位的聚合，**不可跨 reason 求和**（会重复计算）。
+    """
+
+    __tablename__ = "stock_top_list"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(50))
+    close: Mapped[float | None] = mapped_column(Float)
+    pct_change: Mapped[float | None] = mapped_column(Float)  # %
+    turnover_rate: Mapped[float | None] = mapped_column(Float)  # %
+    amount: Mapped[float | None] = mapped_column(Float)  # 当日总成交额（元）
+    l_sell: Mapped[float | None] = mapped_column(Float)  # 龙虎榜卖出额（元）
+    l_buy: Mapped[float | None] = mapped_column(Float)  # 龙虎榜买入额（元）
+    l_amount: Mapped[float | None] = mapped_column(Float)  # 龙虎榜成交额（元）
+    net_amount: Mapped[float | None] = mapped_column(Float)  # 龙虎榜净买入额（元）
+    net_rate: Mapped[float | None] = mapped_column(Float)  # 净买额占比（%）
+    amount_rate: Mapped[float | None] = mapped_column(Float)  # 成交额占比（%）
+    float_values: Mapped[float | None] = mapped_column(Float)  # 当日流通市值（元）
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_stock_top_list_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<StockTopList code={self.code} date={self.trade_date} reason={self.reason}>"
+
+
+class StockTopInst(Base):
+    """龙虎榜机构/营业部席位明细（top_inst）缓存。金额单位为元。
+
+    席位无天然唯一键：同一「机构专用」可占多个前五席位，同一席位也可能同时
+    出现在买入前 5 与卖出前 5 且金额相同，故用代理主键，按交易日整日替换写入。
+    """
+
+    __tablename__ = "stock_top_inst"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    trade_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    side: Mapped[str | None] = mapped_column(String(4))  # 0 买入前5 / 1 卖出前5
+    exalter: Mapped[str | None] = mapped_column(String(100))  # 营业部/机构席位名称
+    buy: Mapped[float | None] = mapped_column(Float)  # 买入额（元）
+    buy_rate: Mapped[float | None] = mapped_column(Float)  # 买入占比（%）
+    sell: Mapped[float | None] = mapped_column(Float)  # 卖出额（元）
+    sell_rate: Mapped[float | None] = mapped_column(Float)  # 卖出占比（%）
+    net_buy: Mapped[float | None] = mapped_column(Float)  # 净成交额（元）
+    reason: Mapped[str | None] = mapped_column(String(200))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (Index("ix_stock_top_inst_code_date", "code", "trade_date"),)
+
+    def __repr__(self) -> str:
+        return f"<StockTopInst code={self.code} date={self.trade_date} exalter={self.exalter}>"
+
+
+class TopListSyncMarker(Base):
+    """龙虎榜交易日覆盖水位：仅记录「已成功拉取过该交易日全市场榜单」。
+
+    用于区分「该股当日未上榜」与「当日数据未拉取」，不可用榜单的
+    MAX(trade_date) 代替。
+    """
+
+    __tablename__ = "top_list_sync_marker"
+
+    trade_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    source: Mapped[str | None] = mapped_column(String(20))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<TopListSyncMarker date={self.trade_date} source={self.source}>"
+

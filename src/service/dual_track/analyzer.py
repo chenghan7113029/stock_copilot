@@ -18,6 +18,8 @@ from service.sentiment.analyzer import SentimentAnalyzer
 from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.analyzer import TechAnalyzer
 from service.tech.models.tech_result import TechAnalysisResult
+from service.toplist.analyzer import TopListAnalyzer
+from service.toplist.models.top_list_result import TopListResult
 from service.report.explainers import format_mos_percent_points
 from service.value.analyzer import ValueAnalyzer
 from service.value.models.analysis_result import ValueAnalysisResult
@@ -97,6 +99,7 @@ class DualTrackAnalyzer:
         sentiment_analyzer: SentimentAnalyzer | None = None,
         fund_flow_analyzer: FundFlowAnalyzer | None = None,
         event_analyzer: EventAnalyzer | None = None,
+        top_list_analyzer: TopListAnalyzer | None = None,
     ) -> None:
         self._value_analyzer = value_analyzer
         self._tech_analyzer = tech_analyzer
@@ -105,6 +108,7 @@ class DualTrackAnalyzer:
         self._sentiment_analyzer = sentiment_analyzer
         self._fund_flow_analyzer = fund_flow_analyzer
         self._event_analyzer = event_analyzer
+        self._top_list_analyzer = top_list_analyzer
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DualTrackAnalyzer":
@@ -115,6 +119,7 @@ class DualTrackAnalyzer:
             sentiment_analyzer=SentimentAnalyzer.from_config(config),
             fund_flow_analyzer=FundFlowAnalyzer.from_config(config),
             event_analyzer=EventAnalyzer.from_config(config),
+            top_list_analyzer=TopListAnalyzer.from_config(config),
         )
 
     def analyze(self, raw_code: str) -> DualTrackReport:
@@ -130,6 +135,7 @@ class DualTrackAnalyzer:
         sentiment_result: SentimentAnalysisResult | None = None
         fund_flow_result: FundFlowResult | None = None
         event_result: EventResult | None = None
+        top_list_result: TopListResult | None = None
 
         try:
             value_result = self._value_analyzer.analyze(code)
@@ -168,6 +174,13 @@ class DualTrackAnalyzer:
             except Exception as exc:
                 warnings.append(f"事件面分析失败: {exc}")
 
+        if self._top_list_analyzer is not None:
+            try:
+                top_list_result = self._top_list_analyzer.analyze(code)
+                warnings.extend(top_list_result.warnings)
+            except Exception as exc:
+                warnings.append(f"龙虎榜分析失败: {exc}")
+
         combined_signal, value_rating = self._signal_fusion.fuse(
             value_result, tech_result
         )
@@ -194,6 +207,7 @@ class DualTrackAnalyzer:
             sentiment_result=sentiment_result,
             fund_flow_result=fund_flow_result,
             event_result=event_result,
+            top_list_result=top_list_result,
             combined_signal=combined_signal,
             value_rating=value_rating,
             analysis_summary=analysis_summary,
@@ -224,6 +238,7 @@ class DualTrackAnalyzer:
         sentiment_result: SentimentAnalysisResult | None = None
         fund_flow_result: FundFlowResult | None = None
         event_result: EventResult | None = None
+        top_list_result: TopListResult | None = None
 
         try:
             value_result = self._value_analyzer.analyze_offline(code)
@@ -274,6 +289,16 @@ class DualTrackAnalyzer:
             except Exception as exc:
                 warnings.append(f"事件面分析失败: {exc}")
 
+        if self._top_list_analyzer is not None:
+            try:
+                top_list_result = self._top_list_analyzer.analyze_offline(code)
+                if top_list_result is None:
+                    warnings.append("龙虎榜无本地缓存，请先运行 sync")
+                else:
+                    warnings.extend(top_list_result.warnings)
+            except Exception as exc:
+                warnings.append(f"龙虎榜分析失败: {exc}")
+
         combined_signal, value_rating = self._signal_fusion.fuse(
             value_result, tech_result
         )
@@ -300,6 +325,7 @@ class DualTrackAnalyzer:
             sentiment_result=sentiment_result,
             fund_flow_result=fund_flow_result,
             event_result=event_result,
+            top_list_result=top_list_result,
             combined_signal=combined_signal,
             value_rating=value_rating,
             analysis_summary=analysis_summary,

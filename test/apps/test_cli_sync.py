@@ -310,3 +310,93 @@ def test_sync_events_failure_does_not_block(
     assert session.commit.call_count >= 2
     assert session.rollback.called
     assert "治理事件同步失败" in capsys.readouterr().err
+
+
+@patch("apps.cli.load_app_config")
+@patch("apps.cli.create_db_engine")
+@patch("apps.cli.make_session_factory")
+@patch("apps.cli.StockDataProvider")
+@patch("apps.cli.KlineProvider")
+@patch("apps.cli.ChipDistributionProvider")
+@patch("apps.cli.FundFlowProvider")
+@patch("apps.cli.EventProvider")
+@patch("apps.cli.TopListProvider")
+def test_sync_top_list_covered_marks_ok(
+    mock_top_list_cls,
+    mock_event_cls,
+    mock_fundflow_cls,
+    mock_chip_cls,
+    mock_kline_cls,
+    mock_value_cls,
+    mock_sf,
+    mock_engine,
+    mock_cfg,
+    capsys,
+):
+    mock_cfg.return_value = _cfg(logging={"cli_progress": True})
+    session = MagicMock()
+    mock_sf.return_value = MagicMock(return_value=session)
+    mock_value_cls.from_config.return_value.get_stock_data.return_value = StockData(
+        code="600519", exchange="SH"
+    )
+    kline = MagicMock()
+    kline.get_kline.return_value = (pd.DataFrame({"date": ["2025-06-01"]}), [], "eod")
+    mock_kline_cls.from_config.return_value = kline
+    mock_chip_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_fundflow_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_event_cls.from_config.return_value.sync.return_value = []
+    mock_top_list_cls.from_config.return_value.sync_latest.return_value = (
+        "2026-10-30",
+        [],
+    )
+
+    run_sync("600519")
+
+    assert "龙虎榜 OK" in capsys.readouterr().out
+    mock_top_list_cls.from_config.return_value.sync_latest.assert_called_once()
+
+
+@patch("apps.cli.load_app_config")
+@patch("apps.cli.create_db_engine")
+@patch("apps.cli.make_session_factory")
+@patch("apps.cli.StockDataProvider")
+@patch("apps.cli.KlineProvider")
+@patch("apps.cli.ChipDistributionProvider")
+@patch("apps.cli.FundFlowProvider")
+@patch("apps.cli.EventProvider")
+@patch("apps.cli.TopListProvider")
+def test_sync_top_list_failure_does_not_block(
+    mock_top_list_cls,
+    mock_event_cls,
+    mock_fundflow_cls,
+    mock_chip_cls,
+    mock_kline_cls,
+    mock_value_cls,
+    mock_sf,
+    mock_engine,
+    mock_cfg,
+    capsys,
+):
+    mock_cfg.return_value = _cfg(logging={"cli_progress": True})
+    session = MagicMock()
+    mock_sf.return_value = MagicMock(return_value=session)
+    mock_value_cls.from_config.return_value.get_stock_data.return_value = StockData(
+        code="600519", exchange="SH"
+    )
+    kline = MagicMock()
+    kline.get_kline.return_value = (pd.DataFrame({"date": ["2025-06-01"]}), [], "eod")
+    mock_kline_cls.from_config.return_value = kline
+    mock_chip_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_fundflow_cls.from_config.return_value.get_latest.return_value = (None, [])
+    mock_event_cls.from_config.return_value.sync.return_value = []
+    mock_top_list_cls.from_config.return_value.sync_latest.side_effect = RuntimeError(
+        "top list down"
+    )
+
+    run_sync("600519")  # 不抛异常，退出码保持 0
+
+    captured = capsys.readouterr()
+    assert session.rollback.called
+    assert "龙虎榜同步失败" in captured.err
+    assert "龙虎榜已降级" in captured.out
+    assert "完成" in captured.out

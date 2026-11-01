@@ -81,7 +81,7 @@
 | API | 官方最低分 | 可支撑能力 | Roadmap |
 |-----|------------|------------|---------|
 | `top_list` | 2000 | 龙虎榜每日明细 | PO-13 |
-| `top_inst` | 2000 | 龙虎榜机构席位 | PO-13 |
+| `top_inst` | 文档 5000；**实测 2000 可用** | 龙虎榜机构席位（失败须降级为仅 `top_list`） | PO-13 已实现 |
 | `margin_detail` | 2000 | 个股两融明细 | PO-12 |
 | `moneyflow` | 2000 | 个股主力资金流 | PO-12 |
 | `moneyflow_hsgt` | 2000 | 沪深港通北向资金 | PO-11 流动性 |
@@ -93,6 +93,13 @@
 | `repurchase` | 2000 | 股票回购 | PO-11 |
 | `hk_hold` | 2000 | 沪深股通持股明细 | PO-11 |
 | `stk_limit` | 2000 | 每日涨跌停价格 | 情绪面精确化 |
+
+**龙虎榜实测记录（2026-11-01，`add-top-list-sentiment` 落地时复核）**
+
+- `top_list(trade_date=20261008)`：82 行 / 66 只股票（同日多上榜理由会重复出现），字段 `trade_date,ts_code,name,close,pct_change,turnover_rate,amount,l_sell,l_buy,l_amount,net_amount,net_rate,amount_rate,float_values,reason`；金额单位**元**，`pct_change`/`turnover_rate` 单位 **%**。
+- `top_inst(trade_date=20261008)`：820 行（约为 `top_list` 的 10 倍），字段 `trade_date,ts_code,exalter,buy,buy_rate,sell,sell_rate,net_buy,side,reason`；`side` 为字符串 `0`（买入前 5）/`1`（卖出前 5）。
+- **席位无天然唯一键**：同一「机构专用」可占多个前五席位，同一席位也可能同时出现在买入前 5 与卖出前 5（金额相同）。入库按交易日整日替换；机构口径按 `(exalter, buy, sell, reason)` 去重后再求和，避免同一席位重复计入。
+- 官方文档标 `top_inst` 需 5000 积分，本项目 2000 积分档实测可用，但**不得假定其恒可用**：实现需在 `top_inst` 失败时保留 `top_list` 数据并把机构维度降级为「不可用」（`report toplist` 会给出警告，不输出机构结论）。
 
 ### 4.2 价值面 / 技术面 / 宏观增强
 

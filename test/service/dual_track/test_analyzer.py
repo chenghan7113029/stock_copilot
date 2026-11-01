@@ -14,6 +14,7 @@ from service.event.models.event_result import EventResult
 from service.fundflow.models.fund_flow_result import FundFlowResult, LeverageDirection
 from service.sentiment.models.sentiment_result import SentimentAnalysisResult, SentimentStatus
 from service.tech.models.tech_result import BuySignal, TechAnalysisResult, TrendStatus
+from service.toplist.models.top_list_result import ActiveLevel, TopListResult
 from service.value.models.analysis_result import ValueAnalysisResult
 from service.value.valuation.base import ValuationRange
 
@@ -408,5 +409,81 @@ def test_analyze_offline_event_does_not_change_fusion_regression():
     report = with_event.analyze_offline("600519")
 
     assert report.event_result is not None
+    assert report.combined_signal == baseline.combined_signal
+    assert report.value_rating == baseline.value_rating
+
+
+def _make_top_list_result() -> TopListResult:
+    return TopListResult(
+        code="600519",
+        appearance_count=3,
+        active_level=ActiveLevel.ACTIVE,
+        latest_trade_date="2026-10-30",
+        latest_net_amount=6.8e7,
+        reasons=["近 90 日上榜 3 个交易日（活跃）"],
+    )
+
+
+def test_analyze_offline_populates_top_list_result():
+    value = _make_value_result()
+    tech = _make_tech_result()
+    top_list_analyzer = MagicMock()
+    top_list_analyzer.analyze_offline.return_value = _make_top_list_result()
+    analyzer = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        top_list_analyzer=top_list_analyzer,
+    )
+    analyzer._tech_analyzer.analyze.return_value = tech
+
+    report = analyzer.analyze_offline("600519")
+
+    assert report.top_list_result is not None
+    assert report.top_list_result.appearance_count == 3
+    assert report.combined_signal == CombinedSignal.STRONG_BUY
+    top_list_analyzer.analyze_offline.assert_called_once_with("600519")
+
+
+def test_analyze_offline_missing_top_list_degrades_without_blocking():
+    value = _make_value_result()
+    tech = _make_tech_result()
+    top_list_analyzer = MagicMock()
+    top_list_analyzer.analyze_offline.return_value = None
+    analyzer = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        top_list_analyzer=top_list_analyzer,
+    )
+    analyzer._tech_analyzer.analyze.return_value = tech
+
+    report = analyzer.analyze_offline("600519")
+
+    assert report.top_list_result is None
+    assert any("龙虎榜无本地缓存" in w for w in report.warnings)
+    assert report.combined_signal == CombinedSignal.STRONG_BUY
+    assert report.value_rating == ValueRating.UNDERVALUED
+
+
+def test_analyze_offline_top_list_does_not_change_fusion_regression():
+    value = _make_value_result()
+    tech = _make_tech_result()
+
+    without_top_list = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value), MagicMock()
+    )
+    without_top_list._tech_analyzer.analyze.return_value = tech
+    baseline = without_top_list.analyze_offline("600519")
+
+    top_list_analyzer = MagicMock()
+    top_list_analyzer.analyze_offline.return_value = _make_top_list_result()
+    with_top_list = DualTrackAnalyzer(
+        MagicMock(analyze_offline=lambda _: value),
+        MagicMock(),
+        top_list_analyzer=top_list_analyzer,
+    )
+    with_top_list._tech_analyzer.analyze.return_value = tech
+    report = with_top_list.analyze_offline("600519")
+
+    assert report.top_list_result is not None
     assert report.combined_signal == baseline.combined_signal
     assert report.value_rating == baseline.value_rating

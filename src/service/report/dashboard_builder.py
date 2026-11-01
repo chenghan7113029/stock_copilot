@@ -14,6 +14,7 @@ from service.report.explainers import format_mos_percent_points
 from service.report.models.dashboard_view import DashboardView
 from service.tech.analyzer import TechAnalyzer
 from service.tech.models.tech_result import TechAnalysisResult
+from service.toplist.models.top_list_result import TopListResult
 from service.value.analyzer import ValueAnalyzer
 from service.value.models.analysis_result import ValueAnalysisResult
 
@@ -125,6 +126,40 @@ def _format_event_section(result: EventResult | None) -> str:
     return "\n".join(lines)
 
 
+def _format_top_list_section(result: TopListResult | None) -> str:
+    if result is None:
+        return "龙虎榜数据缺失（请先运行 sync）"
+
+    def yuan(value: float | None) -> str:
+        if value is None:
+            return "N/A"
+        if abs(value) >= 1e8:
+            return f"{value / 1e8:+.2f} 亿元"
+        return f"{value / 1e4:+.0f} 万元"
+
+    lines = [f"近 90 日上榜: {result.appearance_count} 个交易日（{result.active_level.value}）"]
+    if result.latest_trade_date is not None:
+        level = (
+            result.latest_net_amount_level.value
+            if result.latest_net_amount_level is not None
+            else "N/A"
+        )
+        lines.append(
+            f"最近上榜: {result.latest_trade_date}，"
+            f"主导事件净买额 {yuan(result.latest_net_amount)}（{level}）"
+        )
+    if result.inst_participation is not None:
+        lines.append(
+            f"机构席位净买: {yuan(result.inst_net_buy)}（{result.inst_participation.value}）"
+        )
+    if result.reason_categories:
+        lines.append("上榜理由类型: " + "、".join(result.reason_categories))
+    if result.reasons:
+        lines.append("依据: " + "；".join(result.reasons))
+    lines.append("提示: 龙虎榜为观察维度，不构成买卖建议")
+    return "\n".join(lines)
+
+
 def _format_combined_summary(
     report: DualTrackReport,
     bull_count: int,
@@ -189,6 +224,7 @@ class DashboardBuilder:
             tech_section=_format_tech_section(report.tech_result),
             fund_flow_section=_format_fund_flow_section(report.fund_flow_result),
             event_section=_format_event_section(report.event_result),
+            top_list_section=_format_top_list_section(report.top_list_result),
             sentiment_section=_SENTIMENT_PLACEHOLDER,
             checklist_section=_CHECKLIST_PLACEHOLDER,
             combined_summary=_format_combined_summary(
