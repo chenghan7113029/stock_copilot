@@ -14,6 +14,7 @@ class DashboardView:
     tech_section: str = ""
     fund_flow_section: str = ""
     event_section: str = ""
+    top_list_section: str = ""
     sentiment_section: str = ""
     checklist_section: str = ""
     combined_summary: str = ""

@@ -10,6 +10,7 @@ from typing import Any
 
 from service.event.models.event_result import EventResult
 from service.fundflow.models.fund_flow_result import FundFlowResult
+from service.toplist.models.top_list_result import TopListResult
 from service.guard.models.fresh_entry_view import FreshEntryView
 from service.portfolio.models.portfolio_result import PortfolioAnalysisResult
 from service.report.explainers import (
@@ -496,6 +497,7 @@ def format_dual_report(
     tech_result: TechAnalysisResult | None = None,
     fund_flow_result: FundFlowResult | None = None,
     event_result: EventResult | None = None,
+    top_list_result: TopListResult | None = None,
 ) -> str:
     """红蓝对抗 Level 0：证据分桶输出；JSON 含稳定 1-based index。"""
     payload = {
@@ -563,6 +565,15 @@ def format_dual_report(
         lines.extend(["", "> 事件面数据为观察维度，不构成买卖建议"])
     else:
         lines.append("- 治理事件数据缺失（请先运行 sync）")
+
+    lines.extend(["", "## 龙虎榜/席位", ""])
+    if top_list_result is not None:
+        lines.extend(_top_list_block_lines(top_list_result))
+        if top_list_result.reasons:
+            lines.extend(["", *_bullet_lines(top_list_result.reasons)])
+        lines.extend(["", "> 龙虎榜为观察维度，不构成买卖建议"])
+    else:
+        lines.append("- 龙虎榜数据缺失（请先运行 sync）")
 
     return "\n".join(lines)
 
@@ -887,6 +898,68 @@ def format_event_report(result: EventResult, as_json: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _fmt_yuan_amount(value: float | None) -> str:
+    """金额（元）→ 「+X.XX 亿元 / +X 万元」。"""
+    if value is None:
+        return "N/A"
+    if abs(value) >= 1e8:
+        return f"{value / 1e8:+.2f} 亿元"
+    return f"{value / 1e4:+.0f} 万元"
+
+
+def _top_list_block_lines(result: TopListResult) -> list[str]:
+    lines = [
+        f"- 近 90 日上榜: {result.appearance_count} 个交易日（{result.active_level.value}）",
+    ]
+    if result.latest_trade_date:
+        event_label = (
+            f"{result.latest_event_count} 条上榜理由"
+            if result.latest_event_count is not None
+            else "N/A"
+        )
+        level = result.latest_net_amount_level.value if result.latest_net_amount_level else "N/A"
+        lines.append(
+            f"- 最近上榜: {result.latest_trade_date}（{event_label}）"
+            f"，主导事件净买额 {_fmt_yuan_amount(result.latest_net_amount)}（{level}）"
+        )
+    if result.inst_participation is not None:
+        lines.append(
+            f"- 机构席位净买: {_fmt_yuan_amount(result.inst_net_buy)}"
+            f"（{result.inst_participation.value}）"
+        )
+    if result.reason_categories:
+        lines.append("- 上榜理由类型: " + "、".join(result.reason_categories))
+    if result.coverage_trade_days:
+        coverage = f"{result.coverage_trade_days} 个交易日"
+        if result.coverage_start and result.coverage_end:
+            coverage += f"（{result.coverage_start}~{result.coverage_end}）"
+        lines.append(f"- 覆盖水位: {coverage}")
+    return lines
+
+
+def format_top_list_report(result: TopListResult, as_json: bool = False) -> str:
+    """龙虎榜/席位报告（严格离线）。文本模式固定追加观察维度提示。"""
+    disclaimer = "龙虎榜为观察维度，不构成买卖建议"
+    if as_json:
+        payload = _to_json_serializable(result)
+        payload["disclaimer"] = disclaimer
+        return _dump_json(payload)
+
+    lines = [
+        f"# 龙虎榜/席位报告 {result.code}",
+        "",
+        "[严格离线] top_list 上榜明细 + top_inst 席位（T+1 日度数据）",
+        "",
+        *_top_list_block_lines(result),
+    ]
+    if result.reasons:
+        lines.extend(["", "## 依据", "", *_bullet_lines(result.reasons)])
+    if result.warnings:
+        lines.extend(["", "## 警告", "", *_bullet_lines(result.warnings)])
+    lines.extend(["", f"> ⚠ {disclaimer}"])
+    return "\n".join(lines)
+
+
 def format_dashboard_report(view: DashboardView, as_json: bool = False) -> str:
     """多维看板汇总输出（Markdown / JSON）。"""
     if as_json:
@@ -912,6 +985,10 @@ def format_dashboard_report(view: DashboardView, as_json: bool = False) -> str:
         "## 治理/事件面",
         "",
         view.event_section or "（空）",
+        "",
+        "## 龙虎榜/席位",
+        "",
+        view.top_list_section or "（空）",
         "",
         "## 情绪面",
         "",

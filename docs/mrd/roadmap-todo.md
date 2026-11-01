@@ -1,10 +1,10 @@
 # stock_copilot 功能待办清单（Roadmap TODO）
 
-> 最后更新：2026-09-27  
+> 最后更新：2026-11-01（PO-13 龙虎榜交付）  
 > 用途：对照 MRD 与代码库，跟踪**尚未实现**的能力；实现完成后勾选并追加变更记录。  
 > 权威需求来源：[product-overview.md](product-overview.md)、[features/value-analysis.md](features/value-analysis.md)、[features/tech-analysis.md](features/tech-analysis.md)  
 > 数据源迁移（三阶段 + 测试基线）：[features/data-source-migration.md](features/data-source-migration.md)  
-> OpenSpec 活跃 change（2026-09-27）：**无** — `openspec list` 返回 `No active changes found.`，51 个 change 全部归档
+> OpenSpec 活跃 change（2026-11-01）：`add-top-list-sentiment` 已实现待归档（PO-13）；其余队列为空，53 个 change 已归档
 
 ---
 
@@ -12,6 +12,7 @@
 
 | 日期 | 摘要 |
 |------|------|
+| 2026-11-01 | add-top-list-sentiment：PO-13 龙虎榜落地 — `service/toplist/`、`data_provider/toplist/`（`top_list` + `top_inst`）、`stock_top_list`/`stock_top_inst`/`top_list_sync_marker` 表、`report toplist` 子命令、`sync` 当日榜单 + `sync market --top-list-days` 回填、dual/dashboard 独立「龙虎榜/席位」区块；不参与 `signal_score`/`combined_signal`/LLM |
 | 2026-09-27 | add-governance-flow-events：治理事件 + 北向资金落地 — `service/event/`、`data_provider/event/`、6 张事件/北向表、`report events` 子命令、dual/dashboard 独立「治理/事件面」区块；PO-11 治理+流动性部分标为已实现 |
 | 2026-09-27 | add-stock-margin-fundflow：个股资金面（两融 `margin_detail` + 主力资金流 `moneyflow`）落地 — `service/fundflow/`、`data_provider/fundflow/`、`stock_margin_detail`/`stock_moneyflow` 表、`report fundflow` 子命令、dual/dashboard 独立「个股资金面」区块；PO-12 标为已实现 |
 | 2026-09-27 | 文档对齐：全量核对 `openspec list` + `src/` + git 分支，修正本文与 `propose_list.md`、`features/tech-analysis.md`、`features/value-analysis.md`、`product-overview.md` 中滞后于代码的状态；队列已清空（0 活跃 change） |
@@ -121,7 +122,7 @@ etire-akshare-default |
 | PO-10 | 组合级相关性 | 持仓集中度 + 原始行业文本暴露度粗估；不含协方差矩阵或组合优化 | [x] `report portfolio` 已实现；持仓来源为 `add-trade-review-attribution` 的 `TradeRecord` |
 | PO-11 | 宏观/政策/治理事件层 | product-overview §4.3 开放项 | [x] 治理 + 流动性已实现（`add-governance-flow-events`：增减持/回购/解禁/质押/大宗 + 北向资金）；宏观政策事件仍待规划 |
 | PO-12 | 个股融资融券余额 | 个股级 `(code, trade_date)` 情绪数据与分析 | [x] 已实现（`add-stock-margin-fundflow`：两融 + 主力资金流，`report fundflow` 深看 + dual/dashboard 独立区块） |
-| PO-13 | 龙虎榜情绪信号 | 席位、净买入与异常交易行为 | [ ] 待建 |
+| PO-13 | 龙虎榜情绪信号 | 席位、净买入与异常交易行为 | [x] 已实现（`add-top-list-sentiment`：`top_list` 上榜事件 + `top_inst` 机构席位 + 覆盖水位；`report toplist` 深看 + dual/dashboard 独立区块） |
 | PO-14 | 社媒/新闻文本情绪 | 非结构化文本挖掘，需独立评估 NLP/LLM 管线 | [ ] 待建 |
 
 ---
@@ -306,7 +307,7 @@ report trade-review                         → 复盘
 | **C3** | 估值假设层修复 | TTM EPS、β-CAPM、growth floor；聚合中位对齐 LLM | ✅ fix-valuation-assumptions |
 | **C4** | 离线年报 FCF 合并 | Q1 快照不再覆盖 1231 年报 FCF | ✅ fix-offline-annual-fcf |
 | **D** | F-17 筹码分布 | 数据源明确，技术面 P2 增量 | ✅ 已实现 |
-| **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股资金面（PO-12）已实现；龙虎榜、文本情绪待后续 change |
+| **E** | 情绪面（PO-06） | 补全三维框架 | ✅ V1 已实现；个股资金面（PO-12）、龙虎榜（PO-13）已实现；文本情绪（PO-14）待后续 change |
 | **F** | 决策护航 V1（PO-03~05） | Checklist / 红蓝 Skill / 首开仓 | ✅ 已交付 |
 | **F2** | 决策护航 V2 | API confront + declare + persona + ID 链 | ✅ 已交付并归档（2026-08-29 三个 change） |
 | **G** | Web 看板（PO-01 / PO-08） | 依赖前述 API 与报告形态稳定 | 🟨 CLI 看板已交付；Web + REST API 仍未立项（唯一阻塞产品级入口的缺口） |
@@ -394,7 +395,7 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 | 类别 | 已交付 | 待办 |
 |------|--------|------|
 | 产品级 P0 | 双轨 Facade、多维看板（CLI）、LLM 综合报告、Checklist、首开仓、红蓝对抗 V1+V2、HTML 简报 | Web 看板 |
-| 产品级 P1 | 情绪面 V1、锚定防御、飞书推送 | 龙虎榜（PO-13）、社媒文本（PO-14）（个股资金面 PO-12 已实现） |
+| 产品级 P1 | 情绪面 V1、个股资金面（PO-12）、龙虎榜（PO-13）、锚定防御、飞书推送 | 社媒文本（PO-14） |
 | 产品级 P2 | 复盘归因、组合相关性 | 宏观/政策事件层（PO-11 仍待规划）、entry-check 落库（PO-05b）、复盘规则建议（PO-09b）、decision-history、Level 2 辩论 |
 | 技术面 | F-01~F-20 全量（含 F-18 形态、F-19 布林带） | 无（月 K 已决策不做） |
 | 价值面 V1.x | T-1/2/3/7/8/15、D-E/F/G 编排与 CLI/LLM 集成 | REST API（T-13 剩余）、T-11 ValueScore |
@@ -404,4 +405,4 @@ python -m apps.cli report value <code> --output reports/<code>_value.txt
 
 **OpenSpec 队列（2026-09-27）：** **空** — `openspec list` 返回 `No active changes found.`，51 个 change 全部归档，0 个待 apply。
 
-下批候选（均需先 propose，排序建议见 `propose_list.md` D 区）：龙虎榜 > REST API + Web 看板 > 宏观事件层 / 文本情绪。
+下批候选（均需先 propose，排序建议见 `propose_list.md` D 区）：REST API + Web 看板 > 宏观事件层 / 文本情绪（龙虎榜已于 `add-top-list-sentiment` 交付）。

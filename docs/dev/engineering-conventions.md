@@ -8,6 +8,7 @@
 
 | 日期 | Change | 摘要 |
 |------|--------|------|
+| 2026-11-01 | add-top-list-sentiment | 新增 `service/toplist/`（上榜事件/机构席位/交易日覆盖水位的确定性分档）、`data_provider/toplist/`（`top_list` + `top_inst`）、`stock_top_list`/`stock_top_inst`/`top_list_sync_marker` 表与 Repo；`sync` 追加当日龙虎榜、`sync market --top-list-days` 回填、`report toplist` 子命令、dual/dashboard 独立「龙虎榜/席位」区块 |
 | 2026-09-27 | add-governance-flow-events | 新增 `service/event/`（治理事件 + 北向资金确定性分析）、`data_provider/event/`（`stk_holdertrade`/`repurchase`/`share_float`/`pledge_stat`/`block_trade`/`moneyflow_hsgt`）、6 张事件/北向表与 Repo；`sync` 追加治理事件、`sync market` 追加北向、`report events` 子命令、dual/dashboard 独立「治理/事件面」区块 |
 | 2026-09-27 | add-stock-margin-fundflow | 新增 `service/fundflow/`（两融 + 主力资金流确定性分析）、`data_provider/fundflow/`（`margin_detail` + `moneyflow`）、`stock_margin_detail`/`stock_moneyflow` 表与 Repo；`sync` 追加资金面、`report fundflow` 子命令、dual/dashboard 独立「个股资金面」区块 |
 | 2026-09-13 | add-html-briefing-report | `report briefing`：BriefingComposer + HtmlBriefingRenderer；默认 narrate；自包含 HTML |
@@ -112,12 +113,22 @@ stock_copilot/                    # 本 git 仓库根
 | `service/sentiment/` | 情绪面：市场级情绪快照的确定性评分、分档与联合解读输入 |
 | `service/fundflow/` | 个股资金面：两融（`margin_detail`）+ 主力资金流（`moneyflow`）的确定性分析（杠杆方向、融券突增、主力净流入累计） |
 | `service/event/` | 治理/事件面：增减持/回购/解禁/质押/大宗 + 北向资金的确定性事实 flag 聚合 |
+| `service/toplist/` | 龙虎榜/席位：`top_list` 上榜事件（lead 主导事件）+ `top_inst` 机构席位 + 交易日覆盖水位的确定性分档；按市场日快照语义写入，不参与信号融合与 LLM |
 | `service/dual_track/` | 双轨 Facade、`EvidenceBucketer`（红蓝 Level 0 证据分桶） |
 | `service/report/` | 报告 Context 打包、内嵌讲解（`explainers.py`）、LLM 编排、Briefing Pack（`briefing_composer` + `html_briefing_renderer` → 自包含 HTML）、写入 reports/ |
 | `service/guard/` | 决策护航：Checklist 等（红蓝 Level 1 叙事当前由 Cursor Skill 承接） |
 | `service/trade_review/` | 严格离线的 FIFO 交易复盘、胜率统计与 Checklist Badcase 归因 |
 | `service/portfolio/` | 严格离线的持仓集中度与行业暴露度粗估；复用 `TradeRecord` 派生当前持仓 |
 | `service/feishu/` | 常看 dual 推送：本地 dual.md + `lark-cli` 新建文档与一票一消息 |
+
+**data_provider 子域（按数据域扩展，统一 `from_config` + 逐接口降级 + 离线缓存语义）：**
+
+| 子域 | 职责 |
+|------|------|
+| `data_provider/sentiment/` | 市场级情绪分量（`margin`/`daily` 聚合、`moneyflow_hsgt`） |
+| `data_provider/fundflow/` | 个股两融（`margin_detail`）+ 主力资金流（`moneyflow`） |
+| `data_provider/event/` | 治理事件（增减持/回购/解禁/质押/大宗）+ 北向资金 |
+| `data_provider/toplist/` | 龙虎榜市场级日快照（`top_list` + `top_inst`）与交易日覆盖水位 |
 
 ### 3.3 硬规则
 

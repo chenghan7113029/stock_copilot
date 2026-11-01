@@ -24,6 +24,7 @@ from apps.formatters import (
     format_sentiment_report,
     format_summary_report,
     format_tech_report,
+    format_top_list_report,
     format_trade_review_report,
     format_value_report,
 )
@@ -81,6 +82,11 @@ from dao.models import (  # noqa: F401 — register ORM models
 from dao.position_repo import PositionRepo
 from dao.prototype_override_repo import PrototypeOverrideRepo
 from dao.stock_snapshot_repo import StockSnapshotRepo
+from dao.top_list_repo import (
+    StockTopInstRepo,
+    StockTopListRepo,
+    TopListSyncMarkerRepo,
+)
 from dao.trade_record_repo import TradeRecordRepo
 from data_provider.base import is_a_share
 from data_provider.chip_distribution_provider import ChipDistributionProvider
@@ -89,6 +95,7 @@ from data_provider.fundflow.provider import FundFlowProvider, FundFlowRepos
 from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
 from data_provider.sentiment.provider import MarketSentimentProvider
+from data_provider.toplist.provider import TopListProvider, TopListRepos
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.feishu.paths import feishu_md_path
@@ -117,6 +124,7 @@ from service.report.dashboard_builder import DashboardBuilder, LocalDataMissingE
 from service.report.html_briefing_renderer import HtmlBriefingRenderer
 from service.sentiment.analyzer import SentimentAnalyzer
 from service.tech.analyzer import TechAnalyzer
+from service.toplist.analyzer import TopListAnalyzer
 from service.trade_review.attribution import TradeReviewAnalyzer
 from service.value.analyzer import ValueAnalyzer
 from service.value.anchor import historical_high
@@ -256,6 +264,15 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             session.rollback()
             event_warnings = [f"治理事件同步失败: {exc}"]
 
+        try:
+            top_list_provider = _top_list_provider(cfg, session)
+            _, top_list_warnings = top_list_provider.sync_latest(on_progress=progress_cb)
+            progress.emit("正在提交龙虎榜…")
+            session.commit()
+        except Exception as exc:  # 龙虎榜失败不阻断 sync（回滚仅龙虎榜未提交变更）
+            session.rollback()
+            top_list_warnings = [f"龙虎榜同步失败: {exc}"]
+
         kline_status = f"K线 {len(df)}行 OK"
         if realtime:
             kline_status += f" (quote_mode: {quote_mode})"
@@ -268,12 +285,16 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
             print(f"[warn] {w}", file=sys.stderr)
         for w in event_warnings:
             print(f"[warn] {w}", file=sys.stderr)
+        for w in top_list_warnings:
+            print(f"[warn] {w}", file=sys.stderr)
 
         chip_status = "筹码分布 OK" if not chip_warnings else "筹码分布已降级"
         fundflow_status = "资金面 OK" if not fundflow_warnings else "资金面已降级"
         event_status = "治理事件 OK" if not event_warnings else "治理事件已降级"
+        top_list_status = "龙虎榜 OK" if not top_list_warnings else "龙虎榜已降级"
         progress.emit(
-            f"完成：value snapshot OK | {kline_status} | {chip_status} | {fundflow_status} | {event_status}"
+            f"完成：value snapshot OK | {kline_status} | {chip_status} | {fundflow_status} "
+            f"| {event_status} | {top_list_status}"
         )
     except Exception as exc:
         session.rollback()
@@ -283,7 +304,10 @@ def run_sync(code: str, realtime: bool = False, config: dict[str, Any] | None = 
         session.close()
 
 
-def run_sync_market(config: dict[str, Any] | None = None) -> None:
+def run_sync_market(
+    config: dict[str, Any] | None = None,
+    top_list_days: int = 20,
+) -> None:
     """联网同步全市场情绪快照；不接收股票代码。"""
     cfg = config or load_app_config()
     _configure_cli_logging(cfg.get("logging", {}).get("cli_level", "ERROR"))
@@ -321,6 +345,23 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
         for warning in northbound_warnings:
             print(f"[warn] {warning}", file=sys.stderr)
 
+        # 龙虎榜回填（市场级日数据）；失败不阻断市场情绪同步
+        top_list_status = ""
+        top_list_warnings: list[str] = []
+        try:
+            top_list_provider = _top_list_provider(cfg, session)
+            backfilled, top_list_warnings = top_list_provider.backfill(
+                top_list_days, on_progress=progress.emit
+            )
+            session.commit()
+            if top_list_days <= 0:
+                top_list_status = "龙虎榜跳过（--top-list-days<=0）"
+            else:
+                top_list_status = f"龙虎榜回填 {backfilled} 日"
+        except Exception as exc:  # noqa: BLE001 — 龙虎榜失败不阻断市场情绪同步
+            session.rollback()
+            top_list_warnings = [f"龙虎榜回填失败: {exc}"]
+
         message = (
             "市场情绪同步完成："
             f"涨停 {snapshot.get('limit_up_count', 'N/A')} | "
@@ -329,10 +370,14 @@ def run_sync_market(config: dict[str, Any] | None = None) -> None:
         )
         if snapshot.get("source"):
             message += f" | 源 {snapshot['source']}"
+        if top_list_status:
+            message += f" | {top_list_status}"
         progress.emit(message)
         if not progress.enabled:
             print(message)
         for warning in snapshot.get("warnings") or []:
+            print(f"[warn] {warning}", file=sys.stderr)
+        for warning in top_list_warnings:
             print(f"[warn] {warning}", file=sys.stderr)
     except Exception as exc:
         session.rollback()
@@ -374,6 +419,25 @@ def _event_repos(session: Any) -> EventRepos:
 def _event_analyzer(cfg: dict[str, Any], session: Any) -> EventAnalyzer:
     """基于同一 session 构建治理事件面分析器（复用离线缓存连接）。"""
     return EventAnalyzer(EventProvider.from_config(cfg, _event_repos(session)))
+
+
+def _top_list_repos(session: Any) -> TopListRepos:
+    """基于同一 session 构建龙虎榜 Repo 集合。"""
+    return TopListRepos(
+        top_list=StockTopListRepo(session),
+        top_inst=StockTopInstRepo(session),
+        marker=TopListSyncMarkerRepo(session),
+    )
+
+
+def _top_list_provider(cfg: dict[str, Any], session: Any) -> TopListProvider:
+    """基于同一 session 构建龙虎榜数据提供者（复用离线缓存连接）。"""
+    return TopListProvider.from_config(cfg, _top_list_repos(session))
+
+
+def _top_list_analyzer(cfg: dict[str, Any], session: Any) -> TopListAnalyzer:
+    """基于同一 session 构建龙虎榜分析器（复用离线缓存连接）。"""
+    return TopListAnalyzer(_top_list_provider(cfg, session))
 
 
 def run_report_tech(
@@ -516,6 +580,29 @@ def run_report_events(
         session.close()
 
 
+def run_report_toplist(
+    code: str,
+    as_json: bool = False,
+    output: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """严格离线生成龙虎榜/席位报告。"""
+    cfg = config or load_app_config()
+    engine = create_db_engine(cfg)
+    Base.metadata.create_all(engine)
+    ensure_sqlite_schema(engine)
+    session = make_session_factory(engine)()
+    try:
+        analyzer = _top_list_analyzer(cfg, session)
+        result = analyzer.analyze_offline(code)
+        if result is None:
+            print(f"[error] 未找到 {code} 的龙虎榜数据，请先运行 sync", file=sys.stderr)
+            raise SystemExit(1)
+        _emit_report(format_top_list_report(result, as_json=as_json), output)
+    finally:
+        session.close()
+
+
 def run_report_dual(
     code: str,
     as_json: bool = False,
@@ -550,6 +637,7 @@ def run_report_dual(
             ),
             fund_flow_analyzer=_fund_flow_analyzer(cfg, session),
             event_analyzer=_event_analyzer(cfg, session),
+            top_list_analyzer=_top_list_analyzer(cfg, session),
         )
         report = dual.analyze_offline(code)
 
@@ -573,6 +661,7 @@ def run_report_dual(
             tech_result=report.tech_result,
             fund_flow_result=report.fund_flow_result,
             event_result=report.event_result,
+            top_list_result=report.top_list_result,
         )
         _emit_report(text, output, progress)
     finally:
@@ -887,6 +976,7 @@ def run_report_dashboard(
             tech_analyzer,
             fund_flow_analyzer=_fund_flow_analyzer(cfg, session),
             event_analyzer=_event_analyzer(cfg, session),
+            top_list_analyzer=_top_list_analyzer(cfg, session),
         )
         builder = DashboardBuilder(value_analyzer, tech_analyzer, config=cfg, dual_analyzer=dual)
         try:
@@ -1535,6 +1625,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="叠加当日实时报价并持久化当日 K 线",
     )
     sync_parser.add_argument(
+        "--top-list-days",
+        type=int,
+        default=20,
+        help="sync market 时龙虎榜回填的交易日数（默认 20；<=0 跳过）",
+    )
+    sync_parser.add_argument(
         "--quiet",
         action="store_true",
         help="不输出阶段性进度（仅保留最终结果与错误）",
@@ -1614,6 +1710,11 @@ def build_parser() -> argparse.ArgumentParser:
     events_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
     events_report_parser.add_argument("--output", "-o", help="输出文件路径")
     events_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
+    toplist_report_parser = report_sub.add_parser("toplist", help="龙虎榜/席位报告（严格离线）")
+    toplist_report_parser.add_argument("code", help="股票代码")
+    toplist_report_parser.add_argument("--json", action="store_true", help="JSON 输出")
+    toplist_report_parser.add_argument("--output", "-o", help="输出文件路径")
+    toplist_report_parser.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
     _add_report_common(report_sub.add_parser("dashboard", help="多维看板汇总（离线）"))
     summary_parser = report_sub.add_parser(
         "summary", help="综合摘要（默认离线；--narrate 联网 LLM 叙事）"
@@ -1975,7 +2076,10 @@ def main(argv: list[str] | None = None) -> None:
             return
 
         if args.command == "sync" and args.code == "market":
-            run_sync_market(config=config_override)
+            run_sync_market(
+                config=config_override,
+                top_list_days=getattr(args, "top_list_days", 20),
+            )
             return
 
         use_wl = bool(getattr(args, "watchlist", False))
@@ -2006,6 +2110,7 @@ def main(argv: list[str] | None = None) -> None:
                 "sentiment": (run_report_sentiment, "sentiment"),
                 "fundflow": (run_report_fundflow, "fundflow"),
                 "events": (run_report_events, "events"),
+                "toplist": (run_report_toplist, "toplist"),
                 "dashboard": (run_report_dashboard, "dashboard"),
                 "summary": (run_report_summary, "summary"),
             }
