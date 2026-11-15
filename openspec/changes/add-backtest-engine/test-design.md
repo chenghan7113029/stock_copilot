@@ -11,7 +11,7 @@
 
 | 检查项（任务完成定义） | 结果 |
 | --- | --- |
-| 规格一致性：spec 19 Requirement / **56 Scenario** → 用例 | **56/56 覆盖**，逐条列于 §1.2（无一遗漏；无一「口头测试点」）；另加 1 条锁定用例（TC-R17-04，R2-01）→ **用例总数 57** |
+| 规格一致性：spec 19 Requirement / **56 Scenario** → 用例 | **56/56 覆盖**，逐条列于 §1.2（无一遗漏；无一「口头测试点」）；另加 1 条锁定用例（TC-R17-04，R2-01）与 5 条口径落值锁定用例（TC-CFG-01..05）→ **用例总数 62** |
 | proposal 成功标准 5 条 → 可执行断言 | **5/5**，见 §2.1 |
 | proposal 失败标准/反目标 8 条 → 证伪用例 | **8/8**，见 §2.2 |
 | 八条硬约束的负向/对抗用例 | **8/8 有代码级用例**，见 §3（不只 happy path） |
@@ -53,6 +53,7 @@
 | 17 | `test_gates.py` | R19 | 3 + 2（§6） |
 | 18 | `test_success_criteria.py` | proposal 成功标准 S1–S5 + 退出码契约 E1–E3（§2.3） | 5 + 3 |
 | 19 | `test_anti_goals.py` | proposal 失败标准/反目标 F1–F8（静态 + 行为） | 8 |
+| 20 | `test_owner_values.py`（t35 加） | §9.3 口径落值（Q1–Q8/KQ-1–7）：佣金 1.254e-4 / 缺键 / burn_scope / K 计法 / 自定义窗口 | 5（T4-verify 落值锁定，不新增 Scenario） |
 | — | `conftest.py`（QA 专用 fixture：`tmp_path` 台账、固定 `clock`、配置夹具、`calibration_gate`；本波不创建） | 全部 | — |
 
 > 目录约定：**QA 用例按被测模块镜像到 `test/qa/<module>/`**（当前回测模块 = `test/qa/backtest/`）；`conftest.py` 放在该子目录，session 级 `calibration_gate` 与 fixture 只作用于本模块用例。运行仍是 `python -m pytest -q test/qa`（子目录自动纳入 `testpaths=["test"]`），**不新增 pytest marker**（只用 `pytest.skipif` / `pytest.importorskip` / 模块级 `skip`，避免改 engineer 拥有的 `pyproject.toml`）。
@@ -213,7 +214,7 @@
 | TC-R19-02 | 影子期未满不得启用实盘 | 影子 2 个月请求 `LIVE_SMALL` → 拒绝，提示最低 6 个月 + 「方向一致」未满足 | `test/qa/backtest/test_gates.py` |
 | TC-R19-03 | 门禁状态可查询且唯一 | `current(rule_id)` 返回唯一 `GateRecord`；`stage_timestamps` 与 `evidence_experiment_ids` 逐级齐全（已通过级别），未通过级别为空 | `test/qa/backtest/test_gates.py` |
 
-**覆盖率自检**：56 个 `#### Scenario` → 56 个 Scenario TC ID（另加 1 条**不新增 Scenario** 的锁定用例 TC-R17-04 → 用例总数 57，与 `pytest --collect-only` 计数一致）（R1 3 / R2 3 / R3 3 / R4 3 / R5 3 / R6 2 / R7 4 / R8 4 / R9 3 / R10 3 / R11 2 / R12 4 / R13 3 / R14 2 / R15 3 / R16 2 / R17 3 / R18 3 / R19 3 = 56）。`3+3+3+3+3+2+4+4+3+3+2+4+3+2+3+2+3+3+3 = 56`。
+**覆盖率自检**：56 个 `#### Scenario` → 56 个 Scenario TC ID（另加 1 条**不新增 Scenario** 的锁定用例 TC-R17-04 + 5 条口径落值锁定（TC-CFG-01..05）→ 用例总数 62，与 `pytest --collect-only` 计数一致）（R1 3 / R2 3 / R3 3 / R4 3 / R5 3 / R6 2 / R7 4 / R8 4 / R9 3 / R10 3 / R11 2 / R12 4 / R13 3 / R14 2 / R15 3 / R16 2 / R17 3 / R18 3 / R19 3 = 56）。`3+3+3+3+3+2+4+4+3+3+2+4+3+2+3+2+3+3+3 = 56`。
 
 ---
 
@@ -856,23 +857,23 @@ openspec.cmd validate add-backtest-engine --strict
 | `PointInTimeSnapshot.__post_init__` 抛 `FutureDataError` | design.md:285-291、design.md:710 | TC-R10-02 |
 | `AdjustMode` 无 `qfq`；`load_price_series` 抛 `InvalidAdjustModeError`（非 `BacktestDataGapError`） | design.md:213-216、design.md:538-539、design.md:660 | TC-R09-01 / TC-SC-05 |
 | `execute_orders(orders, prices, *, cfg)` + `OrderStatus` 五值 | design.md:221-226、design.md:567-568 | TC-R08-01/02/03/04 |
-| `OrderAttempt` / `Fill.attempts` / `fill_date` / `delay_days`（失败→顺延双可断言） | design.md:333-349、design.md:921 | TC-R08-01 / TC-R08-02 |
+| `OrderAttempt` / `Fill.attempts` / `fill_date` / `delay_days`（失败→顺延双可断言） | design.md:333-349、design.md:954 | TC-R08-01 / TC-R08-02 |
 | `next_tradable_day` 递归顺延 + `max_delay_days`（必须键，防死循环） | design.md:570-571、design.md:491 | TC-R08-04 |
 | `CostBreakdown` 四分量（佣金/印花税/滑点/过户费 + total） | design.md:325-331 | TC-R07-01/02/04 |
 | **成本 spec 形状**（`CommissionSpec`/`StampTaxSpec`/`TransferFeeSpec`/`SlippageTierSpec{amount_lower,amount_upper,bps}`/`LiquidityCapSpec{adv_tier,max_participation}`） | design.md:465-473 | TC-R07-01/02/04 |
 | `PreregistrationSpec`（9 必填）+ `validate_preregistration`（缺键报错含字段名） | design.md:351-363、design.md:608-629 | TC-R01-02 / TC-R01-03 |
 | `RunStatus`（RUNNING/PASSED/REJECTED/FAILED） | design.md:237-242 | TC-R02-02 / TC-R04-02 / TC-R10-02 / TC-GATE-04 |
 | `RunRecord`（含 `hypothesis_id`：拒绝/烧毁先于结果行也可查询） | design.md:365-376、design.md:696-704 | 台账留痕 / TC-R04-01 |
-| `ExperimentRecord`（`K: int|None`、`experiment_id` 规则、`burnt` 为 append 时快照） | design.md:377-394、design.md:922 | TC-R02-01/03 / TC-R05-02 / TC-R04-01 |
+| `ExperimentRecord`（`K: int|None`、`experiment_id` 规则、`burnt` 为 append 时快照） | design.md:377-394、design.md:955 | TC-R02-01/03 / TC-R05-02 / TC-R04-01 |
 | **`BacktestConfig` 必须键**（results_dir/registry_store_path/segments/windows/max_delay_days/min_events）+ 待 Q 键形状 | design.md:484-514、design.md:807 | 全部配置/缺键用例 |
 | `LedgerExportRow` **13 字段** + `burnt=True` 即额度用尽 | design.md:517-531、design.md:802 | TC-SC-02 / TC-R04-01 |
 | **`EventObservation`**（code/event_date/condition_id/benchmark_kind/excess_returns） | design.md:300-306 | TC-R13-01 / TC-R17-01/02/03 |
 | **`ConditionSpec`**（condition_id/kind/params）+ `evaluate_condition` | design.md:310-314、design.md:563-564 | TC-R10-03 |
 | **`load_event_observations` + `load_forward_returns`**（T2-fix-5 loader 形状：excess = 标的 − 基准） | design.md:574-581 | TC-R13-01 / TC-R17-01 |
-| **`compute_event_study(observations, *, cfg)` + `EventStudyResult.verdict`**（空观测 → INCONCLUSIVE、不抛异常，T2-fix-6） | design.md:413-420、design.md:585-586、design.md:928 | TC-R13-02 / TC-R17-01/02/03/04 |
+| **`compute_event_study(observations, *, cfg)` + `EventStudyResult.verdict`**（空观测 → INCONCLUSIVE、不抛异常，T2-fix-6） | design.md:413-420、design.md:585-586、design.md:961 | TC-R13-02 / TC-R17-01/02/03/04 |
 | `ExperimentRegistry(store_path, *, clock, data_version, results_dir)` + `append_run/append/get/next_experiment_id/validate_preregistration/assert_not_burnt/cumulative_K/write_result/export_ledger` | design.md:608-629 | 台账/导出用例 |
 | **`mark_burnt` = 追加执行行** `RunRecord(reason="样本外已烧毁", hypothesis_id, experiment_id, at)`；导出 `burnt` 由此派生 | design.md:620、design.md:702 | TC-R04-01/02/03 |
-| **`UniverseProvider` 协议**（`historical_constituents`/`delisted_codes`/`st_status`）+ `build_universe(as_of, scope, *, provider)`（不可得 → `BacktestDataGapError`；可得为空 → 空 tuple，T2-fix-6） | design.md:548-557、design.md:928 | TC-R12-01/02/03/04 |
+| **`UniverseProvider` 协议**（`historical_constituents`/`delisted_codes`/`st_status`）+ `build_universe(as_of, scope, *, provider)`（不可得 → `BacktestDataGapError`；可得为空 → 空 tuple，T2-fix-6） | design.md:548-557、design.md:961 | TC-R12-01/02/03/04 |
 | `Benchmark` / `WindowStats`（`n/mean/median/std/ci/effective_n/by_year/by_cap_tier`） | design.md:395-411 | TC-R06-01 / TC-R13-01 / TC-R14 / TC-R17 |
 | `AttributionResult`（四项 + `exposures`/`contributions`/`unexplained`）+ **恒等式 `Σcontributions + unexplained == mean(rule)`**（T2-fix-6） | design.md:423-434、design.md:599 | TC-R13-03 |
 | `StabilityResult`（`by_year`/`by_market_state`/`by_cap_tier`/`scope_note`） | design.md:436-442 | TC-R14-01 / TC-R14-02 |
@@ -881,19 +882,20 @@ openspec.cmd validate add-backtest-engine --strict
 | **`attribution(returns: dict, factors)` 口径**：beta 由 `market_portfolio` 回归推导（不入参）、`factors` 固定 `{size,value,momentum}`、缺因子键 → `MissingBacktestConfigError`、缺 `market_portfolio` → `verdict=INCONCLUSIVE`（不抛） | design.md:595-599 | TC-R13-02 / TC-R13-03 |
 | `assert_calibrated` **库层 raise `CalibrationFailedError`**（不断 `SystemExit`） | design.md:628、design.md:669-673 | TC-R18-01/02 |
 | **CLI 退出码**：`0` 成功 / `1` 参数·配置·数据错误 / `2` 门禁失败（捕获 `CalibrationFailedError` 后 `sys.exit(2)`） | design.md:669-673、design.md:803 | TC-EXIT-01/02/03 / TC-SC-01 |
-| `CalibrationResult`（`passed` 与 `verdict` 是两件事：通过 = `passed=True` + `verdict=INVALID`，T2-fix-6） | design.md:444-455、design.md:922 | TC-R18-01/02 / TC-EXIT-03 |
+| `CalibrationResult`（`passed` 与 `verdict` 是两件事：通过 = `passed=True` + `verdict=INVALID`，T2-fix-6） | design.md:444-455、design.md:955 | TC-R18-01/02 / TC-EXIT-03 |
 | **`GateStateMachine(registry, *, cfg)`**：判据来自 `cfg.gate_criteria`，缺失 → `MissingBacktestConfigError`（**不落业务拒绝行**） | design.md:476-482、design.md:632-641 | TC-R19-01 |
-| **`transition` 判定优先序（T2-fix-6）**：① 先查边（跳级/回退/同态 → `GateSkipError` + REJECTED 留痕）② 再查判据可用性 ③ 最后查达成性 | design.md:637-641、design.md:928 | TC-R19-01/02 |
+| **`transition` 判定优先序（T2-fix-6）**：① 先查边（跳级/回退/同态 → `GateSkipError` + REJECTED 留痕）② 再查判据可用性 ③ 最后查达成性 | design.md:637-641、design.md:961 | TC-R19-01/02 |
 | `GateStage` 五值 + `GateSkipError`（跳级留痕） | design.md:244-249、design.md:655 | TC-R19-01/02/03 |
 | 异常清单 8 类 + 二分表 + 「失败表达二分」 | design.md:643-673 | TC-R09-01 / TC-R02-02/03 / TC-R12-04 / TC-R13-02 / TC-R18-02 / TC-EXIT-01 / TC-GATE-04 |
 | `MissingBacktestConfigError`（必须键/待 Q 键缺值即拒绝；配置解析失败退出码 1） | design.md:650、design.md:662、design.md:801 | TC-R07-03 / TC-R19-01 / TC-EXIT-02 |
 | `BacktestDataGapError`（数据缺口显式报错，不静默降级） | design.md:649、design.md:661 | TC-R12-04 / TC-R09-01 对照 |
 | **R11 口径（T2-fix-4）**：`visible_from = ann_date`（缺 ann_date 才回退保守截止日，**spec 优先、不是 max()**） | design.md:275、design.md:727 | TC-R11-01 / TC-R11-02 |
 | **【QA-F11】CLI 入口契约**：入口 = 既有 `src/apps/cli.py` 的 `main(argv)->int` + `build_parser()` 的 `backtest` 子命令组（不另建入口） | design.md:794、design.md:86、design.md:191 | TC-EXIT-01/02/03 |
-| **【QA-F11】子命令与参数**：`backtest preregister/run/calibrate/ledger/gate` + `--file/--hypothesis/--experiment/--format/--config/--rule/--to` | design.md:796-800、design.md:925 | TC-EXIT-01/02/03 / TC-SC-02 |
+| **【QA-F11】子命令与参数**：`backtest preregister/run/calibrate/ledger/gate` + `--file/--hypothesis/--experiment/--format/--config/--rule/--to` | design.md:796-800、design.md:958 | TC-EXIT-01/02/03 / TC-SC-02 |
 | **【QA-F11】配置解析顺序**：`--config <path>`（相对 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 1） | design.md:801 | TC-EXIT-02 / 全部 `cli_runner` 用例 |
 | **【QA-F11】`calibration.json` 写盘点**：`run_calibration` 无论成败经 `write_calibration_result` 原子写 + `append_run` | design.md:627-629、design.md:675-677 | TC-R18-02 / TC-EXIT-01 / TC-SC-01 |
-| **§10 反馈表**：T2-fix-4 / T2-fix-5 / T2-fix-6 三行（config schema、残余歧义、F7/F8/F9 裁决） | design.md:926-928 | 全部 T4-fix 用例 |
+| **§9.3 口径落值表**（Owner 2026-11-15 逐条答复，权威）：佣金 0.01254% 双边 / 印花税 0.1% / 过户费并入佣金 / 5 档 / 影子期 3 月 / K 计法（网格乘积 + 换档 + 自定义窗口）/ `custom_allowed=true` | design.md:907-961、design.md:961 | TC-CFG-01/02/03/04/05 |
+| **§10 反馈表**：T2-fix-4 / T2-fix-5 / T2-fix-6 三行（config schema、残余歧义、F7/F8/F9 裁决） | design.md:959-961 | 全部 T4-fix 用例 |
 
 ---
 

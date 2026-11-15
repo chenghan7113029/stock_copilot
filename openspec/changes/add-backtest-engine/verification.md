@@ -507,3 +507,43 @@ git log --format=%H --grep=add-backtest-engine | while read c; do git show --nam
 **未处理（明确留 T7）**：R2-02（HFQ 硬编码三处、`SEGMENTED_HFQ` 在信号/校准路径不可达）、R2-03（`gates.ndjson` 无逐行 hash、未按 design 委托 registry）——本任务不碰。
 
 > 结论：R2-01 **已消除并锁定**（绿/红双向可证）；§11.2 的「通过」结论不变，§1–§11.13 原文未改（append-only）。
+
+### 11.15 口径落值复验（t35：Owner Q1–Q8/KQ-1–7 → design §9.3 → 配置生效）
+
+**冻结基线**：`git rev-parse HEAD` 测量前 = **`5a8427e47de02d063508ead525cab531f32086cd`**，测量后复核**同值**；工作区仅本任务改动（`test/qa/backtest/`、`test-design.md`、本文件）。
+
+**实测（同一 HEAD）**：
+- `python -m pytest -q -m "not network and not akshare_legacy"` → **`1091 passed, 35 deselected`**（exit **0**）；
+- `python -m pytest -q test/qa/backtest` → **`62 passed`**（exit 0）；`--collect-only` → **`62 tests collected`**（exit 0）；
+- `python -m ruff check test/qa/backtest` → `All checks passed!`。
+
+**新增锁定用例（5 条，`test/qa/backtest/test_owner_values.py`；不新增 Spec Scenario）**
+
+| 用例 | 断言（落值真的生效） | 结果 |
+| --- | --- | --- |
+| TC-CFG-01 | 真实配置（`config/app.yaml`，缺则 tracked `app.example.yaml` 同段）可加载；`commission.rate == 1.254e-4` **精确**，且 `!= 0.01254`（量纲误写）、`!= 5e-4`（旧 0.05% 口径）；`commission.min=5`、印花税 0.1% 仅卖、过户费 0.001% `included=True`、`tier_count=5`、`windows=(20,60)`、`block_length=20`/`n_bootstrap=1000`、`custom_allowed=True`/`k_cost_per_window=1`、`burn_scope=hypothesis`/`burn_counts_as_second=()`、`exception_approver=Owner`、影子期 `min_months=3`、Q5 三键非空 | PASSED |
+| TC-CFG-02 | 真实配置删 `segments`/`windows`/`max_delay_days` → 仍 `MissingBacktestConfigError`；删 `commission` → 消费处 `CostCalculator.from_config` 拒绝 | PASSED |
+| TC-CFG-03 | `burn_scope=hypothesis`：同假设烧毁后，**换实现/换指标**的新实验仍 `RegistryImmutableError`（不得换指标重置额度）；新假设才有独立额度 | PASSED |
+| TC-CFG-04 | 参数网格 21 组 → `k_from_grid`/`cumulative_K` 计 **K=21**（分量按乘积：3×5=15） | PASSED |
+| TC-CFG-05 | 自定义窗口（5 日）每窗口计 K=1；`custom_allowed=false` 时拒绝 | PASSED |
+
+**区分力自证（反向探针，未提交）**：把配置佣金率改回旧口径/误写后重放 TC-CFG-01 的判定条件——`rate=5e-4` 与 `rate=0.01254` 均使 `rate == 1.254e-4` 为假（断言会红），故实现/配置回退会被本用例挡住。另：`burn_scope`、`k_from_grid`、`custom_window_k_cost` 三条用例分别直断配置字段与函数返回值，非 `assert True` 空转。
+
+**S1 前置变化（本次口径落值后）**
+
+| 前置 | 之前 | 现在 | 依据 |
+| --- | --- | --- | --- |
+| Q4 费率现值（佣金/印花税/过户费/滑点三档） | 缺（只能用测试输入） | **有** | design §9.3（design.md:907-961）+ `config/app.example.yaml` 落值；TC-CFG-01 |
+| Q5 涨跌停 / 封板 / 停牌口径 | 缺（实现曾硬编码） | **有** | `limit_pct`（10/5/20/30%）+ `seal_definition` + `suspend_source` 均接配置；TC-CFG-01 |
+| Q6 分组档数 | 3（继承默认） | **有：5 档（5×5=25 组）** | design §9.3 + t39 实现；TC-CFG-01 |
+| Q7 门禁判据 | 缺 | **有** | `gate_criteria` 落值（影子 3–12 月、方向一致 0.5×波动、小仓位 min(10%,1%)） |
+| KQ-2 块长/重采 | 缺 | **有：20 / 1000** | `block_length=20`、`n_bootstrap=1000`；TC-CFG-01 |
+| Q8 自定义窗口 | 未答复 | **有**：`custom_allowed=true`、每窗口 K=1 | TC-CFG-05 |
+| **A1 后复权全 A** | 缺 | **仍缺** | 三源仅前复权（`data.py` 仍 HFQ 硬编码，见 IMPROVEMENTS 01）；真实全 A 未接通 |
+| **A4 退市/ST/历史成分 + `avg_amount`** | 缺 | **仍缺** | `UniverseProvider` 协议已定但**无真实数据源**；`avg_amount` 无 adv 源（IMPROVEMENTS 08） |
+
+> **结论边界（如实）**：口径落值把「**参数类**前置」（Q4/Q5/Q6/Q7/KQ-2/Q8）从「缺」变「有」，因此**台子可配置化与可复算**已成立；但 **真实全 A 数据前置仍缺 A1/A4**，`proposal S1` 的**业务结论**（「跌破 MA60 跑全 A 是否显著跑输」）**仍待数据波**，不得据本报告宣称 S1 已达成。§11.2 的「通过」（台子能力 / 工程验收）结论不变。
+
+**一致的偏离检查**：实现与 design §9.3 逐项比对**未发现不一致**（佣金率/最低佣金/印花税/过户费并入/5 档/块长/重采/自定义窗口 K 均一致）；本轮**无新增 finding**。`design.md` 已从 939 行增至 **972 行**（§9.3 表插入），`test-design.md` §10.3 锚点表已按行文本一次性重算（42 行锚点 / 74 处引用，全部 ≤972），并新增 §9.3 锚点行。
+
+> §1–§11.14 原文未改（append-only）。
