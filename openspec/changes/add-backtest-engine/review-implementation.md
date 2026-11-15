@@ -154,3 +154,95 @@
 | R2-03 | bug（门禁状态无 hash） | low | pass | T7 改进点 |
 
 无 `blocker`/`high` → verdict = **pass**，findings 保留、不消失。
+
+---
+
+## 12. 重审（T6-r2，按当前 bytes `39dde34`）
+
+> 触发：t34/t37/t39 改了 `src/`、`test/`、`config/` 字节，t28 verdict 判废。本重审对当前 HEAD 全量复判，不只看增量。
+> 起点 HEAD = 结束 HEAD = `39dde342759e5dd0a0141a771e044752115d5937`（前后一致，无位移）。
+> 与 t28（`f5085c0`）的字节差异：`src/service/backtest/{broker,calibration,data,metrics,models,registry}.py`、`src/apps/cli.py`、`config/app.example.yaml`（Owner 口径落值）、`config/knowledge/canon/*`（K2 落库）、`test/*` 新增口径用例；`git diff --stat f5085c0..HEAD -- src test config` = 31 files，+1603/−147。
+
+### 12.1 verdict
+
+**pass**（无 blocker/high）。新口径全部正确落地；t28 的 R2-01 已修，R2-02/R2-03 仍开但均 low，不阻断归档。
+
+### 12.2 CR 清单 6+7 项（重审结论）
+
+**通用 6 条（ponytail-review）**
+
+| 维度 | 结论 |
+| --- | --- |
+| correct | 未发现新逻辑 bug。R2-01（零触发语义）已修（data.py:170-173）；成本/撮合/分组/K 计数口径与 §9.3 对齐 |
+| safe | 未发现。台账 append-only+逐行 hash 不变；Q5 封板判定改为配置驱动、无硬编码阈值，缺键即 `MissingBacktestConfigError` |
+| load | 未发现。单进程 pipeline；无新增竞态/内存增长面 |
+| tested | 未发现。全量 1091 passed（QA 62）；新口径有区分力用例（§12.5） |
+| fast | 未发现。无新增热循环/大减速 |
+| lean | 未发现过度设计。未实现键（shrink/significance/calibration/stability）如实注释 + TODO→IMPROVEMENTS，未假实现 |
+
+**Agent 特有 7 项**
+
+| 维度 | 结论 |
+| --- | --- |
+| LLM 与确定性边界 | 未发现。backtest 全链路仍零 LLM/openai |
+| 可信保证（trace/双行台账/hash） | 未发现。台账机制不变；R2-03（gates.ndjson 无 hash）仍开，见 §12.3 |
+| 上下文 | N/A（零 LLM） |
+| 成本 | N/A（零 LLM） |
+| 确定性 | 未发现。纯函数 + 固定种子不变 |
+| 注入面 | 未发现。Q5 三键（limit_pct/seal_definition/suspend_source）从配置读、无默认值 |
+| 可重入与可拒绝 | 未发现。burn_scope=hypothesis 按 hypothesis_id 键；custom_window 缺 flag 拒绝；缺键拒绝不变 |
+
+### 12.3 t28 findings 现状复核
+
+| finding | 状态 | 证据 |
+| --- | --- | --- |
+| R2-01（medium，空信号抛数据缺口） | **已修** | `data.py:170-173`：`if not signals: return ()`，空序列交 `compute_event_study(())` 得 `INCONCLUSIVE`（F7）；QA `test_event_study.py` 增零触发用例锁定（t30） |
+| R2-02（low，HFQ 硬编码） | **仍开** | grep `AdjustMode.HFQ` 命中 5 处：`data.py:139`、`cli.py:1886/1909/1934`、`calibration.py:102` |
+| R2-03（low，gates.ndjson 无 hash） | **仍开** | `gates.py` 无 `sha256/record_sha256/_record_hash`；`gates.ndjson` 仍直接 append、无逐行 hash |
+
+### 12.4 新口径核查（5 项，均有证据）
+
+1. **`tier_count=5` → 25 组、切点全 A 时点截面**：`config/app.example.yaml:180` `tier_count: 5`、`:179` `cut_basis: all_a_cross_section`；`test_universe.py::test_five_tiers_two_dimensions_makes_25_groups`（25 标的 × 2 维度 × 5 档 → `len(combinations)==25`，档 ∈[0,4]）实测 pass。
+2. **`transfer_fee.included=true` 不双算**：`broker.py:85-100` 过户费只加进 `commission` 行、`transfer_fee=0.0`、`total=commission+stamp_tax+slippage`（无第二笔过户费）；`test_broker.py::test_transfer_fee_merged_into_commission_not_double_counted` 断 `transfer_fee==0`、`commission==separate.commission+fee`、`total==separate.total+fee` 实测 pass。
+3. **commission 双边、费率 1.254e-4**：`broker.py::cost` 对 BUY/SELL 均计佣金（无方向判断，双边）；`config/app.example.yaml:160` `rate: 0.0001254`（注释「0.01254%，非 0.05%，买卖双边」）；`test_owner_values.py`（TC-CFG-01）断 `rate==1.254e-4` 且 `!=0.01254`、`!=5e-4` 实测 pass。
+4. **exception_approver 保留**：`config/app.example.yaml:196` `exception_approver: Owner`；知识 `CAN-SAMPLE-001` notes「留口子、机制保留、不得因自动化关闭」。
+5. **burn_scope/k_components/custom_windows 可测**：`burn_scope: hypothesis`（registry 烧毁标记按 `hypothesis_id` 键）；`registry.cumulative_K({"k_components": {组件: 规模}})` 走 `k_from_grid` 乘积、只给分量名抛 `MissingBacktestConfigError`；`metrics.custom_window_k_cost` 每额外窗口 ×`k_cost_per_window`、`custom_allowed` 非 true 拒绝。对应 TC-CFG-03/04/05 实测 pass。
+
+### 12.5 测试有效性抽查（≥3 条，改坏会红；未提交任何改动）
+
+| 测试 | 改坏实现会红 |
+| --- | --- |
+| `test_five_tiers_two_dimensions_makes_25_groups` | 会——tier_count 解析错/分位算法错 → 组合数 ≠25 红 |
+| `test_transfer_fee_merged_into_commission_not_double_counted` | 会——过户费单列一次或双算 → `transfer_fee==0`/`total` 断言红 |
+| `test_owner_values.py::TC-CFG-01` | 会——佣金率写成 `5e-4`（旧 0.05%）或 `0.01254`（量纲误）→ `rate==1.254e-4` 红 |
+| `test_st_uses_5_percent_limit` | 会——ST 阈值用错（10% 而非 5%）→ 封板判定红 |
+
+### 12.6 证据（命令 + 退出码）
+
+```bash
+$ git rev-parse HEAD   # 起点与结束一致
+39dde342759e5dd0a0141a771e044752115d5937
+
+$ python -m pytest -q test/service/backtest/test_universe.py::test_five_tiers_two_dimensions_makes_25_groups \
+    test/service/backtest/test_broker.py::test_transfer_fee_merged_into_commission_not_double_counted \
+    test/service/backtest/test_broker.py::test_st_uses_5_percent_limit \
+    test/service/backtest/test_broker.py::test_opened_seal_is_tradable_with_doubled_slippage \
+    test/qa/backtest/test_owner_values.py
+9 passed in 0.08s        # exit=0
+
+$ python -m pytest -q -m "not network and not akshare_legacy"
+1091 passed, 35 deselected, 5 warnings in 9.34s   # exit=0
+
+$ openspec.cmd validate add-backtest-engine --strict
+Change 'add-backtest-engine' is valid           # exit=0
+```
+
+### 12.7 findings 汇总（更新后）
+
+| finding | severity | 状态 | 去向 |
+| --- | --- | --- | --- |
+| R2-01 | medium | 已修（t29） | 关闭 |
+| R2-02 | low | 仍开 | T7 改进点 |
+| R2-03 | low | 仍开 | T7 改进点 |
+
+无新增 finding；verdict = **pass**。
