@@ -10,9 +10,9 @@
 
 > **证据纪律**：每条证据写成「命令 + 退出码 + 关键输出 / 测试节点 id」，数字与 sha 均复制自命令输出。
 
-## 1. 结论（t14 基线；终稿见 §10）
+## 1. 结论（t14 基线；终稿见 §11）
 
-> **终稿结论见 §10「复验（t20）」**：本节保留 t14 基线结论原文（append-only 精神），**未改动**。
+> **终稿结论见 §11「终审（t25）」**：§10 为 t20 复验（当时 5 红待裁），§1 为 t14 基线原文——均保留（append-only），**未改动**。
 
 **结论（t14 基线）**：不通过
 
@@ -315,3 +315,159 @@ git diff --stat ba609a0..HEAD -- src/dao                      # 期望空（F10 
 2. **QA（下一轮 T4-fix-3）** 按裁决补最后 5 条：`test_survivorship_bias.py` 的 spy provider（实现 `load_members`/`load_flags`）与 `TC-R13-02` 的空观测断言（`pytest.raises` 或返回不可判定）。
 3. **captain** 冻结 HEAD（F12）后派 T5 复审；预计全量转 exit 0，结论改「通过」。
 4. **F10**：2 条 e2e 维持「既有环境偏差」（captain 已裁），重建 e2e 库种子记 `IMPROVEMENTS`，不阻塞本 change。
+
+---
+
+---
+
+## 11. 终审（t25）——终稿
+
+### 11.1 冻结基线与一致性（F12 纪律）
+
+| 项 | 值 |
+| --- | --- |
+| 冻结 HEAD（测量开始） | `be359367b34521995469b46e9844b7f1adbfe600`（`git rev-parse HEAD`） |
+| 测量开始时工作区 | 仅本报告 `verification.md` 未提交；无其他改动 |
+| 测量结束时 HEAD | `be359367b34521995469b46e9844b7f1adbfe600`（**复核一致，全程同一基线**） |
+| 测量结束时工作区 | 与开始时一致（同上） |
+| 基线变更说明 | 本轮开始时 HEAD 曾为 `48d56f9`（t24），期间 t26 提交 `be35936`（T2-fix-7 只改 design §4.2 R 映射表签名，939 行不变）→ **旧数字作废，全部命令在 `be35936` 整体重跑**；本报告不含 48d56f9 的测量值 |
+| 本报告提交 | 仅 `verification.md`（文档），不改 `src/`、`test/`、`test/qa/`、design、spec |
+| 越界复核 | 本 change 全部提交与 `openspec/specs/`、`docs/mrd/` 交集为空（§11.12 命令） |
+
+### 11.2 终稿结论
+
+**结论**：通过
+
+**依据**（全部为 `be359367b34521995469b46e9844b7f1adbfe600` 上真实执行，命令 + 退出码 + 输出见 §11.3）：
+1. **全量门禁**：`python -m pytest -q -m "not network and not akshare_legacy"` → **1059 passed / 35 deselected，exit 0**（t20 复验时为 5 failed / 1037 passed）。
+2. **QA 套件 56/56**：`python -m pytest -q test/qa/backtest` → **56 passed，exit 0**；`--collect-only` → **56，exit 0**。
+3. **T3 八条 acceptance 全部满足**（引用 `tasks.md` 附录 A 原文，逐条见 §11.4）。
+4. **proposal：S2–S5 达成，S1 机制层达成**（真实全 A 结论仍缺数据，见 §11.5/§11.10）；反目标 F1–F8 无违反。
+5. `ruff`：本 change 路径 **0 错误**（`All checks passed!`）；基线 38 个存量错误按口径不修不记失败（§11.8）；`compileall` exit 0；`validate --strict` exit 0（§11.4 第 3/5 条）。
+6. **F10 两条 e2e** 按「既有环境偏差、非本 change」记录（§11.9，附 `git diff --stat ba609a0..HEAD -- src/dao` 为空证据）。
+
+**S1 的边界（必须如实）**：校准**机制**已可复现（`TC-R18-01` 合成 whipsaw 序列：49 事件、mean ≈ −0.013、CI(−0.018,−0.009)、p≈1.5e-9 → `passed=True`；`TC-R18-02/03` 未复现路径同样绿），但**「跌破 MA60 跑全 A 显著跑输」这一业务结论仍不可出**：后复权全 A（A1）、退市/ST 名单（A4）、Q4 费率、Q5 封板口径四项数据前置缺口未补。故不写「S1 已达成」，只写「**机制层达成，业务结论待数据波**」。
+
+### 11.3 测试执行（终审实测，同一 HEAD `be359367b34521995469b46e9844b7f1adbfe600`）
+
+| 套件 | 命令 | 退出码 | 关键输出 |
+| --- | --- | --- | --- |
+| **全量门禁** | `python -m pytest -q -m "not network and not akshare_legacy"` | **0** | `1059 passed, 35 deselected, 5 warnings in 10.68s` |
+| QA 套件 | `python -m pytest -q test/qa/backtest` | **0** | `56 passed, 3 warnings in 2.92s` |
+| QA 收集 | `python -m pytest -q test/qa/backtest --collect-only` | **0** | `56 tests collected in 0.03s` |
+| engineer（门禁标记） | `python -m pytest -q test --ignore=test/qa -m "not network and not akshare_legacy"` | **0** | `1003 passed, 35 deselected` |
+| engineer（不加 `-m`，含 network 标记 e2e） | `python -m pytest -q test --ignore=test/qa` | 1 | `2 failed, 1004 passed`；两条 e2e = F10 环境（§11.9） |
+| 静态检查（全仓） | `python -m ruff check .` | 1 | `Found 38 errors`（**全部存量基线**，§11.8） |
+| 静态检查（本 change 路径） | `python -m ruff check src/service/backtest src/data_provider/backtest src/apps/cli.py test/service/backtest` | **0** | `All checks passed!` |
+| 语法 | `python -m compileall -q src test` | **0** | 无输出 |
+| 规格自洽 | `openspec.cmd validate add-backtest-engine --strict` | **0** | `Change 'add-backtest-engine' is valid` |
+
+> `-m` 口径：门禁命令排除 `network`（3）与 `akshare_legacy`（32）= 35 deselected；两条 e2e 带 `network` 标记，故不在门禁内（其失败为本地 sqlite schema 漂移，§11.9）。
+
+### 11.4 T3 acceptance 八条（引用 `tasks.md` 附录 A 原文）
+
+> 原文出处：`openspec/changes/add-backtest-engine/tasks.md`「附录 A：T3 验收原文（8 条，T2-fix-6 / t22 落盘，逐字抄自 t13 契约）」；本节逐条给命令/退出码/输出/结论。
+
+| # | 附录 A 原文 | 命令 | 退出码 | 关键输出 | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 「`tasks.md` 的 T2.1–T2.20 全部勾选，且每条对应验证命令真实跑过（输出贴进任务产物）」 | `grep -c '^- \[x\]' tasks.md` / `'^- \[ \]'` | 0 | `23` / `0`（全勾）；逐条命令证据见 t13/t17/t21/t23 记录与 `test/service/backtest/` 174 项单测 | 通过 |
+| 2 | 「全量单测绿：`python -m pytest -q -m "not network and not akshare_legacy"` 退出码 0」 | 同左 | **0** | `1059 passed, 35 deselected` | 通过 |
+| 3 | 「`python -m compileall -q src test` 退出码 0」 | 同左 | **0** | 无输出 | 通过 |
+| 4 | 「`python -m ruff check <本 change 路径>` 新增错误 0（既有 39 个基线不修）」 | `ruff check src/service/backtest src/data_provider/backtest src/apps/cli.py test/service/backtest` | **0** | `All checks passed!`（全仓 38 为存量基线，§11.8） | 通过 |
+| 5 | 「`openspec.cmd validate add-backtest-engine --strict` 退出码 0」 | 同左 | **0** | `Change 'add-backtest-engine' is valid` | 通过 |
+| 6 | 「静态自证：`src/service/backtest` 与 `src/data_provider/backtest` 内无 openai/LLM 调用；`src/` 内无 `import ref.`」 | `grep -rn -E "openai\|llm" src/service/backtest src/data_provider/backtest`；`grep -rn "import ref\." src` | 1 / 1 | 两者均**空输出**（无匹配） | 通过 |
+| 7 | 「`config/app.yaml` 的 `backtest:` 段只有键与注释，无任何未确认数值（佣金/印花税/滑点等）」 | 读契约源 `config/app.example.yaml`（tracked）`backtest:` 段（148–195 行） | — | 段内数值匹配数 **0**：`commission.rate/min`、`stamp_tax.rate`、`transfer_fee.rate`、`slippage_tiers`、`liquidity_cap` 等全 `null`；仅 `windows: [20, 60]`（spec R17 固定）、`stamp_tax.side: sell`（枚举）、路径（design 默认） | 通过 |
+| 8 | 「台账 append-only 有测试：篡改已写行被拒、失败也落执行行（RunRecord FAILED）」 | `pytest -q test/service/backtest/test_registry.py::test_tampered_row_rejected ::test_run_record_rejected_and_failed_are_persisted` | **0** | `2 passed` | 通过 |
+
+### 11.5 proposal 成功标准 / 失败标准（终审）
+
+| # | 标准 | 结论 | 证据 |
+| --- | --- | --- | --- |
+| S1 | 校准题可复现（显著跑输 + K + 校正后 p） | **机制层达成；业务结论未出**（真实全 A 仍缺 A1/A4/Q4/Q5） | `TC-R18-01/02/03` PASSED；engineer `test_calibration.py` 6 绿；真实全 A 留数据波（§11.10） |
+| S2 | 台账可审计（导出 6 类字段 + 改预注册被拒） | 达成（`statement` 占位为已知限制） | `TC-R02-02` PASSED；engineer `test_export_ledger_13_fields_and_statement_from_prereg` 绿 |
+| S3 | 样本外只烧一次可机检 | 达成 | `TC-R04-02/03` PASSED；engineer 烧毁幂等/独立额度绿 |
+| S4 | 成本与撮合可手算复算（封板 + 停牌） | 达成 | `TC-R07-01/02/04`、`TC-R08-01..04`、`TC-R10-01` PASSED；engineer `test_broker.py` 13 绿 |
+| S5 | 无未来函数可证伪 + 财务按公告日 | 达成 | `TC-R10-02/03`、`TC-R11-01/02` PASSED；engineer `test_data.py` 绿 |
+| F1 | 把策略结论写成本 change 交付物 | 未违反 | 无结论式断言；`test_failure_wording_never_blames_strategy` 绿 |
+| F2 | 未过校准却输出研究结论 / 解释成策略无效 | 未违反 | `TC-R18-02/03` PASSED（库层 raise + 禁词扫描） |
+| F3 | 预注册可事后改 / K 不报或补记 | 未违反 | `TC-R02-02/03`、`TC-R05-02` PASSED；engineer 篡改/重复 id 绿 |
+| F4 | 前复权 / 报告期当公告日 / 今日成分 / 剔除退市 | 未违反 | `TC-R09-01`、`TC-R11-01/02`、`TC-R12-01..04` PASSED（含历史成分/退市/ST 时点） |
+| F5 | 日内止损 / T+0 / 涨停一定买到 / 跌停一定卖掉 | 未违反 | `TC-R08-01..04` PASSED；engineer `test_broker.py` 绿 |
+| F6 | 挑区间切点/分组 + 软标签入组 | 未违反 | `TC-R15-01/02/03` PASSED；engineer `test_universe.py` 绿 |
+| F7 | LLM 生成或修改数值 | 未违反 | 附录 A 第 6 条实测空输出；成本/统计由独立算式复核 |
+| F8 | 越界改文件 | 未违反 | 本 change 提交与 `openspec/specs/`、`docs/mrd/` 交集为空（§11.12） |
+
+### 11.6 规格一致性（19 R / 56 Scenario，终审）
+
+- **56/56 Scenario 全部 PASSED**（本次 QA 套件 56 passed）。逐条节点 + engineer 覆盖见 §5 表（未变）；相较 §10.6 的差异仅「R12-01..04、R13-02 由 FAILED 转 PASSED」。
+- **19/19 Requirement** 有 engineer `test/service/backtest/` 覆盖（映射见 §5）。
+- **未覆盖项（如实）**：真实全 A 校准结论（A1/A4/Q4/Q5）、R3「跨段请求拒绝入口」（§4.1 未单列，只有配置不变量 `TC-R03-02`）、KQ-7 牛熊维度、KQ-3 收缩强度、KQ-1/KQ-5 校准判据、多档 `liquidity_cap`（无 adv 源 → 直接报缺口）、图表（matplotlib 未装）。
+
+### 11.7 负向与边界用例（终审真实执行，12 项）
+
+| # | 场景 | 节点 | 退出码 | 输出 | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 前复权拒绝 | `test/qa/backtest/test_adjust.py::test_tc_r09_01_qfq_request_rejected` | 0 | `1 passed` | PASSED |
+| 2 | 未来函数越界 | `.../test_no_future_function.py::test_tc_r10_02_future_data_raises` | 0 | `1 passed` | PASSED |
+| 3 | 样本外二次使用 | `.../test_out_of_sample_burn.py::test_tc_r04_02_second_out_of_sample_request_rejected` | 0 | `1 passed` | PASSED |
+| 4 | 缺 K 判不可采信 | `.../test_multi_comparison.py::test_tc_r05_02_missing_k_is_inconclusive` | 0 | `1 passed` | PASSED |
+| 5 | 台账篡改被拒 | `.../test_prereg_ledger.py::test_tc_r02_02_tampered_ledger_row_rejected` | 0 | `1 passed` | PASSED |
+| 6 | 封板顺延 | `.../test_seal_rollover.py::test_tc_r08_01_limit_up_seal_defers_to_next_tradable_day` | 0 | `1 passed` | PASSED |
+| 7 | T+1 拒当日卖 | `.../test_seal_rollover.py::test_tc_r08_03_same_day_sell_rejected_by_t1` | 0 | `1 passed` | PASSED |
+| 8 | 停牌跳过 | `.../test_seal_rollover.py::test_tc_r08_04_suspended_day_skipped` | 0 | `1 passed` | PASSED |
+| 9 | 缺 gate 判据 | `.../test_gates.py::test_tc_r19_01_cannot_enter_shadow_without_backtest` | 0 | `1 passed`（合法边触发 `MissingBacktestConfigError`） | PASSED |
+| 10 | 缺 `avg_amount` | `test/service/backtest/test_broker.py::test_missing_avg_amount_reports_gap` | 0 | `1 passed` | PASSED |
+| 11 | 空观测 → INCONCLUSIVE | `.../test_benchmark.py::test_tc_r13_02_missing_benchmark_is_inconclusive` | 0 | `1 passed` | PASSED |
+| 12 | provider 缺口（不可得）/ 空集合法 | `.../test_survivorship_bias.py::test_tc_r12_04_missing_lists_report_gap` | 0 | `1 passed` | PASSED |
+
+### 11.8 ruff：基线 38 与本 change 新增 0（分开记录）
+
+- **存量基线（非本 change 路径）**：`python -m ruff check .` → `Found 38 errors`（exit 1）；分布 = `scripts/` 5、`src/` 13、`test/` 10，均非本 change 产物。口径：**不修基线、不记失败、不跳过**（captain 既定）。
+- **本 change 路径**：`ruff check src/service/backtest src/data_provider/backtest src/apps/cli.py test/service/backtest` → `All checks passed!`（exit 0）；`test/qa/backtest`、`test/data_provider/backtest`、`test/apps/test_cli_backtest.py` 亦无错误 → **新增 0**。
+- 基线数量：t14 时 39 → 现 38（本 change 另修掉既有 `src/apps/cli.py` I001）；不影响「新增 0」判定。
+
+### 11.9 F10：两条 e2e 为既有环境偏差（非本 change，不阻塞）
+
+| 项 | 证据 |
+| --- | --- |
+| 失败节点 | `test/e2e/test_tushare_pipeline.py::test_tushare_pipeline_e2e`、`test/e2e/test_value_data_pipeline.py::test_value_data_pipeline_e2e` |
+| 失败原因 | `sqlite3.OperationalError: no such column: stock_snapshots.industry`（本地 `data/` 存量库 schema 漂移；`src/dao/models.py` 中该列存在） |
+| 本 change 未改 DAO | `git diff --stat ba609a0..HEAD -- src/dao` → **空输出** |
+| 门禁影响 | 无：两条 e2e 带 `network` 标记，门禁命令不选（35 deselected） |
+| 处置 | captain 已裁定「既有环境偏差、不阻塞本波」；修复路径（重建 e2e 库种子）记 `docs/improvements/IMPROVEMENTS.md` |
+
+### 11.10 未覆盖项与风险（终审保留）
+
+- **S1 业务结论（最高优先）**：真实全 A 校准需后复权全 A、退市/ST 名单、Q4 费率、Q5 封板口径（A1/A4/Q4/Q5）→ 只能合成验证；**台子可信 ≠ 止损/MA60 结论成立**，结论需数据波单独出。
+- **R3 跨段请求拒绝入口**：§4.1 未单列入口，仅断配置不变量；端到端由退出码面（0/1/2）间接覆盖。
+- **KQ 系列**：KQ-7、KQ-3、KQ-1、KQ-5 未答复 → 相关维度「口径未定」，不参与判定。
+- **多档 `liquidity_cap`**：无 adv 数据源，按 design 直接 `BacktestDataGapError`（不退化单档），只测单档。
+- **图表**：`matplotlib` 未安装，本 change out of scope。
+- **`statement` 占位**：预注册缺失时导出用占位符（R1-02），属已知限制，不影响 13 字段契约。
+
+### 11.11 findings（终审）
+
+**无阻塞 finding。** 仅一条非阻塞记录：
+
+| id | 严重度 | 问题 | requiredFix | 位置 | 阻塞归档 |
+| --- | --- | --- | --- | --- | --- |
+| F10（遗留） | low | 2 条 e2e 因本地 sqlite schema 漂移红（本 change 未改 dao） | 重建 e2e 库种子后复跑两条应绿；记 `IMPROVEMENTS` | `test/e2e/test_value_data_pipeline.py:104` | 否（captain 已裁环境偏差） |
+
+> **F14 已消除**：t20 报的「`design.md` §4.2 R13 行仍写旧 attribution 签名」已由 t26（`be35936`，T2-fix-7）修复——现 §4.2 各行与 §4.1 契约一致（`attribution(returns: dict, factors: dict)`、`build_universe(as_of, universe_scope, *, provider: UniverseProvider)`、`compute_event_study(observations, *, cfg)` + `verdict`、`GateStateMachine(registry, *, cfg)` 优先序、`mark_burnt` 执行行、`liquidity_cap` 由 `avg_amount` 驱动），design 仍 939 行，§10.3 锚点表不受影响。
+
+### 11.12 复现说明（终审）
+
+```bash
+git rev-parse HEAD                 # 期望 be359367b34521995469b46e9844b7f1adbfe600（本报告冻结基线）
+git status --porcelain             # 期望仅本报告未提交/未跟踪
+python -m pytest -q -m "not network and not akshare_legacy"   # 期望 1059 passed，exit 0
+python -m pytest -q test/qa/backtest                          # 期望 56 passed，exit 0
+python -m pytest -q test/qa/backtest --collect-only           # 期望 56 collected，exit 0
+python -m pytest -q test --ignore=test/qa -m "not network and not akshare_legacy"  # 期望 1003 passed
+python -m ruff check .                                        # 38 errors（存量基线，非本 change）
+python -m ruff check src/service/backtest src/data_provider/backtest src/apps/cli.py test/service/backtest  # 期望 0
+python -m compileall -q src test                              # exit 0
+openspec.cmd validate add-backtest-engine --strict            # exit 0
+git diff --stat ba609a0..HEAD -- src/dao                      # 期望空（F10 证据）
+git log --format=%H --grep=add-backtest-engine | while read c; do git show --name-only --format='' $c; done | sort -u | grep -E '^openspec/specs/|^docs/mrd/'   # 期望空
+```
