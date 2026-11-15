@@ -25,7 +25,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 全部 + §10 QA 反馈处理表（`AdjustMode` / `OrderStatus` / `Segment` / `Verdict` / `RunStatus` / `GateStage` / `PriceBar` / `FinancialRecord` / `GroupAssignment` / `PointInTimeSnapshot` / `EventSignal` / `EventObservation` / `ConditionSpec` / `PreregistrationSpec` / `Order` / `OrderAttempt` / `CostBreakdown` / `Fill` / `RunRecord`（含 `hypothesis_id`）/ `ExperimentRecord`（`K: int | None`、`row_type`）/ `Benchmark` / `WindowStats` / `EventStudyResult` / `AttributionResult` / `StabilityResult` / `CalibrationResult`（含 `corrected_p` / `verdict`）/ `GateRecord` / `GateCriteria` / `BacktestConfig`（全量 schema + 成本 spec `CommissionSpec/StampTaxSpec/TransferFeeSpec/SlippageTierSpec/LiquidityCapSpec`）/ `LedgerExportRow` + §4.1「异常清单」的 `BacktestError` 族 8 类）
   - 产出文件：`src/service/backtest/models.py`
   - 验证：`python -m pytest -q test/service/backtest/test_models.py`
-  - 判定真伪：`PointInTimeSnapshot.__post_init__` 对 `trade_date > as_of` / `visible_from > as_of` 抛 `FutureDataError`（R10 负向）；`Fill.attempts` 可表达「封板失败→顺延成交」（QA-F7）；`ExperimentRecord.K=None` 可构造（QA-F8）；异常族按类型二分（QA-F5）。
+  - 判定真伪：`PointInTimeSnapshot.__post_init__` 对 `trade_date > as_of` / `visible_from > as_of` 抛 `FutureDataError`（R10 负向）；`Fill.attempts` 可表达「封板失败→顺延成交」（QA-F7）；`ExperimentRecord.K=None` 可构造（QA-F8）；异常族按类型二分（QA-F5）；`PriceBar.avg_amount` 存在（T2-fix-5）；`AttributionResult.verdict` 存在且缺 `market_portfolio` → `INCONCLUSIVE`（T2-fix-5）。
 
 - [x] **T2.2 定义 `BacktestConfig` 装载器（全量 config schema，缺键即拒绝 + 落盘路径可注入）**
   - 设计依据：design.md §4.1 `BacktestConfig`（全量 schema：必须键 `results_dir/registry_store_path/segments/windows/max_delay_days/min_events`；待 Q 键 `commission/stamp_tax/transfer_fee/slippage_tiers/liquidity_cap/limit_pct/seal_definition/suspend_source/cut_basis/tier_count/recompute_freq/min_group_size/gate_criteria/block_length/n_bootstrap/shrink/burn_scope/burn_counts_as_second/exception_approver/k_components/custom_allowed/k_cost_per_window`）+ `config.py`、否-2、R7、QA-F10、T2-fix-4
@@ -47,7 +47,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `market_rules.py`、R7/R8、KD-4-07/KD-3-07 缺口
   - 产出文件：`src/data_provider/backtest/market_rules.py` + `test/data_provider/backtest/test_market_rules.py`
   - 验证：`python -m pytest -q test/data_provider/backtest/test_market_rules.py`
-  - 判定真伪：取不到成交额/涨跌停价/停牌标记 → `BacktestDataGapError`（不按 0/不按可成交）。
+  - 判定真伪：取不到成交额/日均成交额（`avg_amount`）/涨跌停价/停牌标记 → `BacktestDataGapError`（不按 0/不按可成交/不退化）；`avg_amount`（日均成交额）是流动性上限数据源（T2-fix-5）。
 
 - [x] **T2.5 退市/ST/历史成分适配器**
   - 设计依据：design.md §4.1 `universe.py::build_universe`、R12、A4
@@ -65,7 +65,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `data.py`（`build_point_in_time` + `load_event_observations`）、R9/R10/R11/R17、T2-fix-4
   - 产出文件：`src/service/backtest/data.py` + `test/service/backtest/test_data.py`
   - 验证：`python -m pytest -q test/service/backtest/test_data.py`
-  - 判定真伪：`build_point_in_time` 产出 `PointInTimeSnapshot`，任何 `trade_date/visible_from > as_of` 被拒绝（R10）；`visible_from = ann_date`（缺 ann_date 才回退 conservative_cutoff，spec R11 优先，非 max）；`load_event_observations` 产出 `EventObservation`（逐日相对基准超额，长度 = max(window)）。
+  - 判定真伪：`build_point_in_time` 产出 `PointInTimeSnapshot`，任何 `trade_date/visible_from > as_of` 被拒绝（R10）；`visible_from = ann_date`（缺 ann_date 才回退 conservative_cutoff，spec R11 优先，非 max）；`load_forward_returns(signal, horizon)` + `load_benchmark_forward_returns(kind, signal, horizon)` 定 loader 形状，`load_event_observations` 按「逐日标的收益 − 逐日基准收益」产出 `EventObservation`（T2-fix-5）。
 
 - [x] **T2.8 分组切点与成分 `universe.py`（季度重算，不回改历史）**
   - 设计依据：design.md §4.1 `assign_groups`、R15/R16、KD-6-05/KD-6-07
@@ -81,7 +81,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `CostBreakdown`、R7、REF-03
   - 产出文件：`src/service/backtest/broker.py`（`CostCalculator` 部分）+ `test/service/backtest/test_broker.py`
   - 验证：`python -m pytest -q test/service/backtest/test_broker.py`
-  - 判定真伪：10 万买入、11 万卖出 → 四分量与手算一致（R7 Scenario）；小额触发最低佣金标注；缺印花税率/最低额拒绝。
+  - 判定真伪：10 万买入、11 万卖出 → 四分量与手算一致（R7 Scenario）；小额触发最低佣金标注；缺印花税率/最低额拒绝；流动性上限 = `avg_amount × max_participation`，`liquidity_cap` 缺 → `MissingBacktestConfigError`、`avg_amount` 缺 → `BacktestDataGapError`、多档无 adv 不退化单档（T2-fix-5）。
 
 - [x] **T2.10 撮合状态机（T+1 / 封板顺延 / 停牌跳过 / 流动性上限）**
   - 设计依据：design.md §4.1 `execute_orders`、R8、KD-3-01/02/03
@@ -103,7 +103,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `compute_event_study(observations: Sequence[EventObservation], *, cfg)` + `EventStudyResult`/`WindowStats`、R17/R13、REF-02、QA-F4、T2-fix-4
   - 产出文件：`src/service/backtest/metrics.py` + `test/service/backtest/test_metrics.py`
   - 验证：`python -m pytest -q test/service/backtest/test_metrics.py`
-  - 判定真伪：按 `benchmark_kind × window` 聚合双基准（买入持有 + 市场组合）的事件数/均值/中位数/标准差/CI/分年度/分市值组（R17 + R13）；`min_events` 未达 → 标注「样本不足」不出判定；CI 含 0 且校正后不显著 → 结论「无信号」；入参只收 `EventObservation`，不直接读价格。
+  - 判定真伪：按 `benchmark_kind × window` 聚合双基准（买入持有 + 市场组合）的事件数/均值/中位数/标准差/CI/分年度/分市值组（R17 + R13）；`min_events` 未达 → 标注「样本不足」不出判定；CI 含 0 且校正后不显著 → 结论「无信号」；入参只收 `EventObservation`，不直接读价格；loader 夹具用 `load_forward_returns`/`load_benchmark_forward_returns` 造（T2-fix-5）。
 
 - [x] **T2.13 统计推断 `block_bootstrap` + 多重比较校正**
   - 设计依据：design.md §4.1 `block_bootstrap`/`multiple_testing_correction`、R5/R6、KQ-2、T2-fix-4
@@ -115,7 +115,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `attribution(returns, factors: dict[str, Sequence[float]], benchmarks: Sequence[Benchmark])` + `AttributionResult` / `stability` + `StabilityResult` / `partial_pooling`、R13/R14/R16、KQ-3/KQ-7、QA-F4、T2-fix-4
   - 产出文件：`src/service/backtest/metrics.py` + `test/service/backtest/test_metrics.py`
   - 验证：`python -m pytest -q test/service/backtest/test_metrics.py`
-  - 判定真伪：`beta` 由 returns 对 `market_portfolio` 基准收益回归推导（不入参）；`factors` 键集固定 `{size,value,momentum}`，缺键 → `MissingBacktestConfigError`；缺 `market_portfolio` → 归因 `INCONCLUSIVE`；双基准各出四项暴露与贡献 + `unexplained`（R13）；全期显著但 80% 贡献来自单一年度 → `scope_note` 标注「仅在 2015 年有效」（R14）；单票绝对收益预测不返回、只返回组内分位（R16）。
+  - 判定真伪：`returns` 键集固定 `{"rule","market_portfolio"}`（同长）；`beta` 由 `returns["rule"]` 对 `returns["market_portfolio"]` 回归推导（不入参）；缺 `market_portfolio` → 返回 `AttributionResult(verdict=INCONCLUSIVE, beta=None, unexplained=None)`（不抛异常，T2-fix-5）；`factors` 键集固定 `{size,value,momentum}`，缺键 → `MissingBacktestConfigError`；双基准各出四项暴露与贡献 + `unexplained`（R13）；全期显著但 80% 贡献来自单一年度 → `scope_note` 标注「仅在 2015 年有效」（R14）；单票绝对收益预测不返回、只返回组内分位（R16）。
 
 ---
 
@@ -141,7 +141,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `run_calibration/assert_calibrated` + `CalibrationResult`（`passed/direction/ci/K/corrected_p/verdict`）、R18、KD-10-01/02、KQ-1/KQ-5/KQ-6、QA-F5/QA-F8/QA-F9
   - 产出文件：`src/service/backtest/calibration.py` + `test/service/backtest/test_calibration.py`
   - 验证：`python -m pytest -q test/service/backtest/test_calibration.py`
-  - 判定真伪：「跌破 MA60」跑全 A 显著跑输买入持有 → `CalibrationResult(verdict=INVALID, passed=True)` 标记台子可信；复现不出 → **库层 `assert_calibrated` 抛 `CalibrationFailedError`（QA-F9）** + 台账落 `RunRecord(status=FAILED)` 记校准失败；校准失败不被表述为「策略无效」（R18 各 Scenario）。
+  - 判定真伪：「跌破 MA60」跑全 A 显著跑输买入持有 → `CalibrationResult(verdict=INVALID, passed=True)` 标记台子可信；复现不出 → **库层 `assert_calibrated` 抛 `CalibrationFailedError`（QA-F9）** + 台账落 `RunRecord(status=FAILED)` 记校准失败；校准失败不被表述为「策略无效」（R18 各 Scenario）；校准口径全 spec 固定（不新增 `calibration.*` 键），成本走 `broker.execute_orders` 真实四分量、Q4 缺即拒绝（不采用比例成本近似，T2-fix-5）。
 
 - [x] **T2.18 三级门禁状态机 `gates.py`**
   - 设计依据：design.md §4.1 `GateStateMachine(registry, *, cfg)` + `GateCriteria`、R19、否-3、KD-9-01/06、Q7/KQ-4、T2-fix-4

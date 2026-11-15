@@ -257,7 +257,8 @@ class PriceBar:
     code: str
     trade_date: str                 # YYYY-MM-DD
     open: float; high: float; low: float; close: float   # 后复权（分段复权在分红日调整后）
-    amount: float | None            # 成交额（元）；缺 → 流动性上限/滑点不可算，报缺口
+    amount: float | None            # 成交额（元）；缺 → 滑点按成交额分档不可算，报缺口
+    avg_amount: float | None        # 日均成交额（元，T2-fix-5）：该交易日前 N 个交易日的成交额均值；缺 → 流动性上限不可算，报缺口
     limit_up_price: float | None    # 涨停价；缺 → 封板判定不可做，报缺口
     limit_down_price: float | None  # 跌停价
     suspended: bool                 # 停牌标记
@@ -419,14 +420,15 @@ class EventStudyResult:
 
 @dataclass(frozen=True)
 class AttributionResult:
-    """R13 归因（QA-F4）：四项暴露与贡献 + 未解释部分。"""
-    beta: float
+    """R13 归因（QA-F4 + T2-fix-5）：四项暴露与贡献 + 未解释部分；缺 market_portfolio → verdict=INCONCLUSIVE。"""
+    verdict: Verdict                # VALID/INVALID/INCONCLUSIVE（T2-fix-5：缺 market_portfolio → INCONCLUSIVE，beta/unexplained=None）
+    beta: float | None              # None = 缺 market_portfolio，beta 不可算
     size: float
     value: float
     momentum: float
-    exposures: dict[str, float]     # {beta, size, value, momentum}
+    exposures: dict[str, float]     # {beta, size, value, momentum}（beta 缺时省略 beta 键）
     contributions: dict[str, float]
-    unexplained: float
+    unexplained: float | None       # None = 缺 market_portfolio，未解释部分不可算
 
 @dataclass(frozen=True)
 class StabilityResult:
@@ -556,9 +558,16 @@ def execute_orders(orders, prices, *, cfg) -> tuple[Fill, ...]:
 def next_tradable_day(date, *, calendar, prices) -> str:
     """顺延目标日 = 下一个可成交交易日；停牌/封板递归顺延，设最大顺延上限。"""
 
-# data.py（信号之后、metrics 之前）：事件收益装载（T2-fix-4）
+# data.py（信号之后、metrics 之前）：事件收益装载（T2-fix-4/T2-fix-5 定 loader 形状）
+def load_forward_returns(signal: EventSignal, horizon: int) -> tuple[str, tuple[float, ...]]:
+    """返回 (code, 事件日后 1..horizon 的逐日收益率)；停牌/退市后按「可交易日」取，缺数据抛 BacktestDataGapError。"""
+
+def load_benchmark_forward_returns(kind: str, signal: EventSignal, horizon: int) -> tuple[float, ...]:
+    """返回基准（kind ∈ {"buy_and_hold","market_portfolio"}）在事件日后 1..horizon 的逐日收益率。"""
+
 def load_event_observations(signals: Sequence[EventSignal], benchmarks: Sequence[Benchmark], *, loader, cfg) -> tuple[EventObservation, ...]:
-    """为每个 EventSignal 载入事件日后 1..max(window) 的标的收益与基准收益，产出双基准逐日超额（确定性计算，禁止 LLM）。"""
+    """对每个 signal × 每个 benchmark：excess_returns[t] = load_forward_returns(signal, H)[t] - load_benchmark_forward_returns(kind, signal, H)[t]，H = max(cfg.windows)。
+    确定性计算，禁止 LLM；QA 可据此造 loader 夹具。"""
 
 # metrics.py —— 纯函数（入 EventObservation，出结构化结果）
 def compute_event_study(observations: Sequence[EventObservation], *, cfg) -> EventStudyResult:
@@ -570,9 +579,10 @@ def block_bootstrap(excess, *, block_length, n_bootstrap, seed) -> tuple[tuple[f
 def multiple_testing_correction(p_values, K, method, *, cfg) -> tuple[float, ...]:
     """Bonferroni / Deflated Sharpe 择一（预注册固定），输出校正后判定（R5）。"""
 
-def attribution(returns, factors: dict[str, Sequence[float]], benchmarks: Sequence[Benchmark]) -> AttributionResult:
-    """四项归因（R13，T2-fix-4）：beta 由 returns 对 market_portfolio 基准收益回归推导（不入参）；
-    factors 键集固定 {"size","value","momentum"}；缺任一因子键 → MissingBacktestConfigError；缺 market_portfolio → 归因 INCONCLUSIVE。"""
+def attribution(returns: dict[str, Sequence[float]], factors: dict[str, Sequence[float]]) -> AttributionResult:
+    """四项归因（R13，T2-fix-5）：returns 键集固定 {"rule","market_portfolio"}（同长）；beta 由 returns["rule"] 对 returns["market_portfolio"] 回归推导（不入参）；
+    factors 键集固定 {"size","value","momentum"}；缺 "market_portfolio" 键 → 返回 AttributionResult(verdict=INCONCLUSIVE, beta=None, unexplained=None)（不抛异常，R13 判不可判定）；
+    缺任一因子键 → MissingBacktestConfigError。"""
 
 def partial_pooling(estimates, group_mean, *, shrink) -> tuple[float, ...]:
     """个股估计向组均值收缩，输出组内分位（R16）。"""
@@ -652,6 +662,21 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 - 写盘为**原子写**（写临时文件 + `os.replace`），重跑**覆盖**同名文件并带新 `run_id`（留痕）。
 - 同时 `registry.append_run(RunRecord(status=PASSED/FAILED, reason=...))` 落执行行（R18「台账记校准失败与所用参数」）；`assert_calibrated(registry)` 据此判定最近一次校准是否通过。
 
+**校准口径（spec 固定，T2-fix-5：不新增 `calibration.*` 配置键）**
+
+校准题是 R18 的「已知答案」门禁，其口径由 spec 固定、**不是可调经营参数**，故不配置化：
+
+| 校准要素 | 口径（spec 固定） |
+| --- | --- |
+| 校准题 | 「跌破 MA60 卖出」跑全 A（R18 Scenario） |
+| 样本区间 | R3 三段年份（边界细节 Q3 未答复按 A2「右边界=数据截止日」并标注） |
+| 窗口 | `max(cfg.windows)`（= 60，spec R17 固定 [20, 60]） |
+| K | 每次校准执行计 1 次 K（spec R5/R18「报告 K 与校正后判定」） |
+| 「显著」判据 | 95% CI 不含 0（spec R18「置信区间不含 0」；KQ-5 未答复，不预埋 p 阈值） |
+| 成本 | 走 `broker.execute_orders` 的**真实四分量**（R7）；Q4 成本键缺失 → `MissingBacktestConfigError`（**不采用比例成本近似**、不按 0） |
+| 撮合 | T+1 / 封板顺延 / 停牌跳过 / 流动性上限（R8/R7，同正式回测路径） |
+| 次新股 MA60 | 沿用 tech 口径「不足 60 日用 MA20 替代」并标注（KD-10-03；KQ-1 未答复） |
+
 **台账存储机制（R2 append-only + QA-F2 双行模型的机械保证）**
 
 - 预注册文件（git 跟踪，R1「写入版本库并生成 commit」）：`config/backtest/preregistrations/<hypothesis_id>.yaml`（schema 见 `PreregistrationSpec`，必填字段缺一即报错并列出字段名）。
@@ -667,6 +692,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 2. **封板**：以「日终封板且无成交（一字板）」判定不可成交（口径 A3，Q5 待 Owner 确认）；`fill_date` 顺延到下一可成交日，`delay_days` 累计，明细标注「连续封板 N 日」（R8）。
 3. **停牌**：`PriceBar.suspended == True` → 跳过并顺延（R8）。
 4. **未来函数**：`PointInTimeSnapshot` 由 `data.py` 构造时硬裁到 `as_of`，`__post_init__` 断言「无 `trade_date > as_of`、无 `visible_from > as_of`」；越界抛 `FutureDataError`，不静默截断（R10）。`signal.py` 不接收任何日期参数、不 import 任何 IO 层。
+5. **流动性上限（R7，T2-fix-5）**：撮合的单笔金额上限 = `PriceBar.avg_amount × liquidity_cap 匹配档的 max_participation`。`liquidity_cap` 未配置（`None`）→ `MissingBacktestConfigError`；`avg_amount` 缺（本机无 adv 数据源）→ `BacktestDataGapError`；**多档配置在无 adv 数据时同样拒绝、不退化单档**（避免静默降级，与 R7「超限截断」一致）。单档时该档 `adv_tier` 可省略。
 
 ### 4.2 R → 落地模块/接口 映射（19 条全覆盖）
 
@@ -882,6 +908,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | QA-F10（medium，ledger 导出 + 结果目录注入） | §4.1 `BacktestConfig`（`results_dir`/`registry_store_path`）+ `LedgerExportRow` + `ExperimentRegistry.__init__(..., results_dir)` / `write_result` / `export_ledger` + §6.3/§6.4/§6.5 | 导出字段清单 = `experiment_id / hypothesis_id / statement / params / segments / K / metrics / verdict / burnt / prereg_commit / run_status / data_version / adjust_mode`（JSON 数组）；`burnt=True` 表达「额度用尽」；结果目录可注入 tmp_path |
 | QA-F11（low，CLI 配置/数据注入面） | §4.0/§4.1/§6.3（入口 = 既有 `src/apps/cli.py`，不另建入口）+ `run_calibration`/`write_calibration_result` | `main(argv) -> int`；子命令 `backtest preregister/run/calibrate/ledger/gate` + 参数（`--file/--hypothesis/--experiment/--format/--config/--rule/--to`）；配置解析 `--config <path>`（相对路径按 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 1）；`calibration.json` 由 `run_calibration` 无论成败原子写 `<results_dir>/calibration.json`（字段 = `CalibrationResult` + `run_id` + `at`，失败写 `passed=False`+`reason`，重跑覆盖带新 `run_id`） |
 | T2-fix-4（config schema + 4 处歧义裁决） | §4.1 `BacktestConfig`/`GateCriteria`/成本 spec + `EventObservation`/`ConditionSpec` + `RunRecord.hypothesis_id` + `load_event_observations`/`compute_event_study`/`attribution`/`GateStateMachine`/`mark_burnt` + §4.2 R11 + §6.4 | ①config 键清单落在 `config/app.example.yaml`（tracked）+ design §4.1（app.yaml 是本地副本）；②事件载体 = `EventObservation`（`EventSignal` 只判条件成立）；③`GateStateMachine(registry, *, cfg)` 判据来自 `cfg.gate_criteria`（缺 → `MissingBacktestConfigError`）；④`mark_burnt` 追加执行行 `reason="样本外已烧毁"`，导出 `burnt` 按此派生；⑤`attribution` beta 由 `market_portfolio` 基准回归推导、`factors` 键集固定 `{size,value,momentum}`；⑥R11 `visible_from = ann_date`（缺才回退），spec 优先 |
+| T2-fix-5（4 条残余歧义裁决） | §4.1 `PriceBar.avg_amount` + `AttributionResult.verdict/beta=None/unexplained=None` + `load_forward_returns`/`load_benchmark_forward_returns`/`attribution(returns: dict)` + 「校准口径 spec 固定」+ 撮合机制第 5 条 | ①事件收益 loader 形状 = `load_forward_returns(signal, horizon)` + `load_benchmark_forward_returns(kind, signal, horizon)`，`excess_returns[t] = 前者 − 后者`；②`AttributionResult` 增 `verdict`，缺 `market_portfolio` → `verdict=INCONCLUSIVE`（不抛异常），缺因子键 → `MissingBacktestConfigError`；③校准口径全 spec 固定（不新增 `calibration.*` 键），成本走 broker 四分量、Q4 缺即拒绝（不采用比例成本近似）；④`PriceBar.avg_amount`（日均成交额）为流动性上限数据源，无 adv 数据 → `BacktestDataGapError`（多档不退化单档） |
 
 ---
 
