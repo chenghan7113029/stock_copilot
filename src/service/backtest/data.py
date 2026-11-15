@@ -18,6 +18,10 @@ from data_provider.backtest.adjust_price import parse_adjust_mode
 from data_provider.backtest.financial_timing import annotate_visible_from
 from service.backtest.models import (
     AdjustMode,
+    BacktestConfig,
+    Benchmark,
+    EventObservation,
+    EventSignal,
     FinancialRecord,
     PointInTimeSnapshot,
     PriceBar,
@@ -145,3 +149,60 @@ def build_point_in_time(codes: Sequence[str], as_of: str, *, loader: Any) -> Poi
         price=tuple(price_bars),
         financials=tuple(financial_records),
     )
+
+def load_event_observations(
+    signals: Sequence[EventSignal],
+    benchmarks: Sequence[Benchmark],
+    *,
+    loader: Any,
+    cfg: BacktestConfig,
+) -> tuple[EventObservation, ...]:
+    """为每个 EventSignal 载入事件日后逐日超额（design §4.1，T2-fix-4）。
+
+    `EventSignal` 只判「条件成立」，本身不带标的代码；loader 契约因此是
+    **事件级**取数（缺方法即 `BacktestDataGapError`，不静默降级）：
+    - `load_forward_returns(signal, horizon)` → `(code, 事件日后第 1..horizon 个交易日的逐日收益)`；
+    - `load_benchmark_forward_returns(kind, signal, horizon)` → 同期基准逐日收益。
+
+    `horizon = max(cfg.windows)`；逐日相减得到 `EventObservation.excess_returns`。
+    """
+    if not signals:
+        raise BacktestDataGapError("事件研究无事件信号：不得产出结论（R17）")
+    if not benchmarks:
+        raise BacktestDataGapError("基准缺失：不得给出有效判定（R13）")
+    horizon = max(cfg.windows)
+    fetch_stock = getattr(loader, "load_forward_returns", None)
+    fetch_benchmark = getattr(loader, "load_benchmark_forward_returns", None)
+    if fetch_stock is None or fetch_benchmark is None:
+        raise BacktestDataGapError(
+            "事件收益通道未接通：loader 缺 load_forward_returns / "
+            "load_benchmark_forward_returns（R17/R13，不静默降级）"
+        )
+    observations: list[EventObservation] = []
+    for signal in signals:
+        code, raw_returns = fetch_stock(signal, horizon)
+        stock_returns = tuple(float(value) for value in raw_returns)
+        if len(stock_returns) < horizon:
+            raise BacktestDataGapError(
+                f"{signal.event_date} 事件后收益不足 {horizon} 日：样本不足（R17）"
+            )
+        for benchmark in benchmarks:
+            raw_benchmark = fetch_benchmark(benchmark.kind, signal, horizon)
+            benchmark_returns = tuple(float(value) for value in raw_benchmark)
+            if len(benchmark_returns) < horizon:
+                raise BacktestDataGapError(
+                    f"{benchmark.kind} 在 {signal.event_date} 后收益不足 {horizon} 日（R13）"
+                )
+            observations.append(
+                EventObservation(
+                    code=str(code),
+                    event_date=signal.event_date,
+                    condition_id=signal.condition_id,
+                    benchmark_kind=benchmark.kind,
+                    excess_returns=tuple(
+                        stock - bench
+                        for stock, bench in zip(stock_returns, benchmark_returns)
+                    ),
+                )
+            )
+    return tuple(observations)

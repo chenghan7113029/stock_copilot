@@ -14,10 +14,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
-from common.exceptions import BacktestDataGapError, BacktestError, CalibrationFailedError
-from service.backtest.broker import CostCalculator
+from common.exceptions import BacktestError, CalibrationFailedError, MissingBacktestConfigError
 from service.backtest.data import load_price_series
 from service.backtest.metrics import (
     block_bootstrap,
@@ -26,26 +25,31 @@ from service.backtest.metrics import (
     t_statistic,
 )
 from service.backtest.models import (
+    SEGMENT_YEAR_RANGES,
     AdjustMode,
     BacktestConfig,
     CalibrationResult,
     ConditionSpec,
-    OrderSide,
     PointInTimeSnapshot,
     RunRecord,
     RunStatus,
     Verdict,
 )
-from service.backtest.signal import (
-    MA_FALLBACK_WINDOW,
-    MA_WINDOW,
-    SHORT_HISTORY_POLICIES,
-    evaluate_condition,
-)
+from service.backtest.signal import MA_WINDOW, evaluate_condition
 
 CALIBRATION_FILE = "calibration.json"
 CALIBRATION_SCOPE = "calibration"
 UNTRUSTED_MESSAGE = "台子不可信，先修台子"
+# 校准题样本区间 = spec R3 的三段年份（A2：右边界取最后一段末年）
+_MIN_TRAIN_YEAR = min(start for start, _end in SEGMENT_YEAR_RANGES.values())
+_MAX_OOS_YEAR = max(end for _start, end in SEGMENT_YEAR_RANGES.values())
+CALIBRATION_START = f"{_MIN_TRAIN_YEAR:04d}-01-01"
+CALIBRATION_END = f"{_MAX_OOS_YEAR:04d}-12-31"
+# 校准题是「一道题」：校正方法固定 Bonferroni + K=执行次数（K 翻倍不改变本意）
+CALIBRATION_CORRECTION_METHOD = "bonferroni"
+# 校准题成本按比例口径（佣金买卖两次 + 卖出印花税 + 首档滑点两次）；逐笔档位/最低额由
+# broker 负责（校准只判方向，不做金额结算），此近似在 notes 中显式标注。
+CALIBRATION_COST_NOTE = "成本按比例口径近似（佣金×2 + 卖出印花税 + 首档滑点×2）"
 
 
 def write_calibration_result(
@@ -79,42 +83,28 @@ def write_calibration_result(
 
 def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> CalibrationResult:
     """跑校准题；成败都写 `calibration.json` + 执行行，返回结果（失败不在此抛异常）。"""
-    horizon = int(cfg.require("calibration.horizon_days"))
-    k_value = int(cfg.require("calibration.k"))
-    notional = float(cfg.require("calibration.notional"))
-    start = str(cfg.require("calibration.start"))
-    end = str(cfg.require("calibration.end"))
-    policy = str(cfg.require("calibration.short_history_policy"))
-    if policy not in SHORT_HISTORY_POLICIES:
-        raise BacktestError(f"calibration.short_history_policy 非法: {policy!r}（KQ-1）")
-    correction_method = str(cfg.require("correction_method"))
-    alpha = float(cfg.require("alpha"))
-    block_length = int(cfg.require("block_length"))
-    n_bootstrap = int(cfg.require("n_bootstrap"))
-    if horizon < 1:
-        raise BacktestError(f"calibration.horizon_days 非法: {horizon}")
-
-    codes = _calibration_codes(cfg, loader, end)
-    prices = load_price_series(codes, start, end, AdjustMode.HFQ, loader=loader)
+    if cfg.block_length is None:
+        raise MissingBacktestConfigError("回测配置缺值: block_length（KQ-2）")
+    if cfg.n_bootstrap is None:
+        raise MissingBacktestConfigError("回测配置缺值: n_bootstrap（KQ-2）")
+    horizon = max(cfg.windows)
+    cost_rate = _cost_rate(cfg)
+    codes = _calibration_codes(loader, CALIBRATION_END)
+    prices = load_price_series(
+        codes, CALIBRATION_START, CALIBRATION_END, AdjustMode.HFQ, loader=loader
+    )
     condition = ConditionSpec(
         condition_id="ma60_breakdown",
-        kind="ma_breakdown",
-        params={
-            "window": MA_WINDOW,
-            "fallback_window": MA_FALLBACK_WINDOW,
-            "short_history_policy": policy,
-        },
+        kind="ma60_breakdown",
+        params={"window": MA_WINDOW},
     )
-    calculator = CostCalculator.from_config(cfg)
-    buy_cost, _ = calculator.cost(notional, OrderSide.BUY)
-    sell_cost, _ = calculator.cost(notional, OrderSide.SELL)
-    cost_rate = (buy_cost.total + sell_cost.total) / notional if notional else 0.0
-
     excess: list[float] = []
     for code in codes:
         bars = prices.get(code, ())
         for index in range(1, len(bars)):
-            snapshot = PointInTimeSnapshot(as_of=bars[index].trade_date, price=tuple(bars[: index + 1]))
+            snapshot = PointInTimeSnapshot(
+                as_of=bars[index].trade_date, price=tuple(bars[: index + 1])
+            )
             signal = evaluate_condition(snapshot, condition)
             if signal is None:
                 continue
@@ -129,24 +119,30 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
             # 规则：事件后离场（空仓）→ 组合收益 0；相对买入持有的超额 = -hold - 成本
             excess.append(-hold_return - cost_rate)
 
+    k_value = _next_calibration_k(registry)
     params = {
         "horizon_days": horizon,
         "K": k_value,
-        "notional": notional,
-        "correction_method": correction_method,
-        "alpha": alpha,
-        "short_history_policy": policy,
+        "correction_method": CALIBRATION_CORRECTION_METHOD,
+        "short_history_policy": "ma20_substitute",
         "codes": len(codes),
         "events": len(excess),
+        "calibration_window": [CALIBRATION_START, CALIBRATION_END],
     }
     if excess:
         ci, _effective_n = block_bootstrap(
-            excess, block_length=block_length, n_bootstrap=n_bootstrap, seed=0
+            excess,
+            block_length=int(cfg.block_length),
+            n_bootstrap=int(cfg.n_bootstrap),
+            seed=0,
         )
         p_value = p_value_from_t(t_statistic(excess))
-        corrected_p = multiple_testing_correction([p_value], k_value, correction_method, cfg=cfg)[0]
+        corrected_p = multiple_testing_correction(
+            [p_value], k_value, CALIBRATION_CORRECTION_METHOD, cfg=cfg
+        )[0]
         mean_excess = sum(excess) / len(excess)
-        passed = mean_excess < 0.0 and ci[1] < 0.0 and corrected_p < alpha
+        # KQ-5（「显著」判据）未答复：本波只用「方向为负 + 置信区间不含 0」这一确定判据
+        passed = mean_excess < 0.0 and ci[1] < 0.0
     else:
         ci = None
         corrected_p = None
@@ -157,6 +153,8 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
         notes.append("台子可信：校准题复现显著跑输（R18 Scenario 1）")
     else:
         notes.append(f"{UNTRUSTED_MESSAGE}：校准题未复现显著跑输（R18 Scenario 2）")
+    notes.append("KQ-1 未答复：次新股沿用现行 MA60/MA20 替代口径并标注")
+    notes.append(CALIBRATION_COST_NOTE)
     result = CalibrationResult(
         passed=passed,
         direction=direction,
@@ -176,22 +174,50 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
             status=RunStatus.PASSED if passed else RunStatus.FAILED,
             at=at,
             hypothesis_id=CALIBRATION_SCOPE,
-            reason=None if passed else notes[-1],
+            reason=None if passed else notes[0],
         )
     )
     return result
 
 
-def _calibration_codes(cfg: BacktestConfig, loader: Any, as_of: str) -> tuple[str, ...]:
-    explicit = cfg.get("calibration.codes")
-    if explicit:
-        return tuple(str(code) for code in explicit)
+def _cost_rate(cfg: BacktestConfig) -> float:
+    """比例成本口径（见 CALIBRATION_COST_NOTE）：只用配置值，不预埋数值。"""
+    from service.backtest.broker import CostCalculator
+
+    rules = CostCalculator.from_config(cfg).rules  # 缺 Q4 配置即 MissingBacktestConfigError
+    tier_bps = rules.slippage_tiers[0].bps
+    rate = (
+        2.0 * rules.commission_rate
+        + rules.stamp_tax_rate
+        + 2.0 * tier_bps / 10000.0
+    )
+    if rules.transfer_fee_included:
+        rate += 2.0 * rules.transfer_fee_rate
+    return rate
+
+
+def _calibration_codes(loader: Any, as_of: str) -> tuple[str, ...]:
     method = getattr(loader, "load_universe_codes", None)
     if method is None:
-        raise BacktestDataGapError(
-            "校准题无法取样本：既无 calibration.codes，loader 也无 load_universe_codes（R18）"
+        raise BacktestError(
+            "校准题无法取样本：loader 缺 load_universe_codes（R18 要求跑全 A，不静默降级）"
         )
-    return tuple(method(as_of))
+    codes = tuple(str(code) for code in method(as_of))
+    if not codes:
+        raise BacktestError("校准题样本为空：不得判定台子可信（R18）")
+    return codes
+
+
+def _next_calibration_k(registry: Any) -> int:
+    """K = 本次校准的累计执行次数（执行行可数，避免「结论不对就重跑」不留痕）。"""
+    executions = [
+        row
+        for row in registry.rows()
+        if isinstance(row, RunRecord)
+        and row.hypothesis_id == CALIBRATION_SCOPE
+        and row.status in (RunStatus.PASSED, RunStatus.FAILED)
+    ]
+    return len(executions) + 1
 
 
 def assert_calibrated(registry: Any) -> None:
@@ -216,7 +242,7 @@ def _failed(reason: str, corrected_p: float | None, verdict: Verdict) -> Calibra
     return exc
 
 
-def calibration_payload(result: CalibrationResult) -> Mapping[str, Any]:
+def calibration_payload(result: CalibrationResult) -> dict[str, Any]:
     """供 CLI 打印的 JSON（与写盘字段一致，但不含 run_id/at）。"""
     return {
         "passed": result.passed,

@@ -91,15 +91,22 @@ def assign_groups(
     cfg: BacktestConfig,
 ) -> dict[str, GroupAssignment]:
     """分位切点分组（季度重算，不回改历史；软/结果标签拒绝）。"""
-    cut_basis = str(cfg.require("cut_basis"))
-    if cut_basis not in ("point_in_time_cross_section", "within_group"):
-        raise BacktestError(f"未知 cut_basis: {cut_basis!r}（Q6 只允许时点截面/组内）")
-    tier_count = int(cfg.require("tier_count"))
-    min_group_size = int(cfg.require("min_group_size"))
+    if cfg.cut_basis is None:
+        raise MissingBacktestConfigError("回测配置缺值: cut_basis（Q6）")
+    if cfg.tier_count is None:
+        raise MissingBacktestConfigError("回测配置缺值: tier_count（Q6）")
+    if cfg.min_group_size is None:
+        raise MissingBacktestConfigError("回测配置缺值: min_group_size（Q6）")
+    if cfg.recompute_freq is None:
+        raise MissingBacktestConfigError("回测配置缺值: recompute_freq（Q6）")
+    tier_count = int(cfg.tier_count)
+    min_group_size = int(cfg.min_group_size)
+    if tier_count < 1:
+        raise MissingBacktestConfigError(f"tier_count 非法: {tier_count}")
     if min_group_size <= 0:
         raise MissingBacktestConfigError(f"min_group_size 非法: {min_group_size}")
-    recompute_freq = str(cfg.require("recompute_freq"))
-    if recompute_freq != "quarterly":
+    recompute_freq = str(cfg.recompute_freq).strip().lower()
+    if recompute_freq not in ("quarter", "quarterly"):
         raise BacktestError(f"分组必须按季度重算（R15），配置为 {recompute_freq!r}")
     if tier_count < 1:
         raise MissingBacktestConfigError(f"tier_count 非法: {tier_count}")

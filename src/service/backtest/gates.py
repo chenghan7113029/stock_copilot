@@ -1,9 +1,12 @@
-"""R19 三级门禁状态机（design §4.1，薄状态机，持久化委托台账目录）。
+"""R19 三级门禁状态机（design §4.1，T2-fix-4）。
 
 - 每规则**唯一**状态：`backtest_pending → backtest_passed → shadow_running → live_small`
   （`rejected` 为终态）；
-- 只允许相邻迁移；跳级/前置条件未满足 → `GateSkipError`（子类 `BacktestError`）并**留痕**；
-- 判据数值（Q7/KQ-4）缺键即 `MissingBacktestConfigError`，不默认「通过」。
+- 判据来自 `cfg.gate_criteria`（`config/app.yaml backtest.gates`，Q7）：缺失/None →
+  `MissingBacktestConfigError`（**不允许 transition**）；
+- 只允许相邻迁移；跳级/前置条件未满足 → `GateSkipError`（子类 `BacktestError`）并留痕；
+- 时间戳与持久化经 `ExperimentRegistry`：状态落同目录 `gates.ndjson`，拒绝动作额外追加
+  执行行 `RunRecord(status=REJECTED)` 到实验台账（R19「拒绝记录写入台账」）。
 """
 
 from __future__ import annotations
@@ -12,9 +15,13 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
-from common.exceptions import BacktestError, GateSkipError
+from common.exceptions import (
+    BacktestError,
+    GateSkipError,
+    MissingBacktestConfigError,
+)
 from service.backtest.models import (
     BacktestConfig,
     GateRecord,
@@ -38,10 +45,6 @@ GATE_LEVEL_KEYS: dict[GateStage, str] = {
 }
 
 
-def _default_clock() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
-
 @dataclass(frozen=True)
 class _Transition:
     rule_id: str
@@ -54,26 +57,11 @@ class _Transition:
 
 
 class GateStateMachine:
-    def __init__(
-        self,
-        store: Path | Any,
-        *,
-        cfg: BacktestConfig,
-        clock: Callable[[], str] | None = None,
-    ) -> None:
-        """`store` 可为 gate 台账路径，或 `ExperimentRegistry`（design §4.0：读写委托台账）。
-
-        传入 registry 时，门禁状态落在同一目录的 `gates.ndjson`，且**拒绝动作**额外以
-        `RunRecord(status=REJECTED)` 落实验台账留痕（R19「拒绝记录写入台账」）。
-        """
-        if hasattr(store, "append_run") and hasattr(store, "store_path"):
-            self.registry = store
-            self.store_path = Path(store.store_path).parent / GATE_STORE_NAME
-        else:
-            self.registry = None
-            self.store_path = Path(store)
+    def __init__(self, registry: Any, *, cfg: BacktestConfig | None = None) -> None:
+        """`registry` 提供台账路径与 clock（design 写明时间戳经 registry 注入）。"""
+        self.registry = registry
+        self.store_path = Path(registry.store_path).parent / GATE_STORE_NAME
         self.cfg = cfg
-        self.clock = clock or _default_clock
 
     # ---- 查询 ----
     def current(self, rule_id: str) -> GateRecord:
@@ -109,35 +97,16 @@ class GateStateMachine:
             experiment_id = str(experiment_id)
         try:
             self._validate(current, target, payload)
+        except MissingBacktestConfigError:
+            raise  # 判据缺失不是「跳级」：不落拒绝留痕，直接拒绝 transition
         except GateSkipError as exc:
-            at = self.clock()
-            self._append(
-                _Transition(
-                    rule_id=rule_id,
-                    stage=target,
-                    at=at,
-                    accepted=False,
-                    experiment_id=experiment_id,
-                    direction_agree=payload.get("direction_agree"),
-                    reason=str(exc),
-                )
-            )
-            if self.registry is not None:
-                self.registry.append_run(
-                    RunRecord(
-                        run_id=self.registry.next_experiment_id(f"gate-{rule_id}"),
-                        status=RunStatus.REJECTED,
-                        at=at,
-                        hypothesis_id=f"gate:{rule_id}",
-                        reason=f"门禁拒绝（{current.stage.value} → {target.value}）：{exc}",
-                    )
-                )
+            self._record_rejection(rule_id, current, target, experiment_id, payload, exc)
             raise
         self._append(
             _Transition(
                 rule_id=rule_id,
                 stage=target,
-                at=self.clock(),
+                at=self.registry.clock(),
                 accepted=True,
                 experiment_id=experiment_id,
                 direction_agree=payload.get("direction_agree"),
@@ -145,6 +114,53 @@ class GateStateMachine:
             )
         )
         return self.current(rule_id)
+
+    def _record_rejection(
+        self,
+        rule_id: str,
+        current: GateRecord,
+        target: GateStage,
+        experiment_id: str | None,
+        payload: Mapping[str, Any],
+        exc: GateSkipError,
+    ) -> None:
+        at = self.registry.clock()
+        self._append(
+            _Transition(
+                rule_id=rule_id,
+                stage=target,
+                at=at,
+                accepted=False,
+                experiment_id=experiment_id,
+                direction_agree=payload.get("direction_agree"),
+                reason=str(exc),
+            )
+        )
+        self.registry.append_run(
+            RunRecord(
+                run_id=self.registry.next_experiment_id(f"gate-{rule_id}"),
+                status=RunStatus.REJECTED,
+                at=at,
+                hypothesis_id=f"gate:{rule_id}",
+                reason=f"门禁拒绝（{current.stage.value} → {target.value}）：{exc}",
+            )
+        )
+
+    def _criteria(self) -> Any:
+        if self.cfg is None or self.cfg.gate_criteria is None:
+            raise MissingBacktestConfigError(
+                "回测配置缺值: gate_criteria（backtest.gates，Q7）；判据未配置不允许 transition"
+            )
+        return self.cfg.gate_criteria
+
+    def _criterion(self, name: str) -> Mapping[str, Any]:
+        criteria = self._criteria()
+        value = getattr(criteria, name, None)
+        if not value:
+            raise MissingBacktestConfigError(
+                f"回测配置缺值: gate_criteria.{name}（Q7）；判据未配置不允许 transition"
+            )
+        return value
 
     def _validate(
         self, current: GateRecord, target: GateStage, evidence: Mapping[str, Any]
@@ -164,24 +180,30 @@ class GateStateMachine:
                 f"跳级请求被拒：{current.stage.value} → {target.value}（R19 只允许逐级）"
             )
         if target is GateStage.BACKTEST_PASSED:
-            self.cfg.require("gates.backtest_pass")  # Q7 判据缺键即拒绝
+            self._criterion("backtest_pass")
             if not evidence.get("experiment_id"):
                 raise GateSkipError("进入「回测通过」需给出依据实验 ID（R19 Scenario 3）")
         elif target is GateStage.SHADOW_RUNNING:
+            self._criterion("shadow")
             if not evidence.get("experiment_id"):
                 raise GateSkipError("进入影子运行需给出依据实验 ID（R19）")
         elif target is GateStage.LIVE_SMALL:
-            min_months = int(self.cfg.require("gates.shadow_min_months"))
-            self.cfg.require("gates.direction_agree")  # Q7 判据缺键即拒绝
+            shadow = self._criterion("shadow")
+            self._criterion("direction_agree")
+            min_months = shadow.get("min_months")
+            if min_months is None:
+                raise MissingBacktestConfigError(
+                    "回测配置缺值: gate_criteria.shadow.min_months（Q7/KQ-4）"
+                )
             if evidence.get("direction_agree") is not True:
                 raise GateSkipError("方向一致判据未满足：不得进入实盘小仓位（R19）")
             started = current.stage_timestamps.get(GATE_LEVEL_KEYS[GateStage.SHADOW_RUNNING])
             if not started:
                 raise GateSkipError("影子运行起始时间缺失，无法核对最短期限（KQ-4）")
-            elapsed = _months_between(started, self.clock())
-            if elapsed < min_months:
+            elapsed = _months_between(started, self.registry.clock())
+            if elapsed < int(min_months):
                 raise GateSkipError(
-                    f"影子期未满：已 {elapsed} 个月 < 最短 {min_months} 个月（R19 Scenario 2）"
+                    f"影子期未满：已 {elapsed} 个月 < 最短 {int(min_months)} 个月（R19 Scenario 2）"
                 )
 
     # ---- 持久化 ----

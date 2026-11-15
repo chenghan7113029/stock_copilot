@@ -21,6 +21,7 @@ from service.backtest.models import (
     BacktestConfig,
     CostBreakdown,
     Fill,
+    LiquidityCapSpec,
     Order,
     OrderAttempt,
     OrderSide,
@@ -97,84 +98,57 @@ class CostCalculator:
 
 
 class LiquidityRules:
-    """单笔下单金额上限（按成交额分档）；超限截断并标注（R7 Scenario4）。"""
+    """单笔下单金额上限（按日均成交额分档）；超限截断并标注（R7 Scenario4）。
 
-    def __init__(self, tiers: tuple[LiquidityTier, ...]) -> None:
-        self.tiers = tiers
+    design §4.1 的档位形状为 `{adv_tier, max_participation}`：单档时直接按成交额比例截断；
+    多档需要「日均成交额 → adv_tier」映射数据（本机缺口）→ `BacktestDataGapError`，不猜档位。
+    """
+
+    def __init__(self, caps: tuple[LiquidityCapSpec, ...]) -> None:
+        self.caps = caps
 
     @classmethod
     def from_config(cls, cfg: BacktestConfig) -> "LiquidityRules":
-        raw = cfg.require("liquidity_cap")
-        tiers: list[LiquidityTier] = []
-        for item in raw:
-            if not isinstance(item, Mapping):
-                raise MissingBacktestConfigError(f"liquidity_cap 档位不是映射: {item!r}")
-            if "max_participation" not in item:
-                raise MissingBacktestConfigError("liquidity_cap 缺 max_participation（Q4）")
-            tiers.append(
-                LiquidityTier(
-                    amount_lower=float(item.get("amount_lower", 0.0)),
-                    amount_upper=(
-                        None if item.get("amount_upper") in (None, 0) else float(item["amount_upper"])
-                    ),
-                    max_participation=float(item["max_participation"]),
-                )
+        caps = cfg.liquidity_cap
+        if not caps:
+            raise MissingBacktestConfigError("回测配置缺值: liquidity_cap（Q4）")
+        if len(caps) > 1:
+            raise BacktestDataGapError(
+                "流动性上限配置了多档，但缺「日均成交额→adv_tier」数据：不猜档位（R7/Q4）"
             )
-        return cls(tuple(tiers))
+        return cls(tuple(caps))
 
     def limit_for(self, daily_amount: float) -> float:
-        for tier in self.tiers:
-            upper = tier.amount_upper
-            if daily_amount >= tier.amount_lower and (upper is None or daily_amount < upper):
-                return daily_amount * tier.max_participation
-        if len(self.tiers) == 1:
-            return daily_amount * self.tiers[0].max_participation
-        raise MissingBacktestConfigError(
-            f"成交额 {daily_amount} 无匹配流动性档位（Q4）；不按可成交继续"
-        )
+        return daily_amount * self.caps[0].max_participation
 
 
 def _cost_rules(cfg: BacktestConfig) -> CostRules:
-    rate = float(cfg.require("commission.rate"))
-    minimum = float(cfg.require("commission.min"))
-    stamp_tax = cfg.get("stamp_tax.sell_rate")
+    commission = cfg.commission
+    if commission is None:
+        raise MissingBacktestConfigError("回测配置缺值: commission.rate/min（Q4）")
+    stamp_tax = cfg.stamp_tax
     if stamp_tax is None:
-        stamp_tax = cfg.get("stamp_tax.rate")
-    if stamp_tax is None:
-        raise MissingBacktestConfigError("回测配置缺键: stamp_tax.sell_rate")
-    transfer_included = bool(cfg.require("transfer_fee.included"))
-    transfer_rate = 0.0
-    if transfer_included:
-        transfer_rate = float(cfg.require("transfer_fee.rate"))
-    tiers_raw = cfg.require("slippage_tiers")
-    tiers: list[SlippageTier] = []
-    for item in tiers_raw:
-        if not isinstance(item, Mapping):
-            raise MissingBacktestConfigError(f"slippage_tiers 档位不是映射: {item!r}")
-        if "amount_lower" not in item:
-            raise MissingBacktestConfigError("slippage_tiers 缺 amount_lower（Q4）")
-        if "bps" in item:
-            bps = float(item["bps"])
-        elif "rate" in item:
-            bps = float(item["rate"]) * 10000.0
-        else:
-            raise MissingBacktestConfigError("slippage_tiers 缺 bps/rate（Q4）")
-        tiers.append(
-            SlippageTier(
-                amount_lower=float(item["amount_lower"]),
-                amount_upper=(
-                    None if item.get("amount_upper") in (None, 0) else float(item["amount_upper"])
-                ),
-                bps=bps,
-            )
-        )
+        raise MissingBacktestConfigError("回测配置缺值: stamp_tax.side/rate（Q4）")
+    transfer_fee = cfg.transfer_fee
+    if transfer_fee is None:
+        raise MissingBacktestConfigError("回测配置缺值: transfer_fee.included/rate（Q4）")
+    slippage = cfg.slippage_tiers
+    if not slippage:
+        raise MissingBacktestConfigError("回测配置缺值: slippage_tiers（Q4）")
     return CostRules(
-        commission_rate=rate,
-        commission_min=minimum,
-        stamp_tax_rate=float(stamp_tax),
-        transfer_fee_included=transfer_included,
-        transfer_fee_rate=transfer_rate,
-        slippage_tiers=tuple(tiers),
+        commission_rate=float(commission.rate),
+        commission_min=float(commission.min),
+        stamp_tax_rate=float(stamp_tax.rate),
+        transfer_fee_included=bool(transfer_fee.included),
+        transfer_fee_rate=float(transfer_fee.rate),
+        slippage_tiers=tuple(
+            SlippageTier(
+                amount_lower=float(tier.amount_lower),
+                amount_upper=float(tier.amount_upper),
+                bps=float(tier.bps),
+            )
+            for tier in slippage
+        ),
     )
 
 
@@ -217,21 +191,24 @@ def execute_orders(
     prices: Mapping[str, Sequence[PriceBar]],
     *,
     cfg: BacktestConfig,
-    positions: Mapping[str, str] | None = None,
 ) -> tuple[Fill, ...]:
-    """确定性状态机：t+1 成交、封板顺延、停牌跳过、T+1 拒绝、流动性截断。
+    """确定性状态机：t+1 成交、封板顺延、停牌跳过、T+1 拒绝、流动性截断（R7/R8）。
 
-    `positions`：`{code: 建仓日}`——T+1 判定的持仓来源（同日买入不可同日卖出）。
-    同一批次内 Buy 的成交日也会自动并入，无需重复传。
+    T+1 的持仓来源 = 同一批次内 Buy 的成交日（当日买入不可当日卖出）；跨批次持仓不在
+    本函数状态内（MVP 事件研究不做组合级持仓账）。
     """
-    max_delay = int(cfg.require("max_delay_days"))
+    if cfg.max_delay_days is None:
+        raise MissingBacktestConfigError(
+            "回测配置缺值: max_delay_days（防撮合无限顺延，Q7/design §3H）"
+        )
+    max_delay = int(cfg.max_delay_days)
     if max_delay < 1:
-        raise MissingBacktestConfigError(f"max_delay_days 非法: {max_delay}（design §3H 要求存在）")
+        raise MissingBacktestConfigError(f"max_delay_days 非法: {max_delay}")
     calculator = CostCalculator.from_config(cfg)
     liquidity = LiquidityRules.from_config(cfg)
-    holidays = tuple(str(item) for item in (cfg.get("trading_calendar.holidays") or ()))
+    holidays: tuple[str, ...] = ()  # 休市表未在 schema 内 → A2「周一至周五」降级
 
-    known_buy_dates: dict[str, str] = dict(positions or {})
+    known_buy_dates: dict[str, str] = {}
     fills: list[Fill] = []
     for order in orders:
         bars = tuple(sorted(prices.get(order.code, ()), key=lambda bar: bar.trade_date))

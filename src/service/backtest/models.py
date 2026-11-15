@@ -1,11 +1,9 @@
-"""回测域契约：枚举 / dataclass / 异常（design §4.1，T2.1）。
+"""回测域契约：枚举 / dataclass / 异常（design §4.1 + T2-fix-4 config schema）。
 
 约定（design §4.1 开头 + 否-2）：
-- 数值字段一律无「业务默认值」；来自 `config/app.yaml backtest:` 段，缺键即
-  `MissingBacktestConfigError`。
-- 只有两类默认值是允许的：① design 明文写死的落盘路径默认值（`results_dir` /
-  `registry_store_path`）；② spec 已固定、不属于「待确认口径」的常量（事件窗口
-  20/60、三段年份、MA60/MA20、R14 的 30 只/3 年）。
+- 数值字段一律无「业务默认值」；来自 `config/app.yaml backtest:` 段（契约源 =
+  `config/app.example.yaml`），必须键缺失即 `MissingBacktestConfigError`；
+- 待 Q 键形状固定、数值留空；消费处发现 None 即拒绝（不按 0 / 不预埋默认）。
 """
 
 from __future__ import annotations
@@ -27,22 +25,18 @@ from common.exceptions import (  # noqa: F401 —— 重导出：service 侧统�
     RegistryImmutableError,
 )
 
-# spec R17 固定的 MVP 事件窗口（Q8 的自定义窗口未答复前拒绝自定义）
+# spec R17 固定的 MVP 事件窗口（Q8 未答复前拒绝自定义窗口）
 EVENT_WINDOWS: tuple[int, int] = (20, 60)
-# R8/R10 已固定的标的级不变量（不得配置化，见 _design §4.1「canon 不可调」）
+# spec R3 固定的三段样本年份（Q3 只影响右边界/滚动，不影响三段定义）
+SEGMENT_YEAR_RANGES: Mapping["Segment", tuple[int, int]] = {}
+# R8/R10 已固定的不变量（不得配置化，见 _design §4.1「canon 不可调」）
 LOT_SIZE = 100  # A 股 100 股一手
 # design 明文的落盘默认值（可注入，QA-F10）
 DEFAULT_RESULTS_DIR = "data/backtest/results"
 DEFAULT_REGISTRY_STORE = "data/backtest/registry.ndjson"
 DEFAULT_PREREG_DIR = "config/backtest/preregistrations"
-
-# T2.2 判定真伪：缺这三类口径必须拒绝（缺键即拒绝，不预埋默认值）
-PIPELINE_REQUIRED_KEYS: tuple[str, ...] = (
-    "commission.rate",
-    "commission.min",
-    "stamp_tax.sell_rate",
-    "slippage_tiers",
-)
+# T2-fix-4：必须键（段落键缺失即拒绝；路径键有 design 明文默认值，可省略）
+MUST_KEYS: tuple[str, ...] = ("segments", "windows", "max_delay_days", "min_events")
 
 
 class AdjustMode(str, Enum):
@@ -176,10 +170,10 @@ class PointInTimeSnapshot:
 
 @dataclass(frozen=True)
 class ConditionSpec:
-    """信号条件定义（design §4.1 `evaluate_condition` 的入参类型）。"""
+    """信号条件定义（design §4.1，T2-fix-4）：`evaluate_condition` 的唯一条件入参。"""
 
     condition_id: str
-    kind: str  # 本波只实现 "ma_breakdown"（MVP 事件研究）
+    kind: str  # MVP 至少 "ma60_breakdown"
     params: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -187,6 +181,21 @@ class ConditionSpec:
 class EventSignal:
     condition_id: str
     event_date: str
+
+
+@dataclass(frozen=True)
+class EventObservation:
+    """事件研究的收益载体（design §4.1，T2-fix-4）。
+
+    `excess_returns` = 事件日后第 1..max(window) 个交易日的**逐日相对基准超额**；
+    metrics 只消费本结构，不直接读价格。
+    """
+
+    code: str
+    event_date: str
+    condition_id: str
+    benchmark_kind: str
+    excess_returns: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -266,10 +275,10 @@ class RunRecord:
     status: RunStatus
     at: str
     experiment_id: str | None = None
-    hypothesis_id: str | None = None  # 导出 join 键（R1-03：hypothesis_id + experiment_id）
+    hypothesis_id: str | None = None  # T2-fix-4：拒绝/烧毁发生在结果行之前也可查询
     reason: str | None = None
     prereg_commit: str | None = None
-    data_version: str | None = None  # R1-04：与结果行同名同源（来自 registry 注入）
+    data_version: str | None = None  # captain R1-04：与结果行同名同源（registry 注入）
     row_type: str = "run"
 
 
@@ -321,18 +330,6 @@ class EventStudyResult:
 
 
 @dataclass(frozen=True)
-class EventObservation:
-    """单个事件 × 单个窗口 × 单个基准的超额观测（compute_event_study 的输入行）。"""
-
-    code: str
-    event_date: str
-    window: int
-    benchmark_kind: str
-    excess: float
-    cap_tier: int | None = None
-
-
-@dataclass(frozen=True)
 class AttributionResult:
     beta: float
     size: float
@@ -374,11 +371,7 @@ class GateRecord:
 
 @dataclass(frozen=True)
 class LedgerExportRow:
-    """`ledger` 导出一行（QA-F10 13 字段）。
-
-    `verdict` 在「只有执行行（REJECTED/FAILED）」时为 None（R1-03 join 规则）：
-    verdict 是结论，拒绝/失败没有结论。
-    """
+    """`ledger` 导出一行（QA-F10 13 字段）；只有执行行时 `verdict` 为 None（R1-03）。"""
 
     experiment_id: str
     hypothesis_id: str
@@ -395,111 +388,291 @@ class LedgerExportRow:
     adjust_mode: str | None
 
 
+# --------------------------------------------------------------------------
+# config schema（T2-fix-4：形状固定，数值留空）
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CommissionSpec:
+    rate: float
+    min: float
+
+
+@dataclass(frozen=True)
+class StampTaxSpec:
+    side: str
+    rate: float
+
+
+@dataclass(frozen=True)
+class TransferFeeSpec:
+    rate: float
+    included: bool
+
+
+@dataclass(frozen=True)
+class SlippageTierSpec:
+    amount_lower: float
+    amount_upper: float
+    bps: float
+
+
+@dataclass(frozen=True)
+class LiquidityCapSpec:
+    adv_tier: str
+    max_participation: float
+
+
+@dataclass(frozen=True)
+class GateCriteria:
+    """三级门禁判据（Q7 待答复）：shape 固定、数值留空，缺即不允许 transition。"""
+
+    backtest_pass: Mapping[str, Any] | None = None
+    shadow: Mapping[str, Any] | None = None
+    direction_agree: Mapping[str, Any] | None = None
+    small_position: Mapping[str, Any] | None = None
+
+
 @dataclass(frozen=True)
 class BacktestConfig:
-    """回测运行配置（QA-F10：落盘路径可注入；口径参数缺键即拒绝）。"""
+    """`config/app.yaml` `backtest:` 段的类型化视图（design §4.1，T2-fix-4）。
+
+    必须键缺失 → `MissingBacktestConfigError`；待 Q 键形状固定、数值留空，
+    消费处发现 None 即拒绝（不预埋默认）。
+    """
 
     results_dir: Path
     registry_store_path: Path
-    prereg_dir: Path
-    params: Mapping[str, Any]
+    segments: tuple[Segment, ...]
+    windows: tuple[int, ...]
+    max_delay_days: int | None
+    min_events: int | None
+    commission: CommissionSpec | None = None
+    stamp_tax: StampTaxSpec | None = None
+    transfer_fee: TransferFeeSpec | None = None
+    slippage_tiers: tuple[SlippageTierSpec, ...] | None = None
+    liquidity_cap: tuple[LiquidityCapSpec, ...] | None = None
+    limit_pct: Mapping[str, Any] | None = None
+    seal_definition: str | None = None
+    suspend_source: str | None = None
+    cut_basis: str | None = None
+    tier_count: int | None = None
+    recompute_freq: str | None = None
+    min_group_size: int | None = None
+    gate_criteria: GateCriteria | None = None
+    block_length: int | None = None
+    n_bootstrap: int | None = None
+    shrink: float | None = None
+    burn_scope: str | None = None
+    burn_counts_as_second: tuple[str, ...] | None = None
+    exception_approver: str | None = None
+    k_components: tuple[str, ...] | None = None
+    custom_allowed: bool | None = None
+    k_cost_per_window: int | None = None
     source_path: Path | None = None
-
-    # ---- 读值入口（缺键/空值/None 一律拒绝）----
-    def require(self, dotted: str, *, allow_empty: bool = False) -> Any:
-        value: Any = self.params
-        for part in dotted.split("."):
-            if not isinstance(value, Mapping) or part not in value:
-                raise MissingBacktestConfigError(f"回测配置缺键: {dotted}")
-            value = value[part]
-        if value is None:
-            raise MissingBacktestConfigError(f"回测配置缺键（未答复）: {dotted}")
-        if not allow_empty and isinstance(value, (list, tuple, dict)) and len(value) == 0:
-            raise MissingBacktestConfigError(f"回测配置缺键（空值）: {dotted}")
-        return value
-
-    def get(self, dotted: str, default: Any = None) -> Any:
-        value: Any = self.params
-        for part in dotted.split("."):
-            if not isinstance(value, Mapping) or part not in value:
-                return default
-            value = value[part]
-        return value
-
-    def missing(self, keys: tuple[str, ...]) -> list[str]:
-        missing: list[str] = []
-        for key in keys:
-            try:
-                self.require(key)
-            except MissingBacktestConfigError:
-                missing.append(key)
-        return missing
-
-    def require_keys(self, keys: tuple[str, ...]) -> None:
-        missing = self.missing(keys)
-        if missing:
-            raise MissingBacktestConfigError("回测配置缺键: " + ", ".join(missing))
-
-    @property
-    def segments(self) -> dict["Segment", tuple[str, str]]:
-        """三段样本边界（design §4.2 R3：`BacktestConfig.segments`）。
-
-        Q3（右边界/滚动）未答复 → 三个段必须**显式配置**起止，缺键即拒绝；
-        段之间不得重叠（跨段请求因此可被识别，R3 Scenario2）。
-        """
-        raw = self.require("segments")
-        if not isinstance(raw, Mapping):
-            raise MissingBacktestConfigError("回测配置 segments 必须是映射")
-        result: dict["Segment", tuple[str, str]] = {}
-        for segment in (Segment.TRAIN, Segment.VALIDATION, Segment.OUT_OF_SAMPLE):
-            item = raw.get(segment.value)
-            if not isinstance(item, Mapping):
-                raise MissingBacktestConfigError(f"回测配置缺键: segments.{segment.value}")
-            start = item.get("start")
-            end = item.get("end")
-            if not start or not end:
-                raise MissingBacktestConfigError(
-                    f"回测配置缺键: segments.{segment.value}.start/end（Q3 未答复）"
-                )
-            if str(start) >= str(end):
-                raise MissingBacktestConfigError(
-                    f"segments.{segment.value} 起止非法: {start} >= {end}"
-                )
-            result[segment] = (str(start), str(end))
-        ordered = [result[Segment.TRAIN], result[Segment.VALIDATION], result[Segment.OUT_OF_SAMPLE]]
-        for earlier, later in zip(ordered, ordered[1:]):
-            if not earlier[1] < later[0]:
-                raise MissingBacktestConfigError(
-                    "segments 三段必须互不重叠且按时间递增（R3 Scenario2）"
-                )
-        return result
 
     @classmethod
     def from_config(
-        cls,
-        config: Mapping[str, Any] | None,
-        *,
-        base_dir: Path | None = None,
-        require_pipeline: bool = True,
+        cls, config: Mapping[str, Any] | None, *, base_dir: Path | None = None
     ) -> "BacktestConfig":
         """从 `backtest:` 段（或整个 app 配置）构造；相对路径按 `base_dir`（默认 cwd）。"""
         base = Path(base_dir) if base_dir is not None else Path.cwd()
         section: Mapping[str, Any] = dict(config or {})
         if isinstance(section.get("backtest"), Mapping):
             section = dict(section["backtest"])  # type: ignore[index]
-        cfg = cls(
+        missing = [key for key in MUST_KEYS if key not in section]
+        if missing:
+            raise MissingBacktestConfigError("回测配置缺键: " + ", ".join(missing))
+        segments = _parse_segments(section["segments"])
+        custom_allowed = section.get("custom_allowed")
+        windows = _parse_windows(section["windows"], custom_allowed=custom_allowed)
+        return cls(
             results_dir=_resolve_path(section.get("results_dir"), base, DEFAULT_RESULTS_DIR),
             registry_store_path=_resolve_path(
                 section.get("registry_store_path"), base, DEFAULT_REGISTRY_STORE
             ),
-            prereg_dir=_resolve_path(section.get("prereg_dir"), base, DEFAULT_PREREG_DIR),
-            params=section,
+            segments=segments,
+            windows=windows,
+            max_delay_days=_opt_int(section["max_delay_days"], "max_delay_days"),
+            min_events=_opt_int(section["min_events"], "min_events"),
+            commission=_parse_commission(section.get("commission")),
+            stamp_tax=_parse_stamp_tax(section.get("stamp_tax")),
+            transfer_fee=_parse_transfer_fee(section.get("transfer_fee")),
+            slippage_tiers=_parse_slippage(section.get("slippage_tiers")),
+            liquidity_cap=_parse_liquidity(section.get("liquidity_cap")),
+            limit_pct=_opt_mapping(section.get("limit_pct")),
+            seal_definition=_opt_str(section.get("seal_definition")),
+            suspend_source=_opt_str(section.get("suspend_source")),
+            cut_basis=_opt_str(section.get("cut_basis")),
+            tier_count=_opt_int(section.get("tier_count"), "tier_count"),
+            recompute_freq=_opt_str(section.get("recompute_freq")),
+            min_group_size=_opt_int(section.get("min_group_size"), "min_group_size"),
+            gate_criteria=_parse_gate_criteria(section.get("gates", section.get("gate_criteria"))),
+            block_length=_opt_int(section.get("block_length"), "block_length"),
+            n_bootstrap=_opt_int(section.get("n_bootstrap"), "n_bootstrap"),
+            shrink=_opt_float(section.get("shrink"), "shrink"),
+            burn_scope=_opt_str(section.get("burn_scope")),
+            burn_counts_as_second=_opt_str_tuple(section.get("burn_counts_as_second")),
+            exception_approver=_opt_str(section.get("exception_approver")),
+            k_components=_opt_str_tuple(section.get("k_components")),
+            custom_allowed=None if custom_allowed is None else bool(custom_allowed),
+            k_cost_per_window=_opt_int(section.get("k_cost_per_window"), "k_cost_per_window"),
         )
-        if require_pipeline:
-            cfg.require_keys(PIPELINE_REQUIRED_KEYS)
-        return cfg
+
+
+# --------------------------------------------------------------------------
+# config 解析辅助（形状校验；数值缺失 → None，由消费处拒绝）
+# --------------------------------------------------------------------------
 
 
 def _resolve_path(value: Any, base: Path, default: str) -> Path:
     path = Path(str(value)) if value not in (None, "") else Path(default)
     return path if path.is_absolute() else base / path
+
+
+def _opt_int(value: Any, name: str) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise MissingBacktestConfigError(f"{name} 非法: {value!r}") from exc
+
+
+def _opt_float(value: Any, name: str) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise MissingBacktestConfigError(f"{name} 非法: {value!r}") from exc
+
+
+def _opt_str(value: Any) -> str | None:
+    return None if value in (None, "") else str(value)
+
+
+def _opt_mapping(value: Any) -> Mapping[str, Any] | None:
+    return dict(value) if isinstance(value, Mapping) else None
+
+
+def _opt_str_tuple(value: Any) -> tuple[str, ...] | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise MissingBacktestConfigError(f"应为字符串数组，实际 {value!r}")
+    return tuple(str(item) for item in value)
+
+
+def _parse_segments(value: Any) -> tuple[Segment, ...]:
+    if isinstance(value, Mapping):
+        names = list(value.keys())
+    elif isinstance(value, (list, tuple)):
+        names = [str(item) for item in value]
+    else:
+        raise MissingBacktestConfigError(f"segments 形状非法: {value!r}（须为三段名单）")
+    try:
+        segments = tuple(Segment(str(name)) for name in names)
+    except ValueError as exc:
+        raise MissingBacktestConfigError(f"segments 含未知区段: {names}") from exc
+    required = {Segment.TRAIN, Segment.VALIDATION, Segment.OUT_OF_SAMPLE}
+    if set(segments) != required:
+        raise MissingBacktestConfigError(f"segments 必须为三段 {sorted(s.value for s in required)}")
+    return segments
+
+
+def _parse_windows(value: Any, *, custom_allowed: Any) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise MissingBacktestConfigError(f"windows 形状非法: {value!r}（须为非空数组）")
+    windows = tuple(int(item) for item in value)
+    if any(window < 1 for window in windows):
+        raise MissingBacktestConfigError(f"windows 含非法窗口: {windows}")
+    if custom_allowed is not True:
+        unsupported = [window for window in windows if window not in EVENT_WINDOWS]
+        if unsupported:
+            raise MissingBacktestConfigError(
+                f"自定义窗口未获确认（Q8）: {unsupported}；未答复前只允许 {EVENT_WINDOWS}"
+            )
+    return windows
+
+
+def _parse_commission(value: Any) -> CommissionSpec | None:
+    if not isinstance(value, Mapping):
+        return None
+    rate, minimum = value.get("rate"), value.get("min")
+    if rate is None or minimum is None:
+        return None
+    return CommissionSpec(rate=float(rate), min=float(minimum))
+
+
+def _parse_stamp_tax(value: Any) -> StampTaxSpec | None:
+    if not isinstance(value, Mapping):
+        return None
+    rate = value.get("rate")
+    if rate is None:
+        return None
+    return StampTaxSpec(side=str(value.get("side") or "sell"), rate=float(rate))
+
+
+def _parse_transfer_fee(value: Any) -> TransferFeeSpec | None:
+    if not isinstance(value, Mapping):
+        return None
+    included = value.get("included")
+    if included is None:
+        return None
+    if not bool(included):
+        return TransferFeeSpec(rate=0.0, included=False)
+    rate = value.get("rate")
+    if rate is None:
+        return None
+    return TransferFeeSpec(rate=float(rate), included=True)
+
+
+def _parse_slippage(value: Any) -> tuple[SlippageTierSpec, ...] | None:
+    if not isinstance(value, (list, tuple)) or not value:
+        return None
+    tiers: list[SlippageTierSpec] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise MissingBacktestConfigError(f"slippage_tiers 档位不是映射: {item!r}")
+        missing = [key for key in ("amount_lower", "amount_upper", "bps") if item.get(key) is None]
+        if missing:
+            raise MissingBacktestConfigError(f"slippage_tiers 缺键: {missing}")
+        tiers.append(
+            SlippageTierSpec(
+                amount_lower=float(item["amount_lower"]),
+                amount_upper=float(item["amount_upper"]),
+                bps=float(item["bps"]),
+            )
+        )
+    return tuple(tiers)
+
+
+def _parse_liquidity(value: Any) -> tuple[LiquidityCapSpec, ...] | None:
+    if not isinstance(value, (list, tuple)) or not value:
+        return None
+    caps: list[LiquidityCapSpec] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise MissingBacktestConfigError(f"liquidity_cap 档位不是映射: {item!r}")
+        if item.get("adv_tier") is None or item.get("max_participation") is None:
+            raise MissingBacktestConfigError("liquidity_cap 缺 adv_tier/max_participation")
+        caps.append(
+            LiquidityCapSpec(
+                adv_tier=str(item["adv_tier"]),
+                max_participation=float(item["max_participation"]),
+            )
+        )
+    return tuple(caps)
+
+
+def _parse_gate_criteria(value: Any) -> GateCriteria | None:
+    if not isinstance(value, Mapping):
+        return None
+    return GateCriteria(
+        backtest_pass=_opt_mapping(value.get("backtest_pass")),
+        shadow=_opt_mapping(value.get("shadow")),
+        direction_agree=_opt_mapping(value.get("direction_agree")),
+        small_position=_opt_mapping(value.get("small_position")),
+    )

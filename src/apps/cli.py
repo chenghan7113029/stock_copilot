@@ -36,7 +36,6 @@ from apps.formatters import (
 from common.cli_progress import CliProgress, cli_progress_enabled
 from common.config_loader import is_data_source_enabled, load_app_config, resolve_feishu_config
 from common.exceptions import (
-    BacktestDataGapError,
     BacktestError,
     CalibrationFailedError,
     KlineUnavailableError,
@@ -111,17 +110,18 @@ from data_provider.sentiment.provider import MarketSentimentProvider
 from data_provider.toplist.provider import TopListProvider, TopListRepos
 from service.backtest.calibration import assert_calibrated, calibration_payload, run_calibration
 from service.backtest.config import resolve_backtest_config
-from service.backtest.data import load_price_series
-from service.backtest.gates import GATE_STORE_NAME, GateStateMachine
+from service.backtest.data import load_event_observations, load_price_series
+from service.backtest.gates import GateStateMachine
 from service.backtest.metrics import (
     compute_event_study,
     insufficient_sample,
     multiple_testing_correction,
     p_value_from_t,
     t_statistic,
+    window_excess_series,
 )
 from service.backtest.models import (
-    EVENT_WINDOWS,
+    DEFAULT_PREREG_DIR,
     AdjustMode,
     BacktestConfig,
     Benchmark,
@@ -140,7 +140,7 @@ from service.backtest.registry import (
     preregistration_from_mapping,
     write_preregistration_file,
 )
-from service.backtest.signal import evaluate_condition
+from service.backtest.signal import MA_WINDOW, evaluate_condition
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
 from service.event.analyzer import EventAnalyzer
@@ -1682,15 +1682,17 @@ def _backtest_registry(cfg: BacktestConfig) -> ExperimentRegistry:
     return ExperimentRegistry(
         cfg.registry_store_path,
         clock=_backtest_clock,
-        data_version=str(cfg.get("data_version") or ""),
+        data_version="",  # 数据快照版本由数据源/调用方提供；CLI 侧不猜
         results_dir=cfg.results_dir,
     )
 
 
-def _backtest_config(args: argparse.Namespace, *, require_pipeline: bool) -> BacktestConfig:
-    return resolve_backtest_config(
-        getattr(args, "config", None), cwd=Path.cwd(), require_pipeline=require_pipeline
-    )
+def _backtest_config(args: argparse.Namespace) -> BacktestConfig:
+    return resolve_backtest_config(getattr(args, "config", None), cwd=Path.cwd())
+
+
+def _prereg_dir() -> Path:
+    return Path.cwd() / DEFAULT_PREREG_DIR
 
 
 def _git(args: list[str], *, cwd: str | None = None) -> subprocess.CompletedProcess:
@@ -1762,13 +1764,13 @@ def _git_commit_preregistration(path: Path, hypothesis_id: str) -> str | None:
 
 
 def _bt_preregister(args: argparse.Namespace) -> int:
-    cfg = _backtest_config(args, require_pipeline=False)
+    cfg = _backtest_config(args)
     file_path = getattr(args, "file", None)
     hypothesis = getattr(args, "hypothesis", None)
     if bool(file_path) == bool(hypothesis):
         print("[error] preregister 需要 --file <path> 或 --hypothesis <id> 二选一", file=sys.stderr)
         return 1
-    source = Path(file_path) if file_path else cfg.prereg_dir / f"{hypothesis}.yaml"
+    source = Path(file_path) if file_path else _prereg_dir() / f"{hypothesis}.yaml"
     if not source.exists():
         print(f"[error] 预注册文件不存在: {source}", file=sys.stderr)
         return 1
@@ -1782,7 +1784,7 @@ def _bt_preregister(args: argparse.Namespace) -> int:
     spec = preregistration_from_mapping(data)
     registry = _backtest_registry(cfg)
     registry.validate_preregistration(spec)
-    destination = cfg.prereg_dir / f"{spec.hypothesis_id}.yaml"
+    destination = _prereg_dir() / f"{spec.hypothesis_id}.yaml"
     write_preregistration_file(spec, destination)
     commit = _git_commit_preregistration(destination, spec.hypothesis_id)
     print(f"[ok] 预注册 {spec.hypothesis_id} → {destination}")
@@ -1797,11 +1799,11 @@ def _bt_preregister(args: argparse.Namespace) -> int:
 
 
 def _bt_run(args: argparse.Namespace) -> int:
-    cfg = _backtest_config(args, require_pipeline=True)
+    cfg = _backtest_config(args)
     registry = _backtest_registry(cfg)
     hypothesis_id = str(args.hypothesis)
     identifier = registry.next_experiment_id(hypothesis_id)
-    spec = registry.load_preregistration(hypothesis_id, prereg_dir=cfg.prereg_dir)
+    spec = registry.load_preregistration(hypothesis_id, prereg_dir=_prereg_dir())
     if spec is None:
         registry.append_run(
             RunRecord(
@@ -1818,7 +1820,7 @@ def _bt_run(args: argparse.Namespace) -> int:
         )
         return 1
     registry.validate_preregistration(spec)
-    commit = _prereg_commit(cfg.prereg_dir / f"{hypothesis_id}.yaml")
+    commit = _prereg_commit(_prereg_dir() / f"{hypothesis_id}.yaml")
     if not commit:
         reason = "预注册未提交：拒绝执行（R1 Scenario 3）"
         registry.append_run(
@@ -1849,9 +1851,7 @@ def _bt_run(args: argparse.Namespace) -> int:
         )
         print(f"[error] 回测失败：{exc}", file=sys.stderr)
         return 1
-    print(
-        f"[ok] 实验 {record.experiment_id} verdict={record.verdict.value} K={record.K}"
-    )
+    print(f"[ok] 实验 {record.experiment_id} verdict={record.verdict.value} K={record.K}")
     return 0
 
 
@@ -1876,55 +1876,37 @@ def _run_backtest_experiment(
     condition_raw = dict(params.get("condition") or {})
     condition = ConditionSpec(
         condition_id=str(condition_raw.get("condition_id") or "ma60_breakdown"),
-        kind=str(condition_raw.get("kind") or "ma_breakdown"),
-        params=dict(condition_raw.get("params") or {}),
+        kind=str(condition_raw.get("kind") or "ma60_breakdown"),
+        params=dict(condition_raw.get("params") or {"window": MA_WINDOW}),
     )
     benchmarks = tuple(Benchmark(kind=str(item), label=str(item)) for item in spec.benchmarks)
     if not benchmarks:
         raise BacktestError("预注册未指定基准：不得给出有效判定（R13）")
     loader = build_backtest_loader(cfg)
     prices = load_price_series(codes, start, end, AdjustMode.HFQ, loader=loader)
-    observations: list[EventObservation] = []
+    signals = []
     for code, bars in prices.items():
         for index in range(1, len(bars)):
             snapshot = PointInTimeSnapshot(
                 as_of=bars[index].trade_date, price=tuple(bars[: index + 1])
             )
-            if evaluate_condition(snapshot, condition) is None:
-                continue
-            for window in EVENT_WINDOWS:
-                exit_index = index + window
-                if exit_index >= len(bars):
-                    continue
-                forward = bars[exit_index].close / bars[index].close - 1.0
-                for benchmark in benchmarks:
-                    excess = _event_excess(loader, benchmark, forward, bars, index, exit_index)
-                    observations.append(
-                        EventObservation(
-                            code=code,
-                            event_date=bars[index].trade_date,
-                            window=window,
-                            benchmark_kind=benchmark.kind,
-                            excess=excess,
-                        )
-                    )
-    if not observations:
-        raise BacktestError("事件研究无事件：不得产出结论（R17）")
-    result = compute_event_study(observations, benchmarks, cfg=cfg)
+            signal = evaluate_condition(snapshot, condition)
+            if signal is not None:
+                signals.append(signal)
+    observations = load_event_observations(signals, benchmarks, loader=loader, cfg=cfg)
+    result = compute_event_study(observations, cfg=cfg)
     insufficient = insufficient_sample(result, cfg=cfg)
-    alpha = float(cfg.require("alpha"))
     K = int(params["K"])
-    method = str(spec.correction_method)
     metrics: dict[str, Any] = {
         "event_study": asdict(result),
         "insufficient_sample": list(insufficient),
         "n_observations": len(observations),
         "adjust_mode": AdjustMode.HFQ.value,
-        "corrected_p": _primary_corrected_p(cfg, observations, result, K=K, method=method),
+        "corrected_p": _primary_corrected_p(
+            cfg, observations, result, K=K, method=str(spec.correction_method)
+        ),
     }
-    verdict = _event_study_verdict(
-        cfg, observations, result, insufficient=insufficient, alpha=alpha, metrics=metrics
-    )
+    verdict = _event_study_verdict(insufficient=insufficient, metrics=metrics, result=result)
     at = registry.clock()
     registry.append_run(
         RunRecord(
@@ -1945,7 +1927,7 @@ def _run_backtest_experiment(
         verdict=verdict,
         metrics=metrics,
         prereg_commit=commit,
-        data_version=str(cfg.get("data_version") or ""),
+        data_version="",
         adjust_mode=AdjustMode.HFQ,
         timestamps={"created_at": at, "finished_at": registry.clock()},
     )
@@ -1954,55 +1936,24 @@ def _run_backtest_experiment(
     return record
 
 
-def _event_excess(
-    loader: Any,
-    benchmark: Benchmark,
-    forward: float,
-    bars: Any,
-    index: int,
-    exit_index: int,
-) -> float:
-    if benchmark.kind == "buy_and_hold":
-        # MVP 事件 = 「条件成立即离场」：空仓相对买入持有的超额（与 R18 校准题同口径）
-        return -forward
-    if benchmark.kind == "market_portfolio":
-        method = getattr(loader, "load_benchmark_return", None)
-        if method is None:
-            raise BacktestDataGapError("市场组合基准序列缺失：不得只算单基准（R13/R17）")
-        benchmark_return = float(
-            method(
-                kind=benchmark.kind,
-                start=bars[index].trade_date,
-                end=bars[exit_index].trade_date,
-            )
-        )
-        return -forward - benchmark_return
-    raise BacktestError(f"未知基准: {benchmark.kind!r}（R13 只允许买入持有/市场组合）")
-
-
 def _primary_sample(
-    observations: Sequence[Any], result: Any
+    cfg: BacktestConfig, observations: Sequence[EventObservation], result: Any
 ) -> tuple[str, str, list[float]]:
     window = str(max(int(key) for key in result.windows))
     per_benchmark = result.windows[window]
     kind = "market_portfolio" if "market_portfolio" in per_benchmark else sorted(per_benchmark)[0]
-    values = [
-        float(item.excess)
-        for item in observations
-        if str(item.window) == window and item.benchmark_kind == kind
-    ]
-    return window, kind, values
+    return window, kind, list(window_excess_series(observations, int(window), kind))
 
 
 def _primary_corrected_p(
     cfg: BacktestConfig,
-    observations: Sequence[Any],
+    observations: Sequence[EventObservation],
     result: Any,
     *,
     K: int,
     method: str,
 ) -> float | None:
-    _window, _kind, values = _primary_sample(observations, result)
+    _window, _kind, values = _primary_sample(cfg, observations, result)
     if len(values) < 2:
         return None
     p_value = p_value_from_t(t_statistic(values))
@@ -2010,27 +1961,23 @@ def _primary_corrected_p(
 
 
 def _event_study_verdict(
-    cfg: BacktestConfig,
-    observations: Sequence[Any],
-    result: Any,
     *,
     insufficient: Sequence[str],
-    alpha: float,
     metrics: dict[str, Any],
+    result: Any,
 ) -> Verdict:
     if insufficient:
         return Verdict.INCONCLUSIVE
-    window, kind, _values = _primary_sample(observations, result)
-    stats = result.windows[window][kind]
-    corrected = metrics.get("corrected_p")
+    window = str(max(int(key) for key in result.windows))
+    per_benchmark = result.windows[window]
+    kind = "market_portfolio" if "market_portfolio" in per_benchmark else sorted(per_benchmark)[0]
+    stats = per_benchmark[kind]
     significant = stats.ci[1] < 0.0 or stats.ci[0] > 0.0
-    if corrected is None or float(corrected) >= alpha or not significant:
-        return Verdict.INVALID  # 结论「无信号」（R17 允许），不等于台子不可信
-    return Verdict.VALID
+    return Verdict.VALID if significant else Verdict.INVALID
 
 
 def _bt_calibrate(args: argparse.Namespace) -> int:
-    cfg = _backtest_config(args, require_pipeline=True)
+    cfg = _backtest_config(args)
     registry = _backtest_registry(cfg)
     loader = build_backtest_loader(cfg)
     result = run_calibration(cfg=cfg, loader=loader, registry=registry)
@@ -2044,14 +1991,14 @@ def _bt_calibrate(args: argparse.Namespace) -> int:
 
 
 def _bt_ledger(args: argparse.Namespace) -> int:
-    cfg = _backtest_config(args, require_pipeline=False)
+    cfg = _backtest_config(args)
     registry = _backtest_registry(cfg)
     experiment_id = getattr(args, "experiment", None)
     hypothesis_id = getattr(args, "hypothesis", None)
     rows = registry.export_ledger(
         experiment_id=experiment_id,
         hypothesis_id=hypothesis_id,
-        prereg_dir=cfg.prereg_dir,
+        prereg_dir=_prereg_dir(),
     )
     if (experiment_id or hypothesis_id) and not rows:
         print(
@@ -2065,12 +2012,8 @@ def _bt_ledger(args: argparse.Namespace) -> int:
 
 
 def _bt_gate(args: argparse.Namespace) -> int:
-    cfg = _backtest_config(args, require_pipeline=False)
-    machine = GateStateMachine(
-        cfg.registry_store_path.parent / GATE_STORE_NAME,
-        cfg=cfg,
-        clock=_backtest_clock,
-    )
+    cfg = _backtest_config(args)
+    machine = GateStateMachine(_backtest_registry(cfg), cfg=cfg)
     rule_id = str(args.rule)
     target = getattr(args, "to", None)
     if target:
@@ -2089,7 +2032,7 @@ def _bt_gate(args: argparse.Namespace) -> int:
 
 
 def run_backtest_command(args: argparse.Namespace) -> int:
-    """`backtest` 子命令分发；返回码即进程退出码（0 支持 / 1 参数·配置·数据错误 / 2 门禁失败）。"""
+    """`backtest` 子命令分发；返回码即进程退出码（0 成功 / 1 参数·配置·数据错误 / 2 门禁失败）。"""
     handlers = {
         "preregister": _bt_preregister,
         "run": _bt_run,

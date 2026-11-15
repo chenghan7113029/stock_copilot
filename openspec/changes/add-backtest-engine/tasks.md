@@ -210,3 +210,49 @@ Phase 7 CLI 装配与端到端
 - `python -m pytest -q -m "not network and not akshare_legacy" --ignore=test/qa` → **955 passed / exit 0**（**过程证据，不替代全量闸门**）。
 - 含 QA（commit `0cc6f85`）的 `test/qa/backtest/` 全量跑 → **977 passed / 31 failed / 3 errors / exit 1**：红点全部来自 QA 盲测草稿与冻结 design 的夹具形状差异（详见 `verification.md` §3），**engineer 未改 `test/qa/`、未为过闸门放宽断言**。
 - 结论：T3 实现与 engineer 单测完成；**全量闸门未通过**，待 t15（architect 补 config schema + 裁决契约歧义）后由 t17 对齐，再由 T5 复核。
+
+---
+
+## T3-align 记录（engineer，t17；按 t15 补后契约）
+
+> 基线：`5f8f631`（design §4.1 + §10 T2-fix-4）。本波**不再单方改契约**，只把实现/单测对齐到补后契约。
+> 证据：`pytest test/service/backtest` 115 passed、`pytest -m "not network and not akshare_legacy" --ignore=test/qa` 978 passed、`ruff` scoped 0、`compileall` 0、`openspec validate --strict` 0（均为 exit 0）。
+
+### 对齐的契约点（实现 + 单测同步）
+
+| # | 契约（t15） | 实现对齐 |
+| --- | --- | --- |
+| 1 | `BacktestConfig` 全量 schema（必须键 `results_dir/registry_store_path/segments/windows/max_delay_days/min_events`；待 Q 键 22 个；成本 spec `CommissionSpec/StampTaxSpec/TransferFeeSpec/SlippageTierSpec/LiquidityCapSpec`；`GateCriteria`） | `models.py` 重写为类型化字段 + `from_config` 形状/必须键校验（缺键即 `MissingBacktestConfigError`；待 Q 值缺失 = `None`，消费处拒绝）；`config/app.example.yaml`（tracked）按 design 写全 28 键、数值留空；`config/app.yaml` 同步为本机副本 |
+| 2 | 事件收益载体 `EventObservation{code,event_date,condition_id,benchmark_kind,excess_returns}` + `ConditionSpec` + `load_event_observations(signals, benchmarks, *, loader, cfg)` | `models.py` 按 5 字段实现；`data.py` 新增 `load_event_observations`（逐日超额，`horizon=max(cfg.windows)`）；`signal.py` 条件类型固定 `ma60_breakdown`、参数只 `{window}` |
+| 3 | `compute_event_study(observations, *, cfg)`（**无 benchmarks 参数**） | `metrics.py` 改为只收 `EventObservation`，按 `benchmark_kind × cfg.windows` 聚合；窗口超额 = `excess_returns[:window]` 之和（CAR）；`block_length/n_bootstrap` 取自 cfg（None → 拒绝） |
+| 4 | `GateStateMachine(registry, *, cfg)`（**无 clock 形参**）；判据来自 `cfg.gate_criteria`，缺失 → `MissingBacktestConfigError` | `gates.py` 构造收齐为 `(registry, *, cfg=None)`；时间戳/持久化经 `registry.clock` 与 `registry.store_path`；判据缺失直接拒绝 transition（不留痕、不降级）；跳级仍抛 `GateSkipError` + 追加 `RunRecord(REJECTED)` |
+| 5 | `mark_burnt` 追加执行行 `RunRecord(reason="样本外已烧毁", hypothesis_id, experiment_id, at)`；导出 `burnt` 由此派生 | `registry.py` 实现为 append `RunRecord(status=RUNNING, reason=退出标记常量)`，同一假设幂等、换实验拒绝；`export_ledger` 的 `burnt` = 存在该执行行（或结果行快照） |
+| 6 | `attribution(returns, factors, benchmarks)`：beta 由 `market_portfolio` 回归推导（不入参）、`factors` 键集固定 `{size,value,momentum}`、缺 `market_portfolio` → 归因 INCONCLUSIVE | `metrics.py` 实现：`returns` 支持映射 `{strategy, market_portfolio}`；缺因子键/缺基准序列 → 拒绝；beta = cov/var 市场收益 |
+| 7 | R11 `visible_from = ann_date`（缺才回退，spec 优先） | 已在 `data.py` + `financial_timing.py` 按 spec 实现（本次未改） |
+
+### 回退 / 删除（t13 自定、与补后契约冲突的部分）
+
+1. `BacktestConfig.params` + `require()/get()/missing()/require_keys()` 访问器 → 类型化字段（design schema），删除自定键 `prereg_dir/data_version/trading_calendar/alpha/correction_method/calibration.*/stability.*/segments 边界映射`。
+2. `GateStateMachine(store_or_registry, *, cfg, clock)` → `(registry, *, cfg)`；删除 `clock` 形参与 Path 构造（时钟改由 registry 注入）。
+3. `execute_orders(..., positions=...)` → 回到 design 签名 `(orders, prices, *, cfg)`；T+1 持仓来源 = 同批次 Buy 成交日。
+4. `EventObservation` 旧字段 `window/excess/cap_tier` → 契约 5 字段。
+5. `LiquidityRules` 的「按成交金额匹配档位」→ design 的 `{adv_tier, max_participation}`（单档可用；多档缺 adv_tier 数据源 → `BacktestDataGapError`）。
+6. 校准题的自定 `calibration.*` 配置键 → 删除（见下方残余歧义 3）。
+
+### 保留
+
+- `RunRecord.data_version`（captain R1-04 裁定）。
+- `ConditionSpec` / `EventObservation`（t15 已采纳）。
+- 8 类回测异常、`PreregistrationSpec` 校验/读写、`segment_of`/`SEGMENT_YEAR_RANGES`（spec R3 常量）、CLI `build_backtest_loader` 注入点（patch 点）。
+
+### 残余歧义（**未自行补**，待 architect 裁决）
+
+1. `load_event_observations` 的 loader 取数形状：`EventSignal` 无 `code`，本波定义为 `load_forward_returns(signal, horizon) -> (code, 逐日收益)` + `load_benchmark_forward_returns(kind, signal, horizon)`；design 未固定，需裁决是否写进契约。
+2. `attribution` 的市场基准收益来源：design 只写「beta 由 market_portfolio 基准收益回归推导（不入参）」但 `Benchmark{kind,label}` 无序列字段；本波把序列放进 `returns` 映射（`strategy` + `market_portfolio`）。另 `AttributionResult` 无 verdict 字段，故「缺 market_portfolio → INCONCLUSIVE」用 `BacktestError` 文案表达，判定由调用方结果行承担。
+3. 校准题参数：schema 无 `calibration.*`/`alpha`。本波取 spec 固定值：区间 = R3 三段年份（2015-01-01 ~ 2026-12-31）、窗口 = `cfg.windows` 的最大值、K = 校准执行次数（执行行可数）、「显著」判据 = CI 不含 0（KQ-5 未答复）、成本 = 比例口径近似（佣金×2 + 卖出印花税 + 首档滑点×2，notes 标注）、次新股沿用 MA20 替代（KQ-1 未答复，notes 标注）。需 architect 确认是否补 `calibration.*` 键。
+4. `liquidity_cap` 多档需要「日均成交额 → adv_tier」数据源；本机缺口，多档配置直接 `BacktestDataGapError`。
+
+### 闸门状态
+
+- 前 5 条验收命令全部 exit 0（engineer 套件 115 passed；`--ignore=test/qa` 978 passed；ruff/compileall/openspec 绿）。
+- 全量含 QA：**24 failed / 1010 passed / exit 1**（t13 时 31 failed + 3 errors → 本次消除 7 条红点 + 全部 3 个 collection error；余下红点均为 QA 盲测夹具/调用面与补后契约不一致，见 T5）。

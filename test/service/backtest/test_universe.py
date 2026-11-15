@@ -32,17 +32,13 @@ def test_result_label_rejected(cfg):
 
 
 def test_cut_basis_missing_rejected(tmp_path, config_factory):
-    cfg = BacktestConfig.from_config(
-        config_factory(**{"cut_basis": None}), base_dir=tmp_path, require_pipeline=False
-    )
+    cfg = BacktestConfig.from_config(config_factory(**{"cut_basis": None}), base_dir=tmp_path)
     with pytest.raises(MissingBacktestConfigError):
         assign_groups(["000001"], "2020-06-30", {"000001": {"market_cap": 1.0}}, cfg=cfg)
 
 
 def test_non_quarterly_recompute_rejected(tmp_path, config_factory):
-    cfg = BacktestConfig.from_config(
-        config_factory(**{"recompute_freq": "monthly"}), base_dir=tmp_path
-    )
+    cfg = BacktestConfig.from_config(config_factory(**{"recompute_freq": "monthly"}), base_dir=tmp_path)
     with pytest.raises(Exception) as exc:
         assign_groups(["000001"], "2020-06-30", {"000001": {"market_cap": 1.0}}, cfg=cfg)
     assert "季度" in str(exc.value)

@@ -19,6 +19,7 @@ from service.backtest.models import (
     AdjustMode,
     ConditionSpec,
     CostBreakdown,
+    EventObservation,
     ExperimentRecord,
     Fill,
     FinancialRecord,
@@ -140,3 +141,54 @@ def test_condition_spec_is_frozen_and_serializable():
     assert spec.params["window"] == 60
     with pytest.raises(Exception):
         spec.kind = "other"  # type: ignore[misc]
+
+
+def test_event_observation_contract_fields():
+    """T2-fix-4：事件收益载体字段固定（code/event_date/condition_id/benchmark_kind/excess_returns）。"""
+    fields = set(EventObservation.__dataclass_fields__)
+    assert fields == {
+        "code",
+        "event_date",
+        "condition_id",
+        "benchmark_kind",
+        "excess_returns",
+    }
+    item = EventObservation(
+        code="000001",
+        event_date="2020-01-06",
+        condition_id="ma60_breakdown",
+        benchmark_kind="buy_and_hold",
+        excess_returns=(-0.01, 0.02),
+    )
+    assert item.excess_returns == (-0.01, 0.02)
+
+
+def test_condition_spec_contract_fields():
+    fields = set(ConditionSpec.__dataclass_fields__)
+    assert fields == {"condition_id", "kind", "params"}
+
+
+def test_config_spec_dataclasses_exist():
+    from service.backtest.models import (
+        BacktestConfig,
+        CommissionSpec,
+        GateCriteria,
+        LiquidityCapSpec,
+        SlippageTierSpec,
+        StampTaxSpec,
+        TransferFeeSpec,
+    )
+
+    assert set(CommissionSpec.__dataclass_fields__) == {"rate", "min"}
+    assert set(StampTaxSpec.__dataclass_fields__) == {"side", "rate"}
+    assert set(TransferFeeSpec.__dataclass_fields__) == {"rate", "included"}
+    assert set(SlippageTierSpec.__dataclass_fields__) == {"amount_lower", "amount_upper", "bps"}
+    assert set(LiquidityCapSpec.__dataclass_fields__) == {"adv_tier", "max_participation"}
+    assert set(GateCriteria.__dataclass_fields__) == {
+        "backtest_pass",
+        "shadow",
+        "direction_agree",
+        "small_position",
+    }
+    assert "segments" in BacktestConfig.__dataclass_fields__
+    assert "gate_criteria" in BacktestConfig.__dataclass_fields__

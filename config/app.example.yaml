@@ -141,75 +141,55 @@ ref:
   daily_stock_analysis: ref/daily_stock_analysis
   valueinvest: ref/valueinvest
   financetoolkit: ref/FinanceToolkit
-# 回测台子（change: add-backtest-engine / design.md §6.4）
-# 纪律：**只放键与空值**——Q1–Q8 / KQ-1…KQ-7 未答复的口径一律留空，缺键即拒绝
-#      （MissingBacktestConfigError，退出码 1）；禁止在此预埋任何费率/税率/阈值/块长/收缩强度。
+# 回测台子（change: add-backtest-engine / design §4.1 BacktestConfig + T2-fix-4 config schema）
+# 契约源：config/app.example.yaml（tracked）；config/app.yaml 是本机副本（.gitignore）。
+# 纪律：必须键 segments/windows/max_delay_days/min_events 必须存在；待 Q 键形状固定、数值留空，
+#      消费处缺值即拒绝（MissingBacktestConfigError，退出码 1）；禁止预埋费率/税率/阈值/块长/收缩强度。
 backtest:
-  # 落盘路径（design §4.1 BacktestConfig，可注入；非口径数值）
+  # 落盘路径（design 明文默认值，可注入；非口径数值）
   results_dir: data/backtest/results
   registry_store_path: data/backtest/registry.ndjson
-  prereg_dir: config/backtest/preregistrations
-  data_version: null              # 数据快照版本，由数据快照/调用方提供（QA-F6）
-  # Q4 费率与滑点现值（缺键即拒绝，不按 0）
+  # 必须键（形状固定；数值待 Q 时留空，消费处拒绝）
+  segments: [train, validation, out_of_sample]   # spec R3 三段；Q3 边界细节未答复按 A2 标注
+  windows: [20, 60]                              # spec R17 固定；自定义窗口待 Q8（custom_allowed）
+  max_delay_days: null                           # 防撮合无限顺延（design §3H）；值不预埋
+  min_events: null                               # R17 事件数下限；值不预埋
+  # Q4 成本 spec（形状对齐 K1 §12.1）
   commission:
     rate: null
     min: null
   stamp_tax:
-    sell_rate: null
-  transfer_fee:
-    included: null                # 是否计入过户费（Q4）
+    side: sell
     rate: null
-  slippage_tiers: []              # [{amount_lower, amount_upper, bps}]
-  liquidity_cap: []               # [{amount_lower, amount_upper, max_participation}]
-  # R8 撮合反模式封口（design §3H：必须存在，否则拒绝执行）
-  max_delay_days: null
-  trading_calendar:
-    holidays: []                  # 休市表为空 → 降级「周一至周五」并在元数据标注（design §8.3）
+  transfer_fee:
+    rate: null
+    included: null
+  slippage_tiers: []                             # [{amount_lower, amount_upper, bps}]
+  liquidity_cap: []                              # [{adv_tier, max_participation}]
   # Q5 涨跌停/停牌判定口径（未答复前按 A3 一字板）
-  limit_pct: null
-  seal_definition: null
+  limit_pct: null                                # {board, st, star, chinext, bj}
+  seal_definition: null                          # 一字板/日终封板/盘中触及
   suspend_source: null
-  # Q6 分组切点（缺键即拒绝，不默认全 A 截面）
+  # Q6 分组切点（缺值即拒绝，不默认全 A 截面）
   cut_basis: null
   tier_count: null
   recompute_freq: null
   min_group_size: null
-  # Q7/KQ-4 三级门禁判据（缺键即不允许 transition）
+  # Q7 三级门禁判据（缺即不允许 transition）
   gates:
-    backtest_pass: null
-    shadow_min_months: null
-    shadow_max_months: null
-    direction_agree: null
-    small_position_max_pct: null
-  # R5/R6/KQ-2 统计推断与多重比较（块长/重采样/阈值/alpha 全部待答复）
+    backtest_pass: null                          # {metric, comparator, threshold, tail, require_significance}
+    shadow: null                                 # {min_months, max_months, clock}
+    direction_agree: null                        # {metric, tolerance}
+    small_position: null                         # {max_pct}
+  # KQ-2 / KQ-3 统计推断参数（缺值即拒绝）
   block_length: null
   n_bootstrap: null
-  alpha: null
-  min_events: null
-  correction_method: null
-  k_components: []                # Q2 K 计数分量（规则/参数网格/切点/档数/窗口）
+  shrink: null
   # Q1 样本外烧毁粒度
   burn_scope: null
-  # R18 校准题（KQ-1/KQ-5/KQ-6）
-  calibration:
-    short_history_policy: null    # ma20_substitute | exclude | flag_only
-    horizon_days: null
-    k: null
-    notional: null
-    codes: []
-    start: null
-    end: null
-  # R14 稳定性（KQ-7：市场状态分档口径未定 → 该维度不参与判定）
-  stability:
-    market_state: null
-  # R3 三段样本边界（Q3 未答复：右边界/滚动留空）
-  segments:
-    train:
-      start: null
-      end: null
-    validation:
-      start: null
-      end: null
-    out_of_sample:
-      start: null
-      end: null
+  burn_counts_as_second: []                      # [params, metrics, implementation, data_version]
+  exception_approver: null
+  # Q2 K 计数分量 / Q8 自定义窗口成本
+  k_components: []                               # [rule, param, cut, tier, window]
+  custom_allowed: null
+  k_cost_per_window: null

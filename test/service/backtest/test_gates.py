@@ -1,4 +1,4 @@
-"""T2.18 三级门禁状态机（R19：不跳级、判据缺键拒绝、唯一状态可查）。"""
+"""T2.18 三级门禁状态机（T2-fix-4：`GateStateMachine(registry, *, cfg)` + gate_criteria 判据）。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import pytest
 
 from common.exceptions import GateSkipError, MissingBacktestConfigError
 from service.backtest.gates import GateStateMachine
-from service.backtest.models import BacktestConfig, GateStage
+from service.backtest.models import BacktestConfig, GateStage, RunStatus
+from service.backtest.registry import ExperimentRegistry
 
 
 class Clock:
@@ -19,30 +20,46 @@ class Clock:
         return self.value
 
 
+def make_registry(tmp_path, clock):
+    return ExperimentRegistry(
+        tmp_path / "registry.ndjson",
+        clock=clock,
+        data_version="test-v1",
+        results_dir=tmp_path / "results",
+    )
+
+
 def make_machine(tmp_path, cfg, clock=None):
-    return GateStateMachine(tmp_path / "gates.ndjson", cfg=cfg, clock=clock or Clock())
+    registry = make_registry(tmp_path, clock or Clock())
+    return registry, GateStateMachine(registry, cfg=cfg)
 
 
 def test_new_rule_starts_pending(tmp_path, cfg):
-    record = make_machine(tmp_path, cfg).current("rule-1")
+    _registry, machine = make_machine(tmp_path, cfg)
+    record = machine.current("rule-1")
     assert record.stage is GateStage.BACKTEST_PENDING
     assert record.stage_timestamps == {}
 
 
 def test_skip_rejected_and_traced(tmp_path, cfg):
-    machine = make_machine(tmp_path, cfg)
+    registry, machine = make_machine(tmp_path, cfg)
     with pytest.raises(GateSkipError):
         machine.transition("rule-1", GateStage.SHADOW_RUNNING, {"experiment_id": "e1"})
-    lines = (tmp_path / "gates.ndjson").read_text(encoding="utf-8").splitlines()
-    payload = json.loads(lines[0])
+    gate_lines = (tmp_path / "gates.ndjson").read_text(encoding="utf-8").splitlines()
+    payload = json.loads(gate_lines[0])
     assert payload["accepted"] is False
-    assert payload["stage"] == "shadow_running"
+    rejected = [
+        row
+        for row in registry.rows()
+        if getattr(row, "status", None) is RunStatus.REJECTED
+    ]
+    assert len(rejected) == 1
     assert machine.current("rule-1").stage is GateStage.BACKTEST_PENDING
 
 
 def test_full_ladder_requires_shadow_months(tmp_path, cfg):
     clock = Clock()
-    machine = make_machine(tmp_path, cfg, clock)
+    _registry, machine = make_machine(tmp_path, cfg, clock)
     machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
     machine.transition("rule-1", GateStage.SHADOW_RUNNING, {"experiment_id": "e1"})
     with pytest.raises(GateSkipError) as exc:
@@ -61,7 +78,7 @@ def test_full_ladder_requires_shadow_months(tmp_path, cfg):
 
 def test_live_requires_direction_agree(tmp_path, cfg):
     clock = Clock()
-    machine = make_machine(tmp_path, cfg, clock)
+    _registry, machine = make_machine(tmp_path, cfg, clock)
     machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
     machine.transition("rule-1", GateStage.SHADOW_RUNNING, {"experiment_id": "e1"})
     clock.value = "2027-01-01T00:00:00"
@@ -70,16 +87,26 @@ def test_live_requires_direction_agree(tmp_path, cfg):
 
 
 def test_missing_gate_criteria_rejects_transition(tmp_path, config_factory):
-    cfg = BacktestConfig.from_config(
-        config_factory(**{"gates.backtest_pass": None}), base_dir=tmp_path, require_pipeline=False
-    )
-    machine = make_machine(tmp_path, cfg)
+    raw = config_factory()
+    raw.pop("gates")
+    cfg = BacktestConfig.from_config(raw, base_dir=tmp_path)
+    registry = make_registry(tmp_path, Clock())
+    machine = GateStateMachine(registry, cfg=cfg)
+    with pytest.raises(MissingBacktestConfigError) as exc:
+        machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
+    assert "gate_criteria" in str(exc.value)
+    assert not (tmp_path / "gates.ndjson").exists()
+
+
+def test_missing_cfg_rejects_transition(tmp_path):
+    registry = make_registry(tmp_path, Clock())
+    machine = GateStateMachine(registry)
     with pytest.raises(MissingBacktestConfigError):
         machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
 
 
 def test_rejected_is_terminal(tmp_path, cfg):
-    machine = make_machine(tmp_path, cfg)
+    _registry, machine = make_machine(tmp_path, cfg)
     record = machine.transition("rule-1", GateStage.REJECTED, {"reason": "方向不一致"})
     assert record.stage is GateStage.REJECTED
     with pytest.raises(GateSkipError):

@@ -129,9 +129,18 @@ def test_validate_preregistration_reports_missing_field_names(registry):
 
 def test_out_of_sample_burn_once_and_rejection_traced(registry):
     registry.assert_not_burnt("hid", Segment.OUT_OF_SAMPLE)  # 首次允许
-    record = result_record(registry, burnt=True)
+    record = result_record(registry)
     registry.append(record)
-    assert registry.mark_burnt("hid", record.experiment_id).experiment_id == record.experiment_id
+    assert registry.mark_burnt("hid", record.experiment_id) is None  # T2-fix-4：追加执行行
+    markers = [
+        row
+        for row in registry.rows()
+        if isinstance(row, RunRecord) and row.reason == "样本外已烧毁"
+    ]
+    assert len(markers) == 1
+    assert markers[0].status is RunStatus.RUNNING
+    assert markers[0].experiment_id == record.experiment_id
+    assert markers[0].hypothesis_id == "hid"
     with pytest.raises(RegistryImmutableError) as exc:
         registry.assert_not_burnt("hid", Segment.OUT_OF_SAMPLE)
     assert "样本外已烧毁" in str(exc.value)
@@ -141,7 +150,8 @@ def test_out_of_sample_burn_once_and_rejection_traced(registry):
         if isinstance(row, RunRecord) and row.status is RunStatus.REJECTED
     ]
     assert len(rejected) == 1
-    assert sum(1 for row in registry.result_rows() if row.burnt) == 1
+    exported = registry.export_ledger(hypothesis_id="hid")
+    assert sum(1 for row in exported if row.burnt) == 1  # 导出 burnt 由执行行派生
 
 
 def test_new_hypothesis_has_independent_burn(registry):
@@ -149,16 +159,17 @@ def test_new_hypothesis_has_independent_burn(registry):
     registry.assert_not_burnt("h2", Segment.OUT_OF_SAMPLE)  # 新假设独立额度
 
 
-def test_burn_marker_is_appended_and_latest_row_wins(registry):
+def test_burn_marker_is_idempotent_for_same_experiment(registry):
     record = result_record(registry)
     registry.append(record)
-    marker = registry.mark_burnt("hid", record.experiment_id)
-    assert marker.burnt is True
-    assert marker.experiment_id == record.experiment_id
-    assert "burnt_at" in marker.timestamps
-    assert registry.get(record.experiment_id).burnt is True
-    assert sum(1 for row in registry.result_rows() if row.burnt) == 1
-    # 已烧毁后再次标记不同实验 → 不可撤销
+    registry.mark_burnt("hid", record.experiment_id)
+    registry.mark_burnt("hid", record.experiment_id)  # 幂等
+    markers = [
+        row
+        for row in registry.rows()
+        if isinstance(row, RunRecord) and row.reason == "样本外已烧毁"
+    ]
+    assert len(markers) == 1
     other = result_record(registry)
     registry.append(other)
     with pytest.raises(RegistryImmutableError):

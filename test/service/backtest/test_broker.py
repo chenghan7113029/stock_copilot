@@ -37,7 +37,7 @@ def test_minimum_commission_flagged(cfg):
 
 def test_missing_stamp_tax_rejected(tmp_path, config_factory):
     cfg = BacktestConfig.from_config(
-        config_factory(**{"stamp_tax.sell_rate": None}), base_dir=tmp_path, require_pipeline=False
+        config_factory(**{"stamp_tax": {"side": "sell", "rate": None}}), base_dir=tmp_path
     )
     with pytest.raises(MissingBacktestConfigError):
         CostCalculator.from_config(cfg)
@@ -152,3 +152,26 @@ def test_next_tradable_day_skips_weekend():
         return date.fromisoformat(day).weekday() < 5
 
     assert next_tradable_day("2020-01-03", calendar=is_trading) == "2020-01-06"
+
+
+def test_max_delay_missing_rejected(tmp_path, config_factory, make_bar):
+    cfg = BacktestConfig.from_config(
+        config_factory(**{"max_delay_days": None}), base_dir=tmp_path
+    )
+    prices = {
+        "000001": (
+            make_bar(trade_date="2020-01-03", close=10.0),
+            make_bar(trade_date="2020-01-06", close=10.0),
+        )
+    }
+    with pytest.raises(MissingBacktestConfigError) as exc:
+        execute_orders([order()], prices, cfg=cfg)
+    assert "max_delay_days" in str(exc.value)
+
+
+def test_missing_transfer_fee_rejected(tmp_path, config_factory):
+    cfg = BacktestConfig.from_config(
+        config_factory(**{"transfer_fee": {"rate": None, "included": None}}), base_dir=tmp_path
+    )
+    with pytest.raises(MissingBacktestConfigError):
+        CostCalculator.from_config(cfg)

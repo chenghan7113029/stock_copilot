@@ -109,3 +109,63 @@ def test_financial_missing_ann_date_falls_back_and_flags():
     record = result["000001"][0]
     assert record.ann_date_fallback is True
     assert record.visible_from == "2020-04-30"
+
+
+class EventLoader:
+    def __init__(self, days=60, stock=0.01, bench=0.0, code="000001"):
+        self.days = days
+        self.stock = stock
+        self.bench = bench
+        self.code = code
+
+    def load_forward_returns(self, signal, horizon):
+        return self.code, tuple(self.stock for _ in range(min(self.days, horizon)))
+
+    def load_benchmark_forward_returns(self, kind, signal, horizon):
+        return tuple(self.bench for _ in range(min(self.days, horizon)))
+
+
+def test_load_event_observations_builds_daily_excess(cfg):
+    from service.backtest.data import load_event_observations
+    from service.backtest.models import Benchmark, EventSignal
+
+    observations = load_event_observations(
+        [EventSignal(condition_id="ma60_breakdown", event_date="2020-01-06")],
+        [Benchmark("buy_and_hold", "买入持有")],
+        loader=EventLoader(),
+        cfg=cfg,
+    )
+    assert len(observations) == 1
+    item = observations[0]
+    assert item.code == "000001"
+    assert item.event_date == "2020-01-06"
+    assert item.condition_id == "ma60_breakdown"
+    assert item.benchmark_kind == "buy_and_hold"
+    assert len(item.excess_returns) == max(cfg.windows)
+    assert item.excess_returns[0] == pytest.approx(0.01)
+
+
+def test_load_event_observations_requires_channel(cfg):
+    from service.backtest.data import load_event_observations
+    from service.backtest.models import Benchmark, EventSignal
+
+    with pytest.raises(BacktestDataGapError):
+        load_event_observations(
+            [EventSignal(condition_id="ma60_breakdown", event_date="2020-01-06")],
+            [Benchmark("buy_and_hold", "买入持有")],
+            loader=object(),
+            cfg=cfg,
+        )
+
+
+def test_load_event_observations_short_history_reports_gap(cfg):
+    from service.backtest.data import load_event_observations
+    from service.backtest.models import Benchmark, EventSignal
+
+    with pytest.raises(BacktestDataGapError):
+        load_event_observations(
+            [EventSignal(condition_id="ma60_breakdown", event_date="2020-01-06")],
+            [Benchmark("buy_and_hold", "买入持有")],
+            loader=EventLoader(days=5),
+            cfg=cfg,
+        )

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -45,7 +46,6 @@ def resolve_backtest_config(
     config_path: str | Path | None = None,
     *,
     cwd: Path | None = None,
-    require_pipeline: bool = True,
 ) -> BacktestConfig:
     """按 design §6.3 的顺序解析配置；相对 `--config` 与默认路径都按 cwd 解析。"""
     base = Path(cwd) if cwd is not None else Path.cwd()
@@ -57,11 +57,5 @@ def resolve_backtest_config(
         path = base / DEFAULT_CONFIG_FILE
     config = load_yaml_config(path)
     section = backtest_section(config, source=str(path))
-    cfg = BacktestConfig.from_config(section, base_dir=base, require_pipeline=require_pipeline)
-    return BacktestConfig(
-        results_dir=cfg.results_dir,
-        registry_store_path=cfg.registry_store_path,
-        prereg_dir=cfg.prereg_dir,
-        params=cfg.params,
-        source_path=path,
-    )
+    cfg = BacktestConfig.from_config(section, base_dir=base)
+    return replace(cfg, source_path=path)

@@ -42,6 +42,8 @@ from service.backtest.models import (
 )
 
 ROW_TYPE_RUN = "run"
+# R4/T2-fix-4：烧毁标记 = 追加执行行 reason 固定值；导出 burnt 由此派生
+BURNT_REASON = "样本外已烧毁"
 ROW_TYPE_RESULT = "result"
 # design §4.1 台账存储机制：预注册文件在 git 跟踪目录内（可覆盖，CLI 传 cfg.prereg_dir）
 DEFAULT_PREREG_PATH = Path(DEFAULT_PREREG_DIR)
@@ -201,18 +203,10 @@ class ExperimentRegistry:
                 raise RegistryImmutableError(
                     "改假设/参数/评价指标必须新开实验并写入 parent_experiment_id（R2）"
                 )
-        if record.burnt:
-            burnt = [
-                row
-                for row in rows
-                if isinstance(row, ExperimentRecord)
-                and row.hypothesis_id == record.hypothesis_id
-                and row.burnt
-            ]
-            if burnt:
-                raise RegistryImmutableError(
-                    f"假设 {record.hypothesis_id} 的样本外已烧毁，标记不可撤销（R4）"
-                )
+        if record.burnt and self._burnt_markers(record.hypothesis_id):
+            raise RegistryImmutableError(
+                f"假设 {record.hypothesis_id} 的样本外已烧毁，标记不可撤销（R4）"
+            )
         payload = record if record.data_version else replace(record, data_version=self.data_version)
         self._append_raw(payload)
 
@@ -276,17 +270,20 @@ class ExperimentRegistry:
         return load_preregistration_file(directory / f"{hypothesis_id}.yaml")
 
     # ---- 样本外烧毁（R4） ----
+    def _burnt_markers(self, hypothesis_id: str | None = None) -> list[RunRecord]:
+        return [
+            row
+            for row in self._read_rows()
+            if isinstance(row, RunRecord)
+            and row.reason == BURNT_REASON
+            and (hypothesis_id is None or row.hypothesis_id == hypothesis_id)
+        ]
+
     def assert_not_burnt(self, hypothesis_id: str, segment: Segment) -> None:
         if segment is not Segment.OUT_OF_SAMPLE:
             return
-        burnt = [
-            row
-            for row in self._read_rows()
-            if isinstance(row, ExperimentRecord)
-            and row.hypothesis_id == hypothesis_id
-            and row.burnt
-        ]
-        if not burnt:
+        markers = self._burnt_markers(hypothesis_id)
+        if not markers:
             return
         reason = f"样本外已烧毁：{hypothesis_id} 的样本外额度已用尽（R4）"
         self.append_run(
@@ -294,43 +291,39 @@ class ExperimentRegistry:
                 run_id=self.next_experiment_id(hypothesis_id),
                 status=RunStatus.REJECTED,
                 at=self.clock(),
-                experiment_id=burnt[0].experiment_id,
+                experiment_id=markers[0].experiment_id,
+                hypothesis_id=hypothesis_id,
                 reason=reason,
             )
         )
         raise RegistryImmutableError(reason)
 
-    def mark_burnt(self, hypothesis_id: str, experiment_id: str) -> ExperimentRecord:
-        """写入「已烧毁」标记（R4）：append 一条带 burnt=True 的标记行，不修改旧行。
+    def mark_burnt(self, hypothesis_id: str, experiment_id: str) -> None:
+        """写入「已烧毁」标记（R4/T2-fix-4）：追加执行行 `RunRecord(reason="样本外已烧毁")`。
 
-        标记行沿用实验 ID（`get` 取最新一行），带 `timestamps["burnt_at"]`；同一假设的
-        烧毁标记唯一且**不可撤销**（二次标记不同实验 → `RegistryImmutableError`）。
+        append-only、不可撤销；导出 `burnt` 由该执行行派生。同一假设重复标记同一实验幂等，
+        标记不同实验 → `RegistryImmutableError`。
         """
-        burnt = [
-            row
-            for row in self._read_rows()
-            if isinstance(row, ExperimentRecord)
-            and row.hypothesis_id == hypothesis_id
-            and row.burnt
-        ]
-        if burnt:
-            if burnt[0].experiment_id == experiment_id:
-                return burnt[0]
+        markers = self._burnt_markers(hypothesis_id)
+        if markers:
+            if markers[0].experiment_id == experiment_id:
+                return
             raise RegistryImmutableError(
-                f"假设 {hypothesis_id} 已有烧毁标记（{burnt[0].experiment_id}），不可撤销（R4）"
+                f"假设 {hypothesis_id} 已有烧毁标记（{markers[0].experiment_id}），不可撤销（R4）"
             )
         target = self.get(experiment_id)
         if target.hypothesis_id != hypothesis_id:
-            raise BacktestError(
-                f"实验 {experiment_id} 不属于假设 {hypothesis_id}（R4）"
+            raise BacktestError(f"实验 {experiment_id} 不属于假设 {hypothesis_id}（R4）")
+        self.append_run(
+            RunRecord(
+                run_id=self.next_experiment_id(hypothesis_id),
+                status=RunStatus.RUNNING,
+                at=self.clock(),
+                experiment_id=experiment_id,
+                hypothesis_id=hypothesis_id,
+                reason=BURNT_REASON,
             )
-        marker = replace(
-            target,
-            burnt=True,
-            timestamps={**dict(target.timestamps), "burnt_at": self.clock()},
         )
-        self._append_raw(marker)
-        return marker
 
     # ---- K 累计（R5） ----
     def cumulative_K(self, study_scope: str | Mapping[str, Any]) -> int:
@@ -383,9 +376,12 @@ class ExperimentRegistry:
         results = list(latest_result.values())
         runs = [row for row in rows if isinstance(row, RunRecord)]
         latest_run: dict[str, RunStatus] = {}
+        burnt_experiments: set[str] = set()
         for run in runs:
             if run.experiment_id:
                 latest_run[str(run.experiment_id)] = run.status
+                if run.reason == BURNT_REASON:
+                    burnt_experiments.add(str(run.experiment_id))
         cache: dict[str, PreregistrationSpec | None] = {}
 
         def prereg(hid: str) -> PreregistrationSpec | None:
@@ -427,7 +423,7 @@ class ExperimentRegistry:
                     K=row.K,
                     metrics=dict(row.metrics),
                     verdict=row.verdict.value,
-                    burnt=bool(row.burnt),
+                    burnt=bool(row.burnt) or row.experiment_id in burnt_experiments,
                     prereg_commit=row.prereg_commit,
                     run_status=None if run_status is None else run_status.value,
                     data_version=row.data_version,

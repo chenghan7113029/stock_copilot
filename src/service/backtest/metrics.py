@@ -1,8 +1,8 @@
 """指标 / 统计推断 / 归因 / 部分池化 / 稳定性（design §4.1，R5/R6/R13/R14/R16/R17）。
 
 全部纯函数、确定性：
-- 推断默认 block bootstrap（R6；禁止 iid t 检验下结论）；
-- 块长 / 重采样次数 / 样本阈值来自配置，缺键即 `MissingBacktestConfigError`（KQ-2 未答复）；
+- 事件研究只消费 `EventObservation`（T2-fix-4：`EventSignal` 只判条件成立，不载收益）；
+- 推断默认 block bootstrap（R6；禁止 iid t 检验下结论）；块长/重采样次数来自 cfg，缺值即拒绝；
 - 固定随机种子只为可复现，不是业务口径。
 """
 
@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from common.exceptions import BacktestError, MissingBacktestConfigError
 from service.backtest.models import (
-    EVENT_WINDOWS,
     AttributionResult,
     BacktestConfig,
     Benchmark,
@@ -24,7 +23,8 @@ from service.backtest.models import (
     WindowStats,
 )
 
-FACTOR_KEYS = ("beta", "size", "value", "momentum")
+FACTOR_KEYS = ("size", "value", "momentum")
+MARKET_BENCHMARK_KIND = "market_portfolio"
 # R14（飞书原文「每组至少 30 只、跨度至少 3 年」）：已确定要求，非待确认数值
 MIN_GROUP_SIZE = 30
 MIN_YEARS = 3
@@ -91,6 +91,27 @@ def t_statistic(values: Sequence[float]) -> float:
     return _mean(values) / (std / math.sqrt(n))
 
 
+def window_excess(observation: EventObservation, window: int) -> float:
+    """窗口累计超额 = 事件日后前 `window` 个交易日逐日超额之和（CAR）。"""
+    if window < 1:
+        raise MissingBacktestConfigError(f"窗口非法: {window}")
+    if len(observation.excess_returns) < window:
+        raise BacktestError(
+            f"{observation.code} {observation.event_date} 的 excess_returns 不足 {window} 日"
+        )
+    return float(sum(observation.excess_returns[:window]))
+
+
+def window_excess_series(
+    observations: Sequence[EventObservation], window: int, benchmark_kind: str
+) -> tuple[float, ...]:
+    return tuple(
+        window_excess(item, window)
+        for item in observations
+        if item.benchmark_kind == benchmark_kind
+    )
+
+
 # --------------------------------------------------------------------------
 # R6 block bootstrap
 # --------------------------------------------------------------------------
@@ -126,10 +147,7 @@ def block_bootstrap(
                     break
         means.append(_mean(sample))
     means.sort()
-    return (
-        (_quantile(means, CI_LOWER_Q), _quantile(means, CI_UPPER_Q)),
-        effective_n,
-    )
+    return ((_quantile(means, CI_LOWER_Q), _quantile(means, CI_UPPER_Q)), effective_n)
 
 
 # --------------------------------------------------------------------------
@@ -161,107 +179,98 @@ def multiple_testing_correction(
 
 
 # --------------------------------------------------------------------------
-# R17/R13 事件研究
+# R17/R13 事件研究（入 EventObservation，T2-fix-4）
 # --------------------------------------------------------------------------
 
 
 def _inference_cfg(cfg: BacktestConfig) -> tuple[int, int]:
-    block_length = int(cfg.require("block_length"))
-    n_bootstrap = int(cfg.require("n_bootstrap"))
-    return block_length, n_bootstrap
+    block_length = cfg.block_length
+    n_bootstrap = cfg.n_bootstrap
+    if block_length is None:
+        raise MissingBacktestConfigError("回测配置缺值: block_length（KQ-2）")
+    if n_bootstrap is None:
+        raise MissingBacktestConfigError("回测配置缺值: n_bootstrap（KQ-2）")
+    return int(block_length), int(n_bootstrap)
 
 
 def _window_stats(
-    observations: Sequence[EventObservation], *, block_length: int, n_bootstrap: int
+    values: Sequence[float], *, block_length: int, n_bootstrap: int
 ) -> WindowStats:
-    excess = [float(item.excess) for item in observations]
     ci, effective_n = block_bootstrap(
-        excess, block_length=block_length, n_bootstrap=n_bootstrap, seed=BOOTSTRAP_SEED
+        values, block_length=block_length, n_bootstrap=n_bootstrap, seed=BOOTSTRAP_SEED
     )
+    return WindowStats(
+        n=len(values),
+        mean=_mean(values),
+        median=_median(values),
+        std=_std(values),
+        ci=ci,
+        effective_n=effective_n,
+    )
+
+
+def _stats_with_breakdown(
+    observations: Sequence[EventObservation],
+    window: int,
+    *,
+    block_length: int,
+    n_bootstrap: int,
+) -> WindowStats:
+    values = [window_excess(item, window) for item in observations]
+    stats = _window_stats(values, block_length=block_length, n_bootstrap=n_bootstrap)
     by_year: dict[str, WindowStats] = {}
-    for year, items in _group_by(observations, lambda item: item.event_date[:4]).items():
-        by_year[year] = _simple_stats(items, block_length=block_length, n_bootstrap=n_bootstrap)
-    by_cap: dict[str, WindowStats] = {}
-    cap_groups = _group_by(
-        [item for item in observations if item.cap_tier is not None],
-        lambda item: str(int(item.cap_tier)),
-    )
-    for tier, items in cap_groups.items():
-        by_cap[tier] = _simple_stats(items, block_length=block_length, n_bootstrap=n_bootstrap)
+    grouped: dict[str, list[float]] = {}
+    for item in observations:
+        grouped.setdefault(item.event_date[:4], []).append(window_excess(item, window))
+    for year, year_values in grouped.items():
+        by_year[year] = _window_stats(
+            year_values, block_length=block_length, n_bootstrap=n_bootstrap
+        )
     return WindowStats(
-        n=len(excess),
-        mean=_mean(excess),
-        median=_median(excess),
-        std=_std(excess),
-        ci=ci,
-        effective_n=effective_n,
+        n=stats.n,
+        mean=stats.mean,
+        median=stats.median,
+        std=stats.std,
+        ci=stats.ci,
+        effective_n=stats.effective_n,
         by_year=by_year,
-        by_cap_tier=by_cap,
+        by_cap_tier={},
     )
-
-
-def _simple_stats(
-    observations: Sequence[EventObservation], *, block_length: int, n_bootstrap: int
-) -> WindowStats:
-    excess = [float(item.excess) for item in observations]
-    ci, effective_n = block_bootstrap(
-        excess, block_length=block_length, n_bootstrap=n_bootstrap, seed=BOOTSTRAP_SEED
-    )
-    return WindowStats(
-        n=len(excess),
-        mean=_mean(excess),
-        median=_median(excess),
-        std=_std(excess),
-        ci=ci,
-        effective_n=effective_n,
-    )
-
-
-def _group_by(
-    items: Iterable[EventObservation], key: Any
-) -> dict[str, list[EventObservation]]:
-    grouped: dict[str, list[EventObservation]] = {}
-    for item in items:
-        grouped.setdefault(str(key(item)), []).append(item)
-    return grouped
 
 
 def compute_event_study(
-    events: Sequence[EventObservation],
-    benchmarks: Sequence[Benchmark],
-    *,
-    cfg: BacktestConfig,
+    observations: Sequence[EventObservation], *, cfg: BacktestConfig
 ) -> EventStudyResult:
-    """20/60 日 × 双基准超额分布：事件数/均值/中位数/标准差/CI/分年度/分市值组。"""
-    if not events:
-        raise BacktestError("事件研究无事件：不得产出结论（允许「无信号」但要先有事件集）")
-    if not benchmarks:
-        raise BacktestError("基准缺失：不得给出有效判定（R13）")
+    """按 benchmark_kind × window 聚合超额分布（R17/R13，T2-fix-4）。
+
+    - 窗口来自 `cfg.windows`；每个观测的窗口超额 = `excess_returns[:window]` 之和（CAR）；
+    - 块长 / 重采样次数来自 `cfg`（KQ-2），缺值即 `MissingBacktestConfigError`；
+    - 入参只收 `EventObservation`，不直接读价格。
+    """
+    if not observations:
+        raise BacktestError("事件研究无观测：不得产出结论（R17）")
     block_length, n_bootstrap = _inference_cfg(cfg)
+    kinds = sorted({item.benchmark_kind for item in observations})
     windows: dict[str, dict[str, WindowStats]] = {}
-    grouped: dict[tuple[int, str], list[EventObservation]] = {}
-    for item in events:
-        window = int(item.window)
-        if window not in EVENT_WINDOWS:
-            raise BacktestError(
-                f"自定义窗口 {window} 未获确认（Q8）；MVP 只允许 {EVENT_WINDOWS}"
-            )
-        grouped.setdefault((window, str(item.benchmark_kind)), []).append(item)
-    for window in sorted({int(item.window) for item in events}):
-        per_benchmark: dict[str, WindowStats] = {}
-        for benchmark in benchmarks:
-            items = grouped.get((window, str(benchmark.kind)))
+    for window in cfg.windows:
+        usable = [item for item in observations if len(item.excess_returns) >= window]
+        if not usable:
+            continue
+        per_kind: dict[str, WindowStats] = {}
+        for kind in kinds:
+            items = [item for item in usable if item.benchmark_kind == kind]
             if not items:
-                raise BacktestError(
-                    f"基准 {benchmark.kind!r} 在 {window} 日窗口无观测：不得给出有效判定（R13）"
-                )
-            per_benchmark[str(benchmark.kind)] = _window_stats(
-                items, block_length=block_length, n_bootstrap=n_bootstrap
+                continue
+            per_kind[kind] = _stats_with_breakdown(
+                items, window, block_length=block_length, n_bootstrap=n_bootstrap
             )
-        windows[str(window)] = per_benchmark
+        if per_kind:
+            windows[str(window)] = per_kind
+    if not windows:
+        raise BacktestError("没有任何窗口有足够的事件收益：不得产出结论（R17）")
     return EventStudyResult(
         windows=windows,
-        n_events=len({(item.code, item.event_date) for item in events}),
+        n_events=len({(item.code, item.event_date, item.condition_id) for item in observations}),
         inference_method="block_bootstrap",
         block_length=block_length,
         n_bootstrap=n_bootstrap,
@@ -271,48 +280,62 @@ def compute_event_study(
 def insufficient_sample(
     result: EventStudyResult, *, cfg: BacktestConfig
 ) -> tuple[str, ...]:
-    """返回样本不足的 `窗口/基准` 标签（R17 Scenario「事件数不足时不出结论」）。"""
-    threshold = int(cfg.require("min_events"))
+    """返回样本不足的 `窗口/基准` 标签（R17 Scenario2）。
+
+    `min_events` 是必须键但数值待 Q；为 None 时按「未达阈值」处理（不出结论）。
+    """
+    threshold = cfg.min_events
     labels: list[str] = []
     for window, per_benchmark in result.windows.items():
         for kind, stats in per_benchmark.items():
-            if stats.n < threshold:
+            if threshold is None or stats.n < int(threshold):
                 labels.append(f"{window}d/{kind}")
     return tuple(labels)
 
 
 # --------------------------------------------------------------------------
-# R13 归因
+# R13 归因（T2-fix-4：beta 由 market_portfolio 回归推导，factors 固定三键）
 # --------------------------------------------------------------------------
 
 
 def attribution(
-    returns: Sequence[float],
+    returns: Sequence[float] | Mapping[str, Sequence[float]],
     factors: Mapping[str, Sequence[float]],
     benchmarks: Sequence[Benchmark],
 ) -> AttributionResult:
-    """beta/规模/价值/动量 四项暴露与贡献 + 未解释部分（R13）。
+    """四项归因（R13）：beta 由 returns 对 market_portfolio 基准收益回归推导（不入参）。
 
-    `returns` 须为**相对某一基准**的超额序列；双基准各调一次（本函数不混合基准）。
+    - `returns`：策略收益序列；或映射 `{"strategy": [...], "market_portfolio": [...]}`
+      （基准收益随 returns 传入，不作为独立参数）；
+    - `factors` 键集固定 `{"size","value","momentum"}`；缺任一键 → `MissingBacktestConfigError`；
+    - `benchmarks` 缺 `market_portfolio` → 归因不可判定（抛 `BacktestError`，结论 INCONCLUSIVE）。
     """
-    if not benchmarks:
-        raise BacktestError("基准缺失：不得给出有效判定（R13 Scenario「缺失基准时不出结论」）")
-    values = [float(value) for value in returns]
-    if not values:
-        raise BacktestError("归因收益序列为空")
     missing = [key for key in FACTOR_KEYS if key not in factors]
     if missing:
-        raise BacktestError(f"归因因子缺失: {missing}（R13 要求四项齐全）")
+        raise MissingBacktestConfigError(f"attribution 缺因子键: {missing}（R13 固定三因子）")
+    if not any(benchmark.kind == MARKET_BENCHMARK_KIND for benchmark in benchmarks):
+        raise BacktestError(
+            "attribution 缺 market_portfolio 基准：归因不可判定（INCONCLUSIVE，R13）"
+        )
+    strategy, market = _split_returns(returns)
+    if len(strategy) != len(market):
+        raise BacktestError("strategy 与 market_portfolio 收益长度不一致（R13）")
+    if not strategy:
+        raise BacktestError("归因收益序列为空（R13）")
     exposures: dict[str, float] = {}
     contributions: dict[str, float] = {}
+    market_variance = _variance(market)
+    beta = _covariance(strategy, market) / market_variance if market_variance > 0 else 0.0
+    exposures["beta"] = beta
+    contributions["beta"] = beta * _mean(market)
     for key in FACTOR_KEYS:
         series = [float(value) for value in factors[key]]
-        if len(series) != len(values):
-            raise BacktestError(f"因子 {key} 长度 {len(series)} ≠ 收益长度 {len(values)}")
+        if len(series) != len(strategy):
+            raise BacktestError(f"因子 {key} 长度 {len(series)} ≠ 收益长度 {len(strategy)}")
         variance = _variance(series)
-        beta = _covariance(values, series) / variance if variance > 0 else 0.0
-        exposures[key] = beta
-        contributions[key] = beta * _mean(series)
+        exposure = _covariance(strategy, series) / variance if variance > 0 else 0.0
+        exposures[key] = exposure
+        contributions[key] = exposure * _mean(series)
     return AttributionResult(
         beta=exposures["beta"],
         size=exposures["size"],
@@ -320,7 +343,24 @@ def attribution(
         momentum=exposures["momentum"],
         exposures=exposures,
         contributions=contributions,
-        unexplained=_mean(values) - sum(contributions.values()),
+        unexplained=_mean(strategy) - sum(contributions.values()),
+    )
+
+
+def _split_returns(
+    returns: Sequence[float] | Mapping[str, Sequence[float]],
+) -> tuple[list[float], list[float]]:
+    if isinstance(returns, Mapping):
+        strategy = returns.get("strategy")
+        market = returns.get(MARKET_BENCHMARK_KIND) or returns.get("market")
+        if strategy is None or market is None:
+            raise BacktestError(
+                "attribution 缺市场基准收益：returns 需含 strategy 与 market_portfolio（R13）"
+            )
+        return [float(value) for value in strategy], [float(value) for value in market]
+    raise BacktestError(
+        "attribution 需要 returns 映射（strategy + market_portfolio）："
+        "beta 必须由市场基准回归推导（T2-fix-4）"
     )
 
 
@@ -394,28 +434,16 @@ def stability(result: EventStudyResult, *, cfg: BacktestConfig) -> StabilityResu
         )
     window_key = str(max(int(key) for key in result.windows))
     per_benchmark = result.windows[window_key]
-    kind = "market_portfolio" if "market_portfolio" in per_benchmark else sorted(per_benchmark)[0]
+    kind = MARKET_BENCHMARK_KIND if MARKET_BENCHMARK_KIND in per_benchmark else sorted(per_benchmark)[0]
     primary = per_benchmark[kind]
 
     by_year = dict(primary.by_year)
     by_cap = dict(primary.by_cap_tier)
     by_state: dict[str, WindowStats] = {}
-    state_note = ""
-    state_map = cfg.get("stability.market_state")
-    if not state_map:
-        state_note = "市场状态口径未定（KQ-7），该维度不参与判定"
-    else:
-        grouped: dict[str, list[WindowStats]] = {}
-        for year, stats in by_year.items():
-            state = str(dict(state_map).get(year, ""))
-            if not state:
-                state_note = f"市场状态映射缺 {year} 年（KQ-7）"
-                continue
-            grouped.setdefault(state, []).append(stats)
-        for state, items in grouped.items():
-            by_state[state] = _aggregate(items)
-
     notes: list[str] = []
+    # KQ-7 未答复：市场状态口径未定，该维度不参与判定
+    notes.append("市场状态口径未定（KQ-7），该维度不参与判定")
+
     significant_years = [year for year, stats in by_year.items() if _significant(stats)]
     if len(significant_years) == 1:
         notes.append(f"仅在 {significant_years[0]} 年有效")
@@ -426,24 +454,9 @@ def stability(result: EventStudyResult, *, cfg: BacktestConfig) -> StabilityResu
         notes.append("样本不足: " + ", ".join(sorted(insufficient)))
     if by_year and len(by_year) < MIN_YEARS:
         notes.append(f"跨度不足 {MIN_YEARS} 年")
-    if state_note:
-        notes.append(state_note)
     return StabilityResult(
         by_year=by_year,
         by_market_state=by_state,
         by_cap_tier=by_cap,
         scope_note="；".join(notes),
-    )
-
-
-def _aggregate(items: Sequence[WindowStats]) -> WindowStats:
-    n = sum(item.n for item in items)
-    mean = sum(item.mean * item.n for item in items) / n if n else 0.0
-    return WindowStats(
-        n=n,
-        mean=mean,
-        median=_median([item.median for item in items]),
-        std=max((item.std for item in items), default=0.0),
-        ci=(min(item.ci[0] for item in items), max(item.ci[1] for item in items)),
-        effective_n=sum(item.effective_n for item in items),
     )

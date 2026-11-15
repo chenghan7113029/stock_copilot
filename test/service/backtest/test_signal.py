@@ -1,4 +1,4 @@
-"""T2.11 纯函数信号 `signal.py`（t 日切片 + 越界拒绝 + 纯函数可复现）。"""
+"""T2.11 纯函数信号 `signal.py`（ConditionSpec + t 日切片 + 越界拒绝 + 可复现）。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,12 @@ import pytest
 
 from common.exceptions import FutureDataError, MissingBacktestConfigError
 from service.backtest.models import ConditionSpec, PointInTimeSnapshot
-from service.backtest.signal import MA_FALLBACK_WINDOW, MA_WINDOW, evaluate_condition
+from service.backtest.signal import (
+    CONDITION_KIND,
+    MA_FALLBACK_WINDOW,
+    MA_WINDOW,
+    evaluate_condition,
+)
 
 
 def bars(make_bar, closes):
@@ -24,25 +29,19 @@ def bars(make_bar, closes):
     return tuple(result)
 
 
-def condition(**overrides):
-    params = {
-        "window": MA_WINDOW,
-        "fallback_window": MA_FALLBACK_WINDOW,
-        "short_history_policy": "ma20_substitute",
-    }
-    params.update(overrides)
-    return ConditionSpec(condition_id="ma60_breakdown", kind="ma_breakdown", params=params)
+def snapshot_for(make_bar, closes):
+    price = bars(make_bar, closes)
+    return PointInTimeSnapshot(as_of=price[-1].trade_date, price=price)
 
 
-def breakout_snapshot(make_bar):
-    snapshot = PointInTimeSnapshot(as_of="2020-04-30", price=bars(make_bar, [10.0] * 60 + [9.0]))
-    # as_of 必须与最后一根 bar 同日（快照只做 <= 断言，但语义上 as_of = t）
-    as_of = snapshot.price[-1].trade_date
-    return PointInTimeSnapshot(as_of=as_of, price=snapshot.price)
+def condition(**params):
+    merged = {"window": MA_WINDOW}
+    merged.update(params)
+    return ConditionSpec(condition_id="ma60_breakdown", kind=CONDITION_KIND, params=merged)
 
 
 def test_ma60_breakdown_emits_event(make_bar):
-    snapshot = breakout_snapshot(make_bar)
+    snapshot = snapshot_for(make_bar, [10.0] * 60 + [9.0])
     signal = evaluate_condition(snapshot, condition())
     assert signal is not None
     assert signal.event_date == snapshot.as_of
@@ -50,46 +49,48 @@ def test_ma60_breakdown_emits_event(make_bar):
 
 
 def test_flat_series_has_no_signal(make_bar):
-    snapshot = PointInTimeSnapshot(as_of="2020-04-30", price=bars(make_bar, [10.0] * 61))
+    snapshot = snapshot_for(make_bar, [10.0] * 61)
     assert evaluate_condition(snapshot, condition()) is None
 
 
 def test_pure_function_same_input_same_output(make_bar):
-    snapshot = breakout_snapshot(make_bar)
-    first = evaluate_condition(snapshot, condition())
-    second = evaluate_condition(snapshot, condition())
-    assert first == second
+    snapshot = snapshot_for(make_bar, [10.0] * 60 + [9.0])
+    assert evaluate_condition(snapshot, condition()) == evaluate_condition(
+        snapshot, condition()
+    )
 
 
 def test_future_bar_rejected_by_snapshot(make_bar):
-    snapshot = breakout_snapshot(make_bar)
+    snapshot = snapshot_for(make_bar, [10.0] * 61)
     with pytest.raises(FutureDataError):
-        PointInTimeSnapshot(
-            as_of=snapshot.price[-2].trade_date,
-            price=snapshot.price,
-        )
+        PointInTimeSnapshot(as_of=snapshot.price[-2].trade_date, price=snapshot.price)
 
 
 def test_missing_condition_params_rejected(make_bar):
-    snapshot = breakout_snapshot(make_bar)
-    broken = ConditionSpec(condition_id="ma60", kind="ma_breakdown", params={"window": 60})
+    snapshot = snapshot_for(make_bar, [10.0] * 61)
+    broken = ConditionSpec(condition_id="ma60_breakdown", kind=CONDITION_KIND, params={})
     with pytest.raises(MissingBacktestConfigError) as exc:
         evaluate_condition(snapshot, broken)
-    assert "fallback_window" in str(exc.value)
+    assert "window" in str(exc.value)
 
 
-def test_short_history_policy_exclude_returns_none(make_bar):
-    price = bars(make_bar, [10.0] * 25 + [9.0])
-    snapshot = PointInTimeSnapshot(as_of=price[-1].trade_date, price=price)
-    assert evaluate_condition(snapshot, condition(short_history_policy="exclude")) is None
+def test_short_history_uses_ma20_substitute(make_bar):
+    """不足 MA60 个交易日：沿用 tech 现行口径（MA20 替代，KD-10-03）。"""
+    closes = [10.0] * MA_FALLBACK_WINDOW + [9.0]
+    snapshot = snapshot_for(make_bar, closes)
+    assert evaluate_condition(snapshot, condition()) is not None
+    assert len(snapshot.price) < MA_WINDOW
+
+
+def test_too_short_history_returns_none(make_bar):
+    snapshot = snapshot_for(make_bar, [10.0] * (MA_FALLBACK_WINDOW - 1))
+    assert evaluate_condition(snapshot, condition()) is None
 
 
 def test_signal_module_has_no_io_dependency():
-    source = inspect.getsource(evaluate_condition)
     module = inspect.getmodule(evaluate_condition)
     assert module is not None
     module_source = inspect.getsource(module)
     for forbidden in ("data_provider", "dao", "datetime.now", "open("):
         assert forbidden not in module_source
     assert set(inspect.signature(evaluate_condition).parameters) == {"snapshot", "condition"}
-    assert "snapshot" in source

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from common.exceptions import BacktestError, MissingBacktestConfigError
 from service.backtest.models import (
@@ -17,11 +17,12 @@ from service.backtest.models import (
     PointInTimeSnapshot,
 )
 
-# MA60 口径沿用技术面既有定义（KD-10-03：SMA；不足 60 日的历史处置由 KQ-1 开关决定）
+# MA60 口径沿用技术面既有定义（KD-10-03：SMA；不足 60 日用 MA20 替代 = tech 现行口径）
 MA_WINDOW = 60
 MA_FALLBACK_WINDOW = 20
-SHORT_HISTORY_POLICIES = ("ma20_substitute", "exclude", "flag_only")
-_REQUIRED_PARAMS = ("window", "fallback_window", "short_history_policy")
+# T2-fix-4：条件类型固定为 "ma60_breakdown"，参数只有 window（design §4.1 示例 {window: 60}）
+CONDITION_KIND = "ma60_breakdown"
+REQUIRED_PARAMS = ("window",)
 
 
 def evaluate_condition(
@@ -31,21 +32,17 @@ def evaluate_condition(
 
     纯函数：同一 snapshot 重复调用必得同值结果（R10 Scenario「同输入同输出」）。
     """
-    if condition.kind != "ma_breakdown":
-        raise BacktestError(f"未实现的条件类型: {condition.kind!r}（MVP 只做 ma_breakdown）")
-    params = _params(condition)
-    bars = _bars_for(snapshot, params)
-    if len(bars) < params["fallback_window"]:
+    if condition.kind != CONDITION_KIND:
+        raise BacktestError(
+            f"未实现的条件类型: {condition.kind!r}（MVP 只做 {CONDITION_KIND}）"
+        )
+    window = _params(condition)
+    bars = _bars_for(snapshot)
+    if len(bars) < MA_FALLBACK_WINDOW:
         return None
-
-    window = params["window"]
     if len(bars) < window:
-        policy = params["short_history_policy"]
-        if policy == "exclude":
-            return None
-        if policy == "flag_only":
-            return None
-        window = params["fallback_window"]
+        # 不足 window 个交易日：沿用 tech 现行口径（MA20 替代，KD-10-03）
+        window = MA_FALLBACK_WINDOW
 
     closes = [bar.close for bar in bars]
     current_ma = _sma(closes, window)
@@ -58,25 +55,19 @@ def evaluate_condition(
     return None
 
 
-def _params(condition: ConditionSpec) -> dict[str, Any]:
-    missing = [key for key in _REQUIRED_PARAMS if key not in condition.params]
+def _params(condition: ConditionSpec) -> int:
+    missing = [key for key in REQUIRED_PARAMS if key not in condition.params]
     if missing:
         raise MissingBacktestConfigError(
             f"条件 {condition.condition_id} 缺参数: {', '.join(missing)}（不得预埋默认值）"
         )
     window = int(condition.params["window"])
-    fallback_window = int(condition.params["fallback_window"])
-    if window < 1 or fallback_window < 1:
-        raise MissingBacktestConfigError(f"条件窗口非法: {window}/{fallback_window}")
-    policy = str(condition.params["short_history_policy"])
-    if policy not in SHORT_HISTORY_POLICIES:
-        raise MissingBacktestConfigError(
-            f"short_history_policy 非法: {policy!r}；允许 {SHORT_HISTORY_POLICIES}（KQ-1）"
-        )
-    return {"window": window, "fallback_window": fallback_window, "short_history_policy": policy}
+    if window < 1:
+        raise MissingBacktestConfigError(f"条件窗口非法: {window}")
+    return window
 
 
-def _bars_for(snapshot: PointInTimeSnapshot, params: Mapping[str, Any]) -> Sequence[Any]:
+def _bars_for(snapshot: PointInTimeSnapshot) -> Sequence[Any]:
     bars = sorted(snapshot.price, key=lambda bar: bar.trade_date)
     if not bars:
         return ()
