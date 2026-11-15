@@ -74,7 +74,7 @@
 | 归档 | `openspec/changes/archive/2026-11-15-add-backtest-engine/`（12 项：proposal/design/tasks/verification/review/review-implementation/test-design/knowledge-delta/specs/references/README） |
 | 主规格 | `openspec/specs/backtest-engine/spec.md`（19 R，Purpose 已写、无 TBD、≥50 字符） |
 | 分支合并 | feature HEAD `796dbc5` → main HEAD `1a419d9`（`merge --no-ff`，无冲突）；**feature 分支保留** |
-| 远端 | **未 push**（`origin/main` 仍 `ba609a0`），推送交 Owner（本机 GitHub 直连不可用） |
+| 远端 | **已 push**（2026-11-15）：`origin/main` `ba609a0..b1be868`；`feature/add-backtest-engine` `796dbc5` 作为备份分支推送（未删） |
 | 门禁（main 复核） | 全量 **1091 passed / 35 deselected / exit 0**；QA `test/qa/backtest` 62 passed；`validate --specs --strict` **24 passed / 76 failed**（基线 23/76 → **无新增失败**）；`doctor` ok；`check_knowledge_source.py` 0 error；ruff 全仓 38 存量（本 change 新增 0） |
 | 遗留（已入台账） | R2-02/R2-03（low → IMP-01/02）；e2e 种子库（IMP-05）；ruff 基线（IMP-06）；76 条主规格 Purpose 存量债（housekeeping 波） |
 | 未定值 | `max_delay_days` / `min_events` 仍为 `null`（Owner 未答；消费处会抛缺键） |
