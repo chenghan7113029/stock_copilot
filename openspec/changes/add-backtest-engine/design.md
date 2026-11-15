@@ -717,22 +717,22 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | R1 预注册先于跑数 | `registry.py::validate_preregistration` + `PreregistrationSpec` + `apps/cli.py::backtest preregister` | 预注册文件入 git 并校验 commit；必填字段缺一 → 报错含字段名；缺失/未提交 → 拒绝、不落结果行 |
 | R2 台账 append-only + K 不可改 | `registry.py::ExperimentRegistry.append / append_run` + NDJSON 哈希 | 执行行（RunRecord）+ 结果行（ExperimentRecord）均 append、无 UPDATE/DELETE；改假设 → 新实验 + `parent_experiment_id`；篡改 → `RegistryCorruptedError` |
 | R3 三段切分 | `config.py::BacktestConfig.segments` + `Segment` 枚举 | 每段独立可用状态；跨段报告显式列出各段（不合并单一数字） |
-| R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` + `export_ledger` | 首次确认后写 `burnt=True`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕；`ledger` 导出 `burnt=True` 即「额度用尽」（QA-F10） |
+| R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` + `export_ledger` | `mark_burnt` 追加执行行 `RunRecord(reason="样本外已烧毁")`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕；导出 `burnt` 按该执行行派生（T2-fix-4） |
 | R5 多重比较 + K | `metrics.py::multiple_testing_correction` + `registry.py::cumulative_K` | K 缺（`K=None`）→ `Verdict.INCONCLUSIVE`；校正方法预注册固定 |
 | R6 block bootstrap | `metrics.py::block_bootstrap` | 报告名义样本 + 有效样本（时间块）；禁 iid t 检验下结论 |
-| R7 成本摩擦 + 流动性上限 | `broker.py::execute_orders` + `config.py`（费率/档位） | 佣金/印花税/滑点/过户费四分量；缺配置 → `MissingBacktestConfigError`；超限截断标注 |
+| R7 成本摩擦 + 流动性上限 | `broker.py::execute_orders` + `config.py`（费率/档位/`liquidity_cap`） | 佣金/印花税/滑点/过户费四分量；缺配置 → `MissingBacktestConfigError`；上限 = `avg_amount × max_participation`，`avg_amount` 缺 → `BacktestDataGapError`，超限截断标注（T2-fix-5） |
 | R8 A 股撮合约束 | `broker.py` 状态机 + `data.py`（涨跌停/停牌字段）+ `OrderAttempt` | T+1 / 封板顺延 / 停牌跳过，逐次 attempt 留痕，`delay_days` 可数 |
 | R9 后复权 | `data.py::load_price_series(adjust=HFQ/SEGMENTED_HFQ)` | 前复权请求抛 `InvalidAdjustModeError`；数据缺失抛 `BacktestDataGapError`；结果带 `adjust_mode + data_version + snapshot_time` |
-| R10 信号纯函数 + t→t+1 | `signal.py::evaluate_condition` + `models.PointInTimeSnapshot` | 入参被硬裁到 t；越界抛 `FutureDataError`，失败落执行行留痕；成交在 t+1 及之后 |
+| R10 信号纯函数 + t→t+1 | `signal.py::evaluate_condition(snapshot, condition: ConditionSpec)` + `models.PointInTimeSnapshot` | 入参被硬裁到 t；越界抛 `FutureDataError`，失败落执行行留痕；成交在 t+1 及之后 |
 | R11 公告日对齐 | `data.py::load_financials_point_in_time` | 有 `ann_date` 时 `visible_from = ann_date`；缺 `ann_date` → `conservative_cutoff`（4/8/10 月底）并回退标注（spec R11 优先，非 max） |
-| R12 生存偏差 | `universe.py::build_universe` + `data_provider/backtest/universe.py` | 含退市（退市日前计入）/当时 ST/历史成分；名单缺 → `BacktestDataGapError` |
-| R13 基准 + 归因 | `metrics.py::attribution(…, benchmarks: Sequence[Benchmark])` | 双基准（买入持有 + 市场组合）+ beta/规模/价值/动量 + `unexplained` |
+| R12 生存偏差 | `universe.py::build_universe(as_of, universe_scope, *, provider: UniverseProvider)` + `data_provider/backtest/universe.py` | 含退市（退市日前计入）/当时 ST/历史成分；数据源不可得 → `BacktestDataGapError`（可得为空 → 空 tuple 合法） |
+| R13 基准 + 归因 | `metrics.py::attribution(returns: dict{"rule","market_portfolio"}, factors: dict{"size","value","momentum"})` + `AttributionResult` | 双基准（买入持有 + 市场组合）+ beta（由 market_portfolio 回归推导）/规模/价值/动量 + `unexplained` + `verdict`（缺 market_portfolio → INCONCLUSIVE） |
 | R14 稳定性分档 | `metrics.py::stability` + `StabilityResult` | 分年度/牛熊震荡/市值组；仅一段显著 → 「仅在 X 段有效」（`scope_note`） |
 | R15 标签准入 + 切点纪律 | `universe.py::assign_groups` + 准入校验 | 三条件准入、软标签拒绝、结果标签禁用、季度重算不回改 |
 | R16 部分池化 | `metrics.py::partial_pooling` | 组内分位 + 收缩强度；拒绝绝对收益预测 |
-| R17 事件研究 MVP | `signal.py`（事件条件）+ `metrics.py::compute_event_study` + `EventStudyResult` | 20/60 日超额分布（每基准）+ 分年度/分档；允许「无信号」 |
+| R17 事件研究 MVP | `signal.py`（事件条件）+ `metrics.py::compute_event_study(observations, *, cfg)` + `EventStudyResult`（含 `verdict`） | 20/60 日超额分布（每基准）+ 分年度/分档；空观测 → `verdict=INCONCLUSIVE`；允许「无信号」 |
 | R18 校准门禁 | `calibration.py::run_calibration / assert_calibrated` + `CalibrationResult` | 校准题显著跑输 → 可信；否则**库层抛 `CalibrationFailedError`，CLI 捕获后 `sys.exit(2)`** 封锁全部研究输出（QA-F9） |
-| R19 三级门禁 | `gates.py::GateStateMachine` | 回测→影子→实盘；跳级抛 `GateSkipError` 并留痕；唯一状态可查询 |
+| R19 三级门禁 | `gates.py::GateStateMachine(registry, *, cfg)` | 回测→影子→实盘；先查边（跳级 → `GateSkipError` 留痕）→ 再查判据（缺 → `MissingBacktestConfigError`）→ 最后查达成性；唯一状态可查询 |
 
 ---
 
