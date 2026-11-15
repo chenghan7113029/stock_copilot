@@ -471,3 +471,15 @@ openspec.cmd validate add-backtest-engine --strict            # exit 0
 git diff --stat ba609a0..HEAD -- src/dao                      # 期望空（F10 证据）
 git log --format=%H --grep=add-backtest-engine | while read c; do git show --name-only --format='' $c; done | sort -u | grep -E '^openspec/specs/|^docs/mrd/'   # 期望空
 ```
+
+### 11.13 HEAD 复核补记（t27；任务书写作「§11.11」，因 §11.11 已被 findings 占用而顺延编号，内容不变）
+
+**t27 判定**：t25 §11.1 已完整覆盖 `48d56f9→be35936` 的 HEAD 位移（原文：「期间 t26 提交 `be35936`（T2-fix-7，仅改 design §4.2 R 映射表签名，939 行不变）→ 旧数字作废，全部命令在 `be35936` 整体重跑」），**本补记无新增测量结论**，结论以 §11 为准。
+
+证据（只读命令，未改任何代码/测试/design/spec）：
+- `git diff --stat 48d56f9..be35936` → `openspec/changes/add-backtest-engine/design.md | 14 +++++++-------`（`1 file changed, 7 insertions(+), 7 deletions(-)`）——仅文档；
+- `git diff --stat 48d56f9..be35936 -- src test` → **空输出**——代码与测试字节未变；
+- `git diff --stat be35936..HEAD`（`dbfdc2b`，t25 报告提交）→ 仅 `verification.md`（`1 file changed, 158 insertions(+), 2 deletions(-)`）；
+- 在 `dbfdc2b`（代码树等同 `be35936`）复跑：`pytest -q -m "not network and not akshare_legacy"` → `1059 passed, 35 deselected`（exit 0）；`pytest -q test/qa/backtest` → `56 passed`（exit 0），与 §11.3 数字一致。
+
+> 结论：**t25 的「通过」在新 HEAD 上依然成立**，因 t26 只改文档、代码与测试字节未变；t27 未产生新的验证结论，也无需改判。
