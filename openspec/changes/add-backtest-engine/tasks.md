@@ -256,3 +256,26 @@ Phase 7 CLI 装配与端到端
 
 - 前 5 条验收命令全部 exit 0（engineer 套件 115 passed；`--ignore=test/qa` 978 passed；ruff/compileall/openspec 绿）。
 - 全量含 QA：**24 failed / 1010 passed / exit 1**（t13 时 31 failed + 3 errors → 本次消除 7 条红点 + 全部 3 个 collection error；余下红点均为 QA 盲测夹具/调用面与补后契约不一致，见 T5）。
+
+---
+
+## T3-align-2 记录（engineer，t21；按 t18 T2-fix-5 裁决）
+
+> 基线：`c0f0507`（design §4.1 `PriceBar.avg_amount` / `AttributionResult.verdict` / loader 形状 / 「校准口径 spec 固定」）。本波只改实现与 engineer 单测，不改 design/spec/test/qa。
+> 证据：`pytest test/service/backtest test/data_provider/backtest test/apps/test_cli_backtest.py` **157 passed**；`pytest -m "not network and not akshare_legacy" --ignore=test/qa` **986 passed**；ruff scoped 0；`compileall` 0；`openspec validate --strict` 0。
+
+### 5 点各自落点
+
+| # | t18 裁决 | 实现改动 |
+| --- | --- | --- |
+| 1 | `PriceBar.avg_amount`（日均成交额，元）；liquidity 单/多档都依赖它；无 adv 数据 → `BacktestDataGapError`；多档不退化单档；`liquidity_cap` 未配置 → `MissingBacktestConfigError` | `models.py::PriceBar` 增 `avg_amount: float \| None`；`data.py::_to_price_bar` 映射该字段；`data_provider/backtest/market_rules.py` 把 `avg_amount` 列入必取字段（缺失即缺口）并并入撮合字段；`data_provider/backtest/adjust_price.py` 透传；`broker.py::LiquidityRules.from_config` 在 `liquidity_cap is None` → `MissingBacktestConfigError`、多档 → `BacktestDataGapError`；`_run_order` 用 `bar.avg_amount × max_participation` 截断，`avg_amount is None` → `BacktestDataGapError` |
+| 2 | `AttributionResult.verdict` + `beta/unexplained` 可空；`attribution(returns: dict{"rule","market_portfolio"}, factors: dict{"size","value","momentum"})`；缺 `market_portfolio` → 返回 `verdict=INCONCLUSIVE, beta=None, unexplained=None`（不抛异常）；缺因子键 → `MissingBacktestConfigError` | `models.py::AttributionResult` 增 `verdict`、`beta/unexplained` 改 `Optional`；`metrics.py::attribution` 改签名（删 `benchmarks` 参数），缺 market 键返回 INCONCLUSIVE（exposures 省略 beta），factor 缺键仍 `MissingBacktestConfigError` |
+| 3 | loader 形状：`load_forward_returns(signal, horizon) -> (code, 逐日收益)` + `load_benchmark_forward_returns(kind, signal, horizon) -> 逐日基准收益`；`excess_returns[t] = 标的 − 基准`；`H = max(cfg.windows)` | `data.py::load_event_observations` 已按该形状实现并加注释；单测夹具统一改为这两个方法（`test_data.py` / `test_calibration.py` / `test_cli_backtest.py`） |
+| 4 | 校准口径全 spec 固定（不新增 `calibration.*` 键）：区间=R3、窗口=`max(cfg.windows)`、K=校准执行次数、显著=CI 不含 0、撮合走正式路径、成本=broker 四分量（Q4 缺键即拒绝）、**不得用比例成本近似**；KQ-1 沿用 MA20 替代并标注 | `calibration.py` 重写事件收益计算：每个事件用 `broker.execute_orders`（SELL，`requested_qty=LOT_SIZE`）取正式撮合与 `Fill.cost` 四分量，超额 = `-cost/filled_amount - hold_return`；删除 `_cost_rate` 比例近似与 `CALIBRATION_COST_NOTE`；`params` 增 `cost_model="broker_four_components"`、`match_engine="execute_orders"`；notes 明示「不使用比例成本近似」+ KQ-1 标注；Q4 缺键 → `MissingBacktestConfigError` |
+| 5 | 同步 engineer 单测 + tasks 说明 | 单测：`test_models`（avg_amount / AttributionResult 字段）、`test_broker`（avg_amount 缺口、liquidity 未配置、多档不退化）、`test_metrics`（新 attribution 契约/缺 market → INCONCLUSIVE）、`test_data`（loader 形状 + avg_amount 映射）、`test_calibration`（四分量口径 + Q4 缺键拒绝）、`test_market_rules`（avg_amount 必取） |
+
+### 明确事项
+
+- **未采用比例成本近似**：校准成本只走 `broker.execute_orders` 的佣金/印花税/滑点/过户费四分量；Q4 成本键缺失即 `MissingBacktestConfigError`。
+- 残余（非契约）：`avg_amount` 属本机数据缺口（KD-4-07）；QA 夹具造 `PriceBar` 时需补 `avg_amount`，否则撮合按 R7 报缺口（这是 R7/T2-fix-5 的预期行为）。
+- 全量含 QA：**24 failed / 1018 passed / exit 1**（与 t17 的 24 failed 数量持平，无新增红点；余下为 QA 夹具/调用面待 T5）。

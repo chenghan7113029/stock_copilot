@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 from datetime import date, timedelta
-from pathlib import Path
 
 import yaml
 
@@ -183,6 +182,7 @@ def rows_for(code: str, closes: list[float]):
             "close": close,
             "factor": 1.0,
             "amount": 1_000_000.0,
+            "avg_amount": 100_000_000.0,
             "limit_up_price": close * 2,
             "limit_down_price": close / 2,
             "suspended": False,
@@ -202,8 +202,8 @@ class SyntheticLoader:
         return {code: rows_for(code, self.closes) for code in codes}
 
 
-RALLY = [10.0] * 60 + [9.0] + [9.0 + 0.05 * step for step in range(1, 61)]
-DROP = [10.0] * 60 + [9.0] + [9.0 - 0.03 * step for step in range(1, 61)]
+RALLY = [10.0] * 60 + [9.0] + [9.0 + 0.05 * step for step in range(1, 62)]
+DROP = [10.0] * 60 + [9.0] + [9.0 - 0.03 * step for step in range(1, 62)]
 
 
 def test_calibrate_success_exit_0(monkeypatch, tmp_path, capsys):

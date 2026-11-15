@@ -88,6 +88,7 @@ def _to_price_bar(row: Any, code: str, mode: AdjustMode) -> PriceBar:
         low=ohlc["low"],
         close=ohlc["close"],
         amount=_opt_float(row.get("amount")),
+        avg_amount=_opt_float(row.get("avg_amount")),
         limit_up_price=_opt_float(row.get("limit_up_price")),
         limit_down_price=_opt_float(row.get("limit_down_price")),
         suspended=bool(row.get("suspended", False)),

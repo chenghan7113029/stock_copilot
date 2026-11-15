@@ -28,6 +28,7 @@ from service.backtest.models import (
     OrderSide,
     OrderStatus,
     PointInTimeSnapshot,
+    PriceBar,
     RunRecord,
     RunStatus,
     Segment,
@@ -192,3 +193,47 @@ def test_config_spec_dataclasses_exist():
     }
     assert "segments" in BacktestConfig.__dataclass_fields__
     assert "gate_criteria" in BacktestConfig.__dataclass_fields__
+
+
+def test_price_bar_has_avg_amount():
+    fields = set(PriceBar.__dataclass_fields__)
+    assert "avg_amount" in fields
+    bar = PriceBar(
+        code="000001",
+        trade_date="2020-01-06",
+        open=10.0,
+        high=10.0,
+        low=10.0,
+        close=10.0,
+        amount=1_000_000.0,
+        avg_amount=500_000.0,
+    )
+    assert bar.avg_amount == 500_000.0
+
+
+def test_attribution_result_verdict_and_optional_fields():
+    from service.backtest.models import AttributionResult
+
+    fields = AttributionResult.__dataclass_fields__
+    assert set(fields) == {
+        "verdict",
+        "beta",
+        "size",
+        "value",
+        "momentum",
+        "exposures",
+        "contributions",
+        "unexplained",
+    }
+    result = AttributionResult(
+        verdict=Verdict.INCONCLUSIVE,
+        beta=None,
+        size=0.1,
+        value=0.2,
+        momentum=0.3,
+        exposures={"size": 0.1},
+        contributions={"size": 0.0},
+        unexplained=None,
+    )
+    assert result.verdict is Verdict.INCONCLUSIVE
+    assert result.beta is None and result.unexplained is None

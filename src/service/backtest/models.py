@@ -120,6 +120,7 @@ class PriceBar:
     low: float
     close: float
     amount: float | None = None
+    avg_amount: float | None = None  # 日均成交额（元）；流动性上限数据源（T2-fix-5）
     limit_up_price: float | None = None
     limit_down_price: float | None = None
     suspended: bool = False
@@ -331,13 +332,16 @@ class EventStudyResult:
 
 @dataclass(frozen=True)
 class AttributionResult:
-    beta: float
+    """R13 归因（T2-fix-5）：缺 `market_portfolio` → `verdict=INCONCLUSIVE`，beta/unexplained=None。"""
+
+    verdict: Verdict
+    beta: float | None
     size: float
     value: float
     momentum: float
     exposures: Mapping[str, float]
     contributions: Mapping[str, float]
-    unexplained: float
+    unexplained: float | None
 
 
 @dataclass(frozen=True)

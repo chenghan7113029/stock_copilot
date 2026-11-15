@@ -13,6 +13,7 @@ def market_row(**overrides):
         "code": "000001",
         "trade_date": "2020-01-06",
         "amount": 1_000_000.0,
+        "avg_amount": 1_000_000.0,
         "limit_up_price": 11.0,
         "limit_down_price": 9.0,
         "suspended": False,
@@ -26,7 +27,9 @@ def test_no_source_reports_gap():
         MarketRulesAdapter().load_rows(["000001"], "2020-01-01", "2020-01-31")
 
 
-@pytest.mark.parametrize("field", ["amount", "limit_up_price", "limit_down_price", "suspended"])
+@pytest.mark.parametrize(
+    "field", ["amount", "avg_amount", "limit_up_price", "limit_down_price", "suspended"]
+)
 def test_missing_field_reports_gap(field):
     rows = [market_row()]
     rows[0].pop(field)

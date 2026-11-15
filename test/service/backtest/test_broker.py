@@ -102,17 +102,55 @@ def test_t1_rejected_same_batch(cfg, make_bar):
     assert any("T+1" in note or "当日" in note for note in sell_fill.notes)
 
 
-def test_liquidity_cap_marks_notes(cfg, make_bar):
+def test_liquidity_cap_uses_avg_amount(cfg, make_bar):
     prices = {
         "000001": (
             make_bar(trade_date="2020-01-03", close=10.0),
-            make_bar(trade_date="2020-01-06", close=10.0, amount=1_000_000.0),
+            make_bar(
+                trade_date="2020-01-06", close=10.0, amount=1_000_000.0, avg_amount=1_000_000.0
+            ),
         )
     }
     fill = execute_orders([order(amount=50_000.0)], prices, cfg=cfg)[0]
-    assert fill.filled_amount == pytest.approx(10_000.0)
+    assert fill.filled_amount == pytest.approx(10_000.0)  # 1_000_000 × 0.01
     assert "触及流动性上限" in fill.notes
     assert fill.attempts[-1].status is OrderStatus.CAPPED_LIQUIDITY
+
+
+def test_missing_avg_amount_reports_gap(cfg, make_bar):
+    prices = {
+        "000001": (
+            make_bar(trade_date="2020-01-03", close=10.0),
+            make_bar(trade_date="2020-01-06", close=10.0, avg_amount=None),
+        )
+    }
+    with pytest.raises(BacktestDataGapError) as exc:
+        execute_orders([order()], prices, cfg=cfg)
+    assert "avg_amount" in str(exc.value)
+
+
+def test_liquidity_cap_unconfigured_rejected(tmp_path, config_factory):
+    cfg = BacktestConfig.from_config(
+        config_factory(**{"liquidity_cap": []}), base_dir=tmp_path
+    )
+    with pytest.raises(MissingBacktestConfigError):
+        LiquidityRules.from_config(cfg)
+
+
+def test_multi_tier_liquidity_does_not_degrade(tmp_path, config_factory):
+    cfg = BacktestConfig.from_config(
+        config_factory(
+            **{
+                "liquidity_cap": [
+                    {"adv_tier": "small", "max_participation": 0.01},
+                    {"adv_tier": "large", "max_participation": 0.05},
+                ]
+            }
+        ),
+        base_dir=tmp_path,
+    )
+    with pytest.raises(BacktestDataGapError):
+        LiquidityRules.from_config(cfg)
 
 
 def test_max_delay_cap_fails_order(cfg, make_bar):

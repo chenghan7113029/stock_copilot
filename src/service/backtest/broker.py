@@ -98,10 +98,11 @@ class CostCalculator:
 
 
 class LiquidityRules:
-    """单笔下单金额上限（按日均成交额分档）；超限截断并标注（R7 Scenario4）。
+    """单笔下单金额上限（按日均成交额分档，R7；T2-fix-5）。
 
-    design §4.1 的档位形状为 `{adv_tier, max_participation}`：单档时直接按成交额比例截断；
-    多档需要「日均成交额 → adv_tier」映射数据（本机缺口）→ `BacktestDataGapError`，不猜档位。
+    上限 = `PriceBar.avg_amount × 匹配档 max_participation`。`liquidity_cap` 未配置 →
+    `MissingBacktestConfigError`；多档需要「日均成交额 → adv_tier」映射数据（本机缺口）→
+    `BacktestDataGapError`，**不退化单档**（禁止静默降级）。
     """
 
     def __init__(self, caps: tuple[LiquidityCapSpec, ...]) -> None:
@@ -110,11 +111,12 @@ class LiquidityRules:
     @classmethod
     def from_config(cls, cfg: BacktestConfig) -> "LiquidityRules":
         caps = cfg.liquidity_cap
-        if not caps:
+        if caps is None:
             raise MissingBacktestConfigError("回测配置缺值: liquidity_cap（Q4）")
         if len(caps) > 1:
             raise BacktestDataGapError(
-                "流动性上限配置了多档，但缺「日均成交额→adv_tier」数据：不猜档位（R7/Q4）"
+                "流动性上限配置了多档，但缺「日均成交额→adv_tier」映射数据："
+                "不退化单档、不猜档位（R7/Q4/T2-fix-5）"
             )
         return cls(tuple(caps))
 
@@ -316,8 +318,12 @@ def _run_order(
             raise BacktestDataGapError(
                 f"{order.code} {attempt_date} 缺成交额/涨跌停价，撮合无法判定（R7/R8）"
             )
+        if bar.avg_amount is None:
+            raise BacktestDataGapError(
+                f"{order.code} {attempt_date} 缺日均成交额 avg_amount：流动性上限不可算（R7/T2-fix-5）"
+            )
         requested = float(order.requested_amount)
-        cap = liquidity.limit_for(float(bar.amount))
+        cap = liquidity.limit_for(float(bar.avg_amount))
         filled = min(requested, cap)
         capped = filled < requested
         fill_price = bar.close

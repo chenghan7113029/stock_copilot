@@ -35,6 +35,7 @@ def price_row(trade_date="2020-01-06", close=10.0, code="000001"):
         "close": close,
         "factor": 1.0,
         "amount": 1_000_000.0,
+        "avg_amount": 1_000_000.0,
         "limit_up_price": 100.0,
         "limit_down_price": 1.0,
         "suspended": False,

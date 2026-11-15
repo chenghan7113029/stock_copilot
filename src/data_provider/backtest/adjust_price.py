@@ -107,7 +107,7 @@ def _adjusted_row(row: Mapping[str, Any], mode: str) -> dict[str, Any]:
     for key in _PRICE_KEYS:
         adjusted[key] = float(row[key]) * factor_value
     # 成交额/涨跌停价是「撮合所需字段」，不在本适配器伪造（缺就留 None，由 market_rules 报缺口）
-    for key in ("amount", "limit_up_price", "limit_down_price"):
+    for key in ("amount", "avg_amount", "limit_up_price", "limit_down_price"):
         value = row.get(key)
         adjusted[key] = None if value is None else float(value)
     return adjusted

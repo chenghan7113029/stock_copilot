@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from common.exceptions import BacktestError, CalibrationFailedError, MissingBacktestConfigError
+from service.backtest.broker import execute_orders
 from service.backtest.data import load_price_series
 from service.backtest.metrics import (
     block_bootstrap,
@@ -25,11 +26,14 @@ from service.backtest.metrics import (
     t_statistic,
 )
 from service.backtest.models import (
+    LOT_SIZE,
     SEGMENT_YEAR_RANGES,
     AdjustMode,
     BacktestConfig,
     CalibrationResult,
     ConditionSpec,
+    Order,
+    OrderSide,
     PointInTimeSnapshot,
     RunRecord,
     RunStatus,
@@ -47,9 +51,7 @@ CALIBRATION_START = f"{_MIN_TRAIN_YEAR:04d}-01-01"
 CALIBRATION_END = f"{_MAX_OOS_YEAR:04d}-12-31"
 # 校准题是「一道题」：校正方法固定 Bonferroni + K=执行次数（K 翻倍不改变本意）
 CALIBRATION_CORRECTION_METHOD = "bonferroni"
-# 校准题成本按比例口径（佣金买卖两次 + 卖出印花税 + 首档滑点两次）；逐笔档位/最低额由
-# broker 负责（校准只判方向，不做金额结算），此近似在 notes 中显式标注。
-CALIBRATION_COST_NOTE = "成本按比例口径近似（佣金×2 + 卖出印花税 + 首档滑点×2）"
+# 校准成本与撮合：走 broker 正式路径的四分量（R7/R8，T2-fix-5：禁止比例成本近似）
 
 
 def write_calibration_result(
@@ -88,7 +90,6 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
     if cfg.n_bootstrap is None:
         raise MissingBacktestConfigError("回测配置缺值: n_bootstrap（KQ-2）")
     horizon = max(cfg.windows)
-    cost_rate = _cost_rate(cfg)
     codes = _calibration_codes(loader, CALIBRATION_END)
     prices = load_price_series(
         codes, CALIBRATION_START, CALIBRATION_END, AdjustMode.HFQ, loader=loader
@@ -101,6 +102,7 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
     excess: list[float] = []
     for code in codes:
         bars = prices.get(code, ())
+        bar_dates = [bar.trade_date for bar in bars]
         for index in range(1, len(bars)):
             snapshot = PointInTimeSnapshot(
                 as_of=bars[index].trade_date, price=tuple(bars[: index + 1])
@@ -108,16 +110,25 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
             signal = evaluate_condition(snapshot, condition)
             if signal is None:
                 continue
-            exit_index = index + horizon
+            # 撮合走正式路径（t+1 / 封板顺延 / 停牌跳过 / 流动性上限），成本取四分量
+            order = Order(
+                code=code,
+                signal_date=signal.event_date,
+                side=OrderSide.SELL,
+                requested_amount=0.0,
+                requested_qty=LOT_SIZE,
+            )
+            fill = execute_orders([order], {code: bars}, cfg=cfg)[0]
+            if fill.fill_date is None or not fill.filled_amount or fill.filled_amount <= 0:
+                continue
+            fill_index = bar_dates.index(fill.fill_date)
+            exit_index = fill_index + horizon
             if exit_index >= len(bars):
                 continue
-            entry_price = bars[index].close
-            exit_price = bars[exit_index].close
-            if entry_price <= 0:
-                continue
-            hold_return = exit_price / entry_price - 1.0
-            # 规则：事件后离场（空仓）→ 组合收益 0；相对买入持有的超额 = -hold - 成本
-            excess.append(-hold_return - cost_rate)
+            hold_return = bars[exit_index].close / bars[fill_index].close - 1.0
+            cost_rate = fill.cost.total / fill.filled_amount
+            # 规则：事件后离场（空仓）→ 组合收益 0；相对买入持有的超额 = -成本 - hold
+            excess.append(-cost_rate - hold_return)
 
     k_value = _next_calibration_k(registry)
     params = {
@@ -128,6 +139,8 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
         "codes": len(codes),
         "events": len(excess),
         "calibration_window": [CALIBRATION_START, CALIBRATION_END],
+        "cost_model": "broker_four_components",
+        "match_engine": "execute_orders",
     }
     if excess:
         ci, _effective_n = block_bootstrap(
@@ -154,7 +167,10 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
     else:
         notes.append(f"{UNTRUSTED_MESSAGE}：校准题未复现显著跑输（R18 Scenario 2）")
     notes.append("KQ-1 未答复：次新股沿用现行 MA60/MA20 替代口径并标注")
-    notes.append(CALIBRATION_COST_NOTE)
+    notes.append(
+        "成本 = broker 四分量（佣金/印花税/滑点/过户费，R7）；撮合走 execute_orders"
+        "（T+1/封板顺延/停牌跳过/流动性上限，R8）——不使用比例成本近似"
+    )
     result = CalibrationResult(
         passed=passed,
         direction=direction,
@@ -178,22 +194,6 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
         )
     )
     return result
-
-
-def _cost_rate(cfg: BacktestConfig) -> float:
-    """比例成本口径（见 CALIBRATION_COST_NOTE）：只用配置值，不预埋数值。"""
-    from service.backtest.broker import CostCalculator
-
-    rules = CostCalculator.from_config(cfg).rules  # 缺 Q4 配置即 MissingBacktestConfigError
-    tier_bps = rules.slippage_tiers[0].bps
-    rate = (
-        2.0 * rules.commission_rate
-        + rules.stamp_tax_rate
-        + 2.0 * tier_bps / 10000.0
-    )
-    if rules.transfer_fee_included:
-        rate += 2.0 * rules.transfer_fee_rate
-    return rate
 
 
 def _calibration_codes(loader: Any, as_of: str) -> tuple[str, ...]:

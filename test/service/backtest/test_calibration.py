@@ -40,6 +40,7 @@ def rows_for(code: str, closes: list[float]) -> tuple[dict, ...]:
             "close": close,
             "factor": 1.0,
             "amount": 1_000_000.0,
+            "avg_amount": 100_000_000.0,
             "limit_up_price": close * 2,
             "limit_down_price": close / 2,
             "suspended": False,
@@ -63,8 +64,8 @@ class CalibrationLoader:
 
 
 # 61 根打底（MA60 + 事件日）+ 60 天事件后
-BREAKDOWN_THEN_RALLY = [10.0] * 60 + [9.0] + [9.0 + 0.05 * step for step in range(1, 61)]
-BREAKDOWN_THEN_DROP = [10.0] * 60 + [9.0] + [9.0 - 0.03 * step for step in range(1, 61)]
+BREAKDOWN_THEN_RALLY = [10.0] * 60 + [9.0] + [9.0 + 0.05 * step for step in range(1, 62)]
+BREAKDOWN_THEN_DROP = [10.0] * 60 + [9.0] + [9.0 - 0.03 * step for step in range(1, 62)]
 
 
 def test_calibration_fixture_window_is_spec_range():
@@ -87,6 +88,9 @@ def test_calibration_pass_marks_platform_trusted(cfg, registry):
     assert payload["run_id"]
     assert payload["params"]["horizon_days"] == 60  # = max(cfg.windows)
     assert payload["params"]["short_history_policy"] == "ma20_substitute"
+    assert payload["params"]["cost_model"] == "broker_four_components"
+    assert payload["params"]["match_engine"] == "execute_orders"
+    assert any("四分量" in note and "不使用比例成本近似" in note for note in payload["notes"])
     statuses = [
         row.status for row in registry.rows() if getattr(row, "row_type", "") == "run"
     ]
@@ -134,3 +138,18 @@ def test_failure_wording_never_blames_strategy(cfg, registry):
         assert forbidden not in text
     assert "台子不可信" in text
     assert "KQ-1" in text  # 口径未定的显式标注
+
+
+def test_calibration_rejects_missing_q4_cost_keys(cfg, registry, tmp_path, config_factory):
+    from common.exceptions import MissingBacktestConfigError
+    from service.backtest.models import BacktestConfig
+
+    cfg_missing = BacktestConfig.from_config(
+        config_factory(**{"commission": {"rate": None, "min": None}}), base_dir=tmp_path
+    )
+    with pytest.raises(MissingBacktestConfigError):
+        run_calibration(
+            cfg=cfg_missing,
+            loader=CalibrationLoader(BREAKDOWN_THEN_RALLY, codes=2),
+            registry=registry,
+        )

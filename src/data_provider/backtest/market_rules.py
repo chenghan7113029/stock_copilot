@@ -13,7 +13,7 @@ from common.exceptions import BacktestDataGapError
 
 MarketFetch = Callable[..., Iterable[Mapping[str, Any]]]
 
-_REQUIRED_KEYS = ("amount", "limit_up_price", "limit_down_price", "suspended")
+_REQUIRED_KEYS = ("amount", "avg_amount", "limit_up_price", "limit_down_price", "suspended")
 
 
 def _require_value(code: str, trade_date: str, key: str, row: Mapping[str, Any]) -> Any:
@@ -57,6 +57,7 @@ class MarketRulesAdapter:
                 "code": code,
                 "trade_date": trade_date,
                 "amount": float(_require_value(code, trade_date, "amount", row)),
+                "avg_amount": float(_require_value(code, trade_date, "avg_amount", row)),
                 "limit_up_price": float(
                     _require_value(code, trade_date, "limit_up_price", row)
                 ),

@@ -18,12 +18,7 @@ from service.backtest.metrics import (
     stability,
     window_excess,
 )
-from service.backtest.models import Benchmark, EventObservation, WindowStats
-
-BENCHMARKS = (
-    Benchmark(kind="buy_and_hold", label="买入持有"),
-    Benchmark(kind="market_portfolio", label="市场组合"),
-)
+from service.backtest.models import EventObservation, Verdict, WindowStats
 
 
 def observation(code="000001", date="2016-06-01", kind="buy_and_hold", daily=-0.002, days=60):
@@ -39,12 +34,12 @@ def observation(code="000001", date="2016-06-01", kind="buy_and_hold", daily=-0.
 def make_observations(count=5):
     items = []
     for index in range(count):
-        for benchmark in BENCHMARKS:
+        for kind in ("buy_and_hold", "market_portfolio"):
             items.append(
                 observation(
                     code=f"{index:06d}",
                     date=f"2016-{index + 1:02d}-01",
-                    kind=benchmark.kind,
+                    kind=kind,
                     daily=-0.002 - index * 0.0001,
                 )
             )
@@ -132,7 +127,7 @@ def test_missing_k_cannot_be_corrected(cfg):
 
 def test_attribution_beta_from_market_benchmark():
     returns = {
-        "strategy": [0.01, 0.02, -0.01, 0.03, 0.0],
+        "rule": [0.01, 0.02, -0.01, 0.03, 0.0],
         "market_portfolio": [0.005, 0.01, -0.005, 0.015, 0.0],
     }
     factors = {
@@ -140,34 +135,45 @@ def test_attribution_beta_from_market_benchmark():
         "value": [0.1, 0.0, -0.1, 0.2, 0.05],
         "momentum": [0.3, 0.1, -0.2, 0.0, 0.1],
     }
-    result = attribution(returns, factors, BENCHMARKS)
+    result = attribution(returns, factors)
+    assert result.verdict is Verdict.VALID
     assert set(result.exposures) == {"beta", "size", "value", "momentum"}
     assert set(result.contributions) == {"beta", "size", "value", "momentum"}
     assert result.beta == pytest.approx(2.0, abs=1e-9)
-    assert math.isfinite(result.unexplained)
+    assert result.unexplained is not None and math.isfinite(result.unexplained)
 
 
 def test_attribution_requires_three_factor_keys():
-    returns = {"strategy": [0.01], "market_portfolio": [0.01]}
+    returns = {"rule": [0.01], "market_portfolio": [0.01]}
     with pytest.raises(MissingBacktestConfigError) as exc:
-        attribution(returns, {"size": [1.0]}, BENCHMARKS)
+        attribution(returns, {"size": [1.0]})
     assert "value" in str(exc.value)
 
 
-def test_attribution_without_market_benchmark_is_inconclusive():
-    returns = {"strategy": [0.01, 0.02], "market_portfolio": [0.01, 0.02]}
+def test_attribution_without_market_portfolio_is_inconclusive():
+    returns = {"rule": [0.01, 0.02]}
     factors = {"size": [1.0, 1.0], "value": [1.0, 1.0], "momentum": [1.0, 1.0]}
-    with pytest.raises(BacktestError) as exc:
-        attribution(returns, factors, (Benchmark("buy_and_hold", "买入持有"),))
-    assert "INCONCLUSIVE" in str(exc.value)
+    result = attribution(returns, factors)
+    assert result.verdict is Verdict.INCONCLUSIVE
+    assert result.beta is None
+    assert result.unexplained is None
+    assert "beta" not in result.exposures
+    assert set(result.contributions) == {"size", "value", "momentum"}
 
 
-def test_attribution_requires_market_series():
+def test_attribution_requires_rule_series():
     with pytest.raises(BacktestError):
         attribution(
-            [0.01, 0.02],
+            {"market_portfolio": [0.01]},
+            {"size": [1.0], "value": [1.0], "momentum": [1.0]},
+        )
+
+
+def test_attribution_length_mismatch_rejected():
+    with pytest.raises(BacktestError):
+        attribution(
+            {"rule": [0.01, 0.02], "market_portfolio": [0.01]},
             {"size": [1.0, 1.0], "value": [1.0, 1.0], "momentum": [1.0, 1.0]},
-            BENCHMARKS,
         )
 
 

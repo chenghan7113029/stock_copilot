@@ -16,10 +16,10 @@ from common.exceptions import BacktestError, MissingBacktestConfigError
 from service.backtest.models import (
     AttributionResult,
     BacktestConfig,
-    Benchmark,
     EventObservation,
     EventStudyResult,
     StabilityResult,
+    Verdict,
     WindowStats,
 )
 
@@ -299,68 +299,65 @@ def insufficient_sample(
 
 
 def attribution(
-    returns: Sequence[float] | Mapping[str, Sequence[float]],
+    returns: Mapping[str, Sequence[float]],
     factors: Mapping[str, Sequence[float]],
-    benchmarks: Sequence[Benchmark],
 ) -> AttributionResult:
-    """四项归因（R13）：beta 由 returns 对 market_portfolio 基准收益回归推导（不入参）。
+    """四项归因（R13，T2-fix-5）。
 
-    - `returns`：策略收益序列；或映射 `{"strategy": [...], "market_portfolio": [...]}`
-      （基准收益随 returns 传入，不作为独立参数）；
-    - `factors` 键集固定 `{"size","value","momentum"}`；缺任一键 → `MissingBacktestConfigError`；
-    - `benchmarks` 缺 `market_portfolio` → 归因不可判定（抛 `BacktestError`，结论 INCONCLUSIVE）。
+    - `returns` 键集固定 `{"rule","market_portfolio"}`（同长）；`beta` 由 `returns["rule"]`
+      对 `returns["market_portfolio"]` 回归推导（不作为独立参数传入）；
+    - 缺 `market_portfolio` 键 → 返回 `AttributionResult(verdict=INCONCLUSIVE, beta=None,
+      unexplained=None)`（**不抛异常**，R13「缺失基准时不出结论」）；
+    - `factors` 键集固定 `{"size","value","momentum"}`；缺任一键 → `MissingBacktestConfigError`。
     """
     missing = [key for key in FACTOR_KEYS if key not in factors]
     if missing:
         raise MissingBacktestConfigError(f"attribution 缺因子键: {missing}（R13 固定三因子）")
-    if not any(benchmark.kind == MARKET_BENCHMARK_KIND for benchmark in benchmarks):
-        raise BacktestError(
-            "attribution 缺 market_portfolio 基准：归因不可判定（INCONCLUSIVE，R13）"
-        )
-    strategy, market = _split_returns(returns)
-    if len(strategy) != len(market):
-        raise BacktestError("strategy 与 market_portfolio 收益长度不一致（R13）")
-    if not strategy:
+    if "rule" not in returns:
+        raise BacktestError("attribution 缺 returns['rule']：无法归因（R13）")
+    rule = [float(value) for value in returns["rule"]]
+    if not rule:
         raise BacktestError("归因收益序列为空（R13）")
     exposures: dict[str, float] = {}
     contributions: dict[str, float] = {}
-    market_variance = _variance(market)
-    beta = _covariance(strategy, market) / market_variance if market_variance > 0 else 0.0
-    exposures["beta"] = beta
-    contributions["beta"] = beta * _mean(market)
     for key in FACTOR_KEYS:
         series = [float(value) for value in factors[key]]
-        if len(series) != len(strategy):
-            raise BacktestError(f"因子 {key} 长度 {len(series)} ≠ 收益长度 {len(strategy)}")
+        if len(series) != len(rule):
+            raise BacktestError(f"因子 {key} 长度 {len(series)} ≠ 收益长度 {len(rule)}")
         variance = _variance(series)
-        exposure = _covariance(strategy, series) / variance if variance > 0 else 0.0
+        exposure = _covariance(rule, series) / variance if variance > 0 else 0.0
         exposures[key] = exposure
         contributions[key] = exposure * _mean(series)
+
+    market_raw = returns.get(MARKET_BENCHMARK_KIND)
+    if market_raw is None:
+        # 缺市场组合基准：四项里 beta/未解释不可算，整份归因不可判定（不抛异常）
+        return AttributionResult(
+            verdict=Verdict.INCONCLUSIVE,
+            beta=None,
+            size=exposures["size"],
+            value=exposures["value"],
+            momentum=exposures["momentum"],
+            exposures=exposures,
+            contributions=contributions,
+            unexplained=None,
+        )
+    market = [float(value) for value in market_raw]
+    if len(market) != len(rule):
+        raise BacktestError("returns['rule'] 与 returns['market_portfolio'] 长度不一致（R13）")
+    market_variance = _variance(market)
+    beta = _covariance(rule, market) / market_variance if market_variance > 0 else 0.0
+    exposures["beta"] = beta
+    contributions["beta"] = beta * _mean(market)
     return AttributionResult(
-        beta=exposures["beta"],
+        verdict=Verdict.VALID,
+        beta=beta,
         size=exposures["size"],
         value=exposures["value"],
         momentum=exposures["momentum"],
         exposures=exposures,
         contributions=contributions,
-        unexplained=_mean(strategy) - sum(contributions.values()),
-    )
-
-
-def _split_returns(
-    returns: Sequence[float] | Mapping[str, Sequence[float]],
-) -> tuple[list[float], list[float]]:
-    if isinstance(returns, Mapping):
-        strategy = returns.get("strategy")
-        market = returns.get(MARKET_BENCHMARK_KIND) or returns.get("market")
-        if strategy is None or market is None:
-            raise BacktestError(
-                "attribution 缺市场基准收益：returns 需含 strategy 与 market_portfolio（R13）"
-            )
-        return [float(value) for value in strategy], [float(value) for value in market]
-    raise BacktestError(
-        "attribution 需要 returns 映射（strategy + market_portfolio）："
-        "beta 必须由市场基准回归推导（T2-fix-4）"
+        unexplained=_mean(rule) - sum(contributions.values()),
     )
 
 
