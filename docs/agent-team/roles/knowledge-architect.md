@@ -14,7 +14,7 @@
 
 ## 工具与技能
 
-- skill：`grillme`（识别与提问）、`brainstorming`（分层方案比较）、`writing-plans`（信息架构落文）；`business-analyst` / `requirements-analysis` / `architecting-solutions` / `system-architect` 本项目未安装，能力由前者承担
+- skill：`requirements-analysis`（缺口识别）、`grillme`（提问）、`brainstorming`、`writing-plans`、`architecting-solutions` / `system-architect`（仅信息架构）、`lark-im`（口径问群，经 captain）；`business-analyst` 未装
 - 咨询通道：`agent_teams_send_message` 报 captain 转交（**不直接问用户**）；调研 `web_search` / `read_page`（外部资料只能标 `假设`）
 - 环境约束：`docs/agent-team/ENV.md`
 
