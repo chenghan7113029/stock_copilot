@@ -66,3 +66,17 @@
 - **IMP-06（ruff 38 存量基线）**：维持「本波不修、不记失败」口径；T7 台账标 **P1 下一波 / 独立 housekeeping change**，不得并入功能波。理由是静态债与回测需求无关，混入会让评审 diff 失真。
 - **归档（T8）未执行**：`openspec archive` + `merge --no-ff` 属发布动作，等 Owner 明确同意后再派 integrator。
 - **口径波与数据波**：IMP-07（Q1–Q8 + KQ-1…KQ-7）与 IMP-08（A1/A4/avg_amount）是 P0，二者合起来才可能让 proposal S1 从「机制层」走到「业务层」；在答复前，所有未确认值保持「缺键即拒绝」。
+
+## 交付记录（2026-11-15 收波）
+
+| 项 | 值 |
+| --- | --- |
+| 归档 | `openspec/changes/archive/2026-11-15-add-backtest-engine/`（12 项：proposal/design/tasks/verification/review/review-implementation/test-design/knowledge-delta/specs/references/README） |
+| 主规格 | `openspec/specs/backtest-engine/spec.md`（19 R，Purpose 已写、无 TBD、≥50 字符） |
+| 分支合并 | feature HEAD `796dbc5` → main HEAD `1a419d9`（`merge --no-ff`，无冲突）；**feature 分支保留** |
+| 远端 | **未 push**（`origin/main` 仍 `ba609a0`），推送交 Owner（本机 GitHub 直连不可用） |
+| 门禁（main 复核） | 全量 **1091 passed / 35 deselected / exit 0**；QA `test/qa/backtest` 62 passed；`validate --specs --strict` **24 passed / 76 failed**（基线 23/76 → **无新增失败**）；`doctor` ok；`check_knowledge_source.py` 0 error；ruff 全仓 38 存量（本 change 新增 0） |
+| 遗留（已入台账） | R2-02/R2-03（low → IMP-01/02）；e2e 种子库（IMP-05）；ruff 基线（IMP-06）；76 条主规格 Purpose 存量债（housekeeping 波） |
+| 未定值 | `max_delay_days` / `min_events` 仍为 `null`（Owner 未答；消费处会抛缺键） |
+
+**流程疏漏（本波发现，待修）**：`agent_team_plan.py closeout` 只接受 `plans/<change>.yaml`，而本波计划盘是 `.md`，导致收口脚本 `exit 2`（不阻断三闸门，已如实记录）。决议：后续波按 PLAYBOOK §8 用 `agent_team_plan.py init` 生成 `.yaml` 计划；或给脚本增加 `.md` 兼容。本波不回溯改造。
