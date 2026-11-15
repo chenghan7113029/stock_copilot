@@ -15,7 +15,8 @@
 
 **未读**：`src/service/backtest/`、`src/data_provider/backtest/`、`test/service/backtest/`。
 配置**不依赖** `config/app.yaml` 存在（该文件被 gitignore；契约源是 `config/app.example.yaml` 与 design §4.1），
-夹具在 `tmp_path` 下自建骨架。一条 TC = 一个测试函数（共 56 条）。
+夹具在 `tmp_path` 下自建骨架。一条 TC = 一个测试函数（共 **57** 条：56 条 Scenario 用例
++ TC-R17-04 锁定 R2-01「零触发 = 合法无信号，不是数据缺口」）。
 """
 
 from __future__ import annotations

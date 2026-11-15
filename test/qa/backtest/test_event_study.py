@@ -1,4 +1,4 @@
-"""R17 事件研究为 MVP 主交付（TC-R17-01..03）。
+"""R17 事件研究为 MVP 主交付（TC-R17-01..04）。
 
 锚点：spec R17；design §4.1（T2-fix-4 后）`EventObservation`（逐日超额载体，长度 = max(window)）、
 `load_event_observations(signals, benchmarks, *, loader, cfg)`、`compute_event_study(observations, *, cfg)`、
@@ -7,6 +7,10 @@
 """
 
 from __future__ import annotations
+
+import json
+
+import pytest
 
 
 def test_tc_r17_01_twenty_and_sixty_day_windows(load, make_observations, cfg_event):
@@ -53,3 +57,91 @@ def test_tc_r17_03_no_signal_is_a_legal_conclusion(load, models, make_observatio
         timestamps={"created_at": "2026-01-02T09:30:00+08:00"}, parent_experiment_id=None)
     assert record.verdict is models.Verdict.INCONCLUSIVE
     assert record.K == 1, "无信号结论同样计入 K（spec R17 Scenario3）"
+
+
+class _FlatPriceLoader:
+    """零触发夹具：**故意只提供价格通道**，不带事件收益取数方法。
+
+    区分力自证（R2-01 锁定）：旧实现（零事件先校验 loader/benchmark 再报缺口）在只有价格通道时
+    必然抛 `BacktestDataGapError`；现契约要求零触发是**合法无信号**、在取数之前短路返回空观测。
+    因此只要实现回退，`test_tc_r17_04` 的 `code == 0` 与 `"数据缺口" not in stderr` 即会红。
+    """
+
+    def __init__(self, closes):
+        self._closes = list(closes)
+
+    def load_price_rows(self, codes, start, end, adjust):
+        dates = _flat_dates(start, end)
+        rows = [{"trade_date": day, "open": px, "high": px, "low": px, "close": px,
+                 "amount": 1e8, "avg_amount": 1e8,
+                 "limit_up_price": round(px * 1.1, 2), "limit_down_price": round(px * 0.9, 2),
+                 "suspended": False, "delisted": False, "st": False}
+                for day, px in zip(dates, self._closes)]
+        return {code: list(rows) for code in codes}
+
+
+def _flat_dates(start: str, end: str) -> list[str]:
+    import datetime as dt
+
+    day = max(dt.date.fromisoformat(str(start)), dt.date(2020, 1, 2))
+    stop = dt.date.fromisoformat(str(end))
+    out = []
+    while day <= stop and len(out) < 400:
+        if day.weekday() < 5:
+            out.append(day.isoformat())
+        day += dt.timedelta(days=1)
+    return out
+
+
+def test_tc_r17_04_zero_trigger_cli_reaches_inconclusive_exit_0(load, models, cfg_raw, cfg_event,
+                                                                cli_runner, registry_path, results_dir,
+                                                                tmp_path, monkeypatch):
+    """TC-R17-04（R17 Scenario3 / R2-01 锁定）：规则零触发 = 合法「无信号」→ CLI 退出码 0、
+    结果行 `verdict=inconclusive / windows={} / n_events=0`，**不得**抛 `BacktestDataGapError`；
+    而数据通道不可得（非零事件）仍必须抛缺口（两种语义不得混同）。
+    """
+    apps_cli = load("apps.cli")
+    data = load("service.backtest.data")
+
+    prereg_dir = tmp_path / "config" / "backtest" / "preregistrations"
+    prereg_dir.mkdir(parents=True, exist_ok=True)
+    (prereg_dir / "hid.yaml").write_text(json.dumps({
+        "hypothesis_id": "hid",
+        "statement": "跌破 MA60 后 60 日跑输买入持有",
+        "params": {"ma": 60, "K": 1, "codes": ["000001"],
+                   "start": "2020-01-01", "end": "2020-12-31"},
+        "metrics": ["mean_excess"],
+        "segments": ["validation"],
+        "benchmarks": ["buy_and_hold"],
+        "correction_method": "bonferroni",
+        "k_definition": "规则×参数网格",
+        "created_at": "2026-01-01T00:00:00",
+    }), encoding="utf-8")
+    monkeypatch.setattr(apps_cli, "_prereg_commit", lambda path: "deadbeef")
+    monkeypatch.setattr(apps_cli, "build_backtest_loader",
+                        lambda cfg: _FlatPriceLoader([10.0] * 260))
+
+    result = cli_runner(["run", "--hypothesis", "hid"])
+
+    assert result.returncode == 0, result.stderr
+    assert "数据缺口" not in result.stderr and "预注册缺失" not in result.stderr
+    assert "inconclusive" in result.stdout.lower()
+
+    rows = [json.loads(line) for line in registry_path.read_text(encoding="utf-8").splitlines()]
+    results = [row for row in rows if row["row_type"] == "result"]
+    assert len(results) == 1
+    assert results[0]["verdict"] == "inconclusive"
+    metrics = results[0]["metrics"]
+    assert metrics["event_study"]["verdict"] == "inconclusive"
+    assert metrics["event_study"]["windows"] == {}
+    assert metrics["event_study"]["n_events"] == 0
+    assert metrics["n_observations"] == 0
+    assert metrics["corrected_p"] is None
+    assert (results_dir / "hid-0001.json").exists(), "零触发也必须落结果 JSON"
+
+    # 对照：**非零事件**但数据通道不可得 → 仍必须报缺口（不得静默降级为「无信号」）
+    signal = models.EventSignal(condition_id="ma60_breakdown", event_date="2020-06-01")
+    benchmark = models.Benchmark(kind="buy_and_hold", label="买入持有")
+    with pytest.raises(models.BacktestDataGapError):
+        data.load_event_observations([signal], [benchmark],
+                                     loader=_FlatPriceLoader([10.0] * 260), cfg=cfg_event)

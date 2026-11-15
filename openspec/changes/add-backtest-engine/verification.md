@@ -483,3 +483,27 @@ git log --format=%H --grep=add-backtest-engine | while read c; do git show --nam
 - 在 `dbfdc2b`（代码树等同 `be35936`）复跑：`pytest -q -m "not network and not akshare_legacy"` → `1059 passed, 35 deselected`（exit 0）；`pytest -q test/qa/backtest` → `56 passed`（exit 0），与 §11.3 数字一致。
 
 > 结论：**t25 的「通过」在新 HEAD 上依然成立**，因 t26 只改文档、代码与测试字节未变；t27 未产生新的验证结论，也无需改判。
+
+### 11.14 R2-01 修复复验（t30：零触发 ≠ 数据缺口，已锁定）
+
+**冻结基线**：`git rev-parse HEAD` 测量前 = **`405e9611a1e33747ab4c8804cb6ddb759e7f80f3`**（t29 T3-repair），测量后复核**同值**；工作区仅本任务改动（`test/qa/backtest/`、`test-design.md`、本文件）。
+
+**T6 finding R2-01 去向**：`review-implementation.md` R2-01（medium）「`load_event_observations` 对零事件抛 `BacktestDataGapError`，F7 空观测经 CLI 不可达」→ **已消除**（t29 实现 + t30 用例锁定）。
+
+**锁定用例（新增，TC-R17-04）**：`test/qa/backtest/test_event_study.py::test_tc_r17_04_zero_trigger_cli_reaches_inconclusive_exit_0`
+- 走真实 CLI：`backtest run --hypothesis hid`，价格横盘（MA60 永不跌破）→ 零触发；
+- 断言：退出码 **0**；`registry.ndjson` 结果行 `verdict=inconclusive`；`metrics.event_study.verdict=inconclusive`、`windows={}`、`n_events=0`、`n_observations=0`、`corrected_p=None`；结果 JSON `hid-0001.json` 落盘；stderr **不含「数据缺口」/「预注册缺失」**；
+- 对照断言（同用例内，防混同）：**非零事件**但取数通道不可得（loader 无 `load_forward_returns`/`load_benchmark_forward_returns`）→ 仍抛 `BacktestDataGapError`。
+- **区分力自证（反向探针，未提交）**：临时把 `apps.cli.load_event_observations` 打回旧行为（零事件先抛缺口）后运行该用例 → **FAILED**（`assert 1 == 0`，stderr「（反向探针）旧实现把零触发当数据缺口」）；探针文件已删除，工作区无残留。故实现回退时本用例必红。
+
+**计数口径（56 → 57）**：spec 仍 **19 R / 56 Scenario**（未变）；QA 用例总数 **56 → 57**（TC-R17-04 是同一 Scenario 3 的第二个用例，不新增 Scenario）。已同步：`test/qa/backtest/conftest.py` 头注（57）、`test-design.md` §1.1 第 15 行（`3 + 1`）与规格一致性行、§1.2 新增 TC-R17-04 行、§10.3 `compute_event_study` 锚点「对应用例」加 TC-R17-04。
+
+**复跑（`405e961`）**：
+- `python -m pytest -q -m "not network and not akshare_legacy"` → **`1065 passed, 35 deselected`**（exit **0**；相对 §11.3 的 1059 = t29 新增 5 条 engineer 单测 + 本任务 1 条 QA 用例）；
+- `python -m pytest -q test/qa/backtest` → **`57 passed`**（exit 0）；
+- `python -m pytest -q test/qa/backtest --collect-only` → **`57 tests collected`**（exit 0）；
+- `python -m ruff check test/qa/backtest` → `All checks passed!`。
+
+**未处理（明确留 T7）**：R2-02（HFQ 硬编码三处、`SEGMENTED_HFQ` 在信号/校准路径不可达）、R2-03（`gates.ndjson` 无逐行 hash、未按 design 委托 registry）——本任务不碰。
+
+> 结论：R2-01 **已消除并锁定**（绿/红双向可证）；§11.2 的「通过」结论不变，§1–§11.13 原文未改（append-only）。

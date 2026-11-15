@@ -11,7 +11,7 @@
 
 | 检查项（任务完成定义） | 结果 |
 | --- | --- |
-| 规格一致性：spec 19 Requirement / **56 Scenario** → 用例 | **56/56 覆盖**，逐条列于 §1.2（无一遗漏；无一「口头测试点」） |
+| 规格一致性：spec 19 Requirement / **56 Scenario** → 用例 | **56/56 覆盖**，逐条列于 §1.2（无一遗漏；无一「口头测试点」）；另加 1 条锁定用例（TC-R17-04，R2-01）→ **用例总数 57** |
 | proposal 成功标准 5 条 → 可执行断言 | **5/5**，见 §2.1 |
 | proposal 失败标准/反目标 8 条 → 证伪用例 | **8/8**，见 §2.2 |
 | 八条硬约束的负向/对抗用例 | **8/8 有代码级用例**，见 §3（不只 happy path） |
@@ -48,7 +48,7 @@
 | 12 | `test_benchmark.py` | R13 | 3 + 1（§3.8） |
 | 13 | `test_stability.py` | R14 | 2 |
 | 14 | `test_labels.py` | R15、R16 | 5 + 2（§5.2、§5.3） |
-| 15 | `test_event_study.py` | R17 | 3 |
+| 15 | `test_event_study.py` | R17 | 3 + 1（锁定 R2-01 零触发，TC-R17-04） |
 | 16 | `test_known_answer_calibration.py` | R18 | 3 + 1（§4） |
 | 17 | `test_gates.py` | R19 | 3 + 2（§6） |
 | 18 | `test_success_criteria.py` | proposal 成功标准 S1–S5 + 退出码契约 E1–E3（§2.3） | 5 + 3 |
@@ -195,6 +195,7 @@
 | TC-R17-01 | 条件成立后 20 / 60 日超额分布 | `EventStudyResult.windows` 键含 `"20"` 与 `"60"`，每窗口 × 双基准均为 `WindowStats`（`n/mean/median/std/ci/by_year/by_cap_tier/effective_n`），`n_events` 非空（契约：design §4.1，QA-F4 已闭合）；窗口超出 `{20, 60}` → 拒绝（Q8 未答复） | `test/qa/backtest/test_event_study.py` |
 | TC-R17-02 | 事件数不足时不出结论 | 窗口内有效事件数 < 预注册阈值 → 标注「样本不足」，无 `valid/invalid` 判定（只允许 `INCONCLUSIVE` 或「样本不足」状态） | `test/qa/backtest/test_event_study.py` |
 | TC-R17-03 | 允许结论为无信号 | 超额 CI 含 0 且校正后不显著 → 结论「无信号」，且该结论与「有信号」同样计入台账行与 `K` | `test/qa/backtest/test_event_study.py` |
+| TC-R17-04（锁定用例，2026-11-15 t30 加） | 零触发经 CLI 必须可达「无信号」 | CLI `backtest run` 在规则零触发时退出码 0、结果行 `verdict=inconclusive / windows={} / n_events=0 / n_observations=0 / corrected_p=None`、结果 JSON 落盘、stderr 无数据缺口；**对照**：非零事件但取数通道不可得仍抛 `BacktestDataGapError`（两种语义不得混同；R2-01/design F7） | `test/qa/backtest/test_event_study.py` |
 
 #### R18 已知答案校准门禁 — `test/qa/backtest/test_known_answer_calibration.py`
 
@@ -212,7 +213,7 @@
 | TC-R19-02 | 影子期未满不得启用实盘 | 影子 2 个月请求 `LIVE_SMALL` → 拒绝，提示最低 6 个月 + 「方向一致」未满足 | `test/qa/backtest/test_gates.py` |
 | TC-R19-03 | 门禁状态可查询且唯一 | `current(rule_id)` 返回唯一 `GateRecord`；`stage_timestamps` 与 `evidence_experiment_ids` 逐级齐全（已通过级别），未通过级别为空 | `test/qa/backtest/test_gates.py` |
 
-**覆盖率自检**：56 个 `#### Scenario` → 56 个 TC ID（R1 3 / R2 3 / R3 3 / R4 3 / R5 3 / R6 2 / R7 4 / R8 4 / R9 3 / R10 3 / R11 2 / R12 4 / R13 3 / R14 2 / R15 3 / R16 2 / R17 3 / R18 3 / R19 3 = 56）。`3+3+3+3+3+2+4+4+3+3+2+4+3+2+3+2+3+3+3 = 56`。
+**覆盖率自检**：56 个 `#### Scenario` → 56 个 Scenario TC ID（另加 1 条**不新增 Scenario** 的锁定用例 TC-R17-04 → 用例总数 57，与 `pytest --collect-only` 计数一致）（R1 3 / R2 3 / R3 3 / R4 3 / R5 3 / R6 2 / R7 4 / R8 4 / R9 3 / R10 3 / R11 2 / R12 4 / R13 3 / R14 2 / R15 3 / R16 2 / R17 3 / R18 3 / R19 3 = 56）。`3+3+3+3+3+2+4+4+3+3+2+4+3+2+3+2+3+3+3 = 56`。
 
 ---
 
@@ -868,7 +869,7 @@ openspec.cmd validate add-backtest-engine --strict
 | **`EventObservation`**（code/event_date/condition_id/benchmark_kind/excess_returns） | design.md:300-306 | TC-R13-01 / TC-R17-01/02/03 |
 | **`ConditionSpec`**（condition_id/kind/params）+ `evaluate_condition` | design.md:310-314、design.md:563-564 | TC-R10-03 |
 | **`load_event_observations` + `load_forward_returns`**（T2-fix-5 loader 形状：excess = 标的 − 基准） | design.md:574-581 | TC-R13-01 / TC-R17-01 |
-| **`compute_event_study(observations, *, cfg)` + `EventStudyResult.verdict`**（空观测 → INCONCLUSIVE、不抛异常，T2-fix-6） | design.md:413-420、design.md:585-586、design.md:928 | TC-R13-02 / TC-R17-01/02/03 |
+| **`compute_event_study(observations, *, cfg)` + `EventStudyResult.verdict`**（空观测 → INCONCLUSIVE、不抛异常，T2-fix-6） | design.md:413-420、design.md:585-586、design.md:928 | TC-R13-02 / TC-R17-01/02/03/04 |
 | `ExperimentRegistry(store_path, *, clock, data_version, results_dir)` + `append_run/append/get/next_experiment_id/validate_preregistration/assert_not_burnt/cumulative_K/write_result/export_ledger` | design.md:608-629 | 台账/导出用例 |
 | **`mark_burnt` = 追加执行行** `RunRecord(reason="样本外已烧毁", hypothesis_id, experiment_id, at)`；导出 `burnt` 由此派生 | design.md:620、design.md:702 | TC-R04-01/02/03 |
 | **`UniverseProvider` 协议**（`historical_constituents`/`delisted_codes`/`st_status`）+ `build_universe(as_of, scope, *, provider)`（不可得 → `BacktestDataGapError`；可得为空 → 空 tuple，T2-fix-6） | design.md:548-557、design.md:928 | TC-R12-01/02/03/04 |
