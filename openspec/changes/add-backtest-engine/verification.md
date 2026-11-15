@@ -164,8 +164,8 @@
 | F9 | medium | 「判据缺失→`MissingBacktestConfigError`」与「跳级→`GateSkipError`」在 `BACKTEST_PENDING→SHADOW_RUNNING` 同时成立，优先级未定；实现先判边 → QA `TC-R19-01` 红 | architect 在 §4.1 补一句优先序（先判 `gate_criteria` 存在性 or 先判合法边）；QA 按裁定调断言顺序 | `src/service/backtest/gates.py:179`；`test/qa/backtest/test_gates.py:14` | 是（需裁决） |
 | F10 | low | 2 条 e2e 红：本地 sqlite `no such column: stock_snapshots.industry`（存量 DB schema 漂移）；本 change 未改 `src/dao` | captain 定口径：记为环境/存量偏差，归档前重建本地 DB 后复跑两条 e2e 应绿 | `test/e2e/test_value_data_pipeline.py:104`、`test/e2e/test_tushare_pipeline.py` | 否 |
 | F11 | low | T3 的 8 条 acceptance 原文未落盘（team.json t3/t17 无 `acceptance`；tasks.md 无清单），只能以可机检闸门替代 | captain 把 T3 acceptances 补进 `tasks.md`「T3 实现记录」或 team.json；下轮按原文复核 | `openspec/changes/add-backtest-engine/tasks.md:186` | 否 |
-| F13 | low | `verification.md` 原为 engineer 的 T3 逐条证据（t13，基线 `0cc6f85`，96 行）；按角色契约本文件归 QA（T5），已被本次 8 章报告覆盖；旧证据仅存于 git 历史 | 保留历史不影响归档，但建议 engineer 把 T2.1–T2.20 逐条证据迁到 `tasks.md`「T3 实现记录」或独立 `evidence-t3.md`（本波不改，避免越界）；captain 若要求保留可指定文件 | `openspec/changes/add-backtest-engine/verification.md`（`git show HEAD~1:...` 可查旧版） | 否 |
 | F12 | low | 验证期间 HEAD 连变（`d9c860a`→`c0f0507`→`a6db784`），同命令两次结果不同（25/32 failed）→ 基线不冻结 | 归档前先 `git status` 干净并冻结 HEAD，再重跑 §8 全部命令；本报告数字绑定 a6db7842c68dfa29ccde84a326a3f5ed07fe8721 | — | 否（归档必重跑） |
+| F13 | low | `verification.md` 原为 engineer 的 T3 逐条证据（t13，基线 `0cc6f85`，96 行）；按角色契约本文件归 QA（T5），已被本次 8 章报告覆盖；旧证据仅存于 git 历史 | 保留历史不影响归档，但建议 engineer 把 T2.1–T2.20 逐条证据迁到 `tasks.md`「T3 实现记录」或独立 `evidence-t3.md`（本波不改，避免越界）；captain 若要求保留可指定文件 | `openspec/changes/add-backtest-engine/verification.md`（`git show HEAD~1:...` 可查旧版） | 否 |
 
 ## 8. 复现说明
 
