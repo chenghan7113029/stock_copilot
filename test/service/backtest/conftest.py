@@ -24,11 +24,11 @@ BASE_CONFIG: dict = {
     "transfer_fee": {"rate": 1e-5, "included": False},
     "slippage_tiers": [{"amount_lower": 0, "amount_upper": 1_000_000, "bps": 10}],
     "liquidity_cap": [{"adv_tier": "tier-1", "max_participation": 0.01}],
-    "limit_pct": None,
-    "seal_definition": None,
-    "suspend_source": None,
+    "limit_pct": {"board": 0.10, "st": 0.05, "star_chinext": 0.20, "bj": 0.30},
+    "seal_definition": "一字板（日终无成交）不可成交；收盘封板但盘中打开可成交且滑点加倍",
+    "suspend_source": "tushare",
     "cut_basis": "point_in_time_cross_section",
-    "tier_count": 3,
+    "tier_count": 5,
     "recompute_freq": "quarterly",
     "min_group_size": 1,
     "gates": {
@@ -40,7 +40,7 @@ BASE_CONFIG: dict = {
     "block_length": 5,
     "n_bootstrap": 200,
     "shrink": 0.5,
-    "burn_scope": "experiment",
+    "burn_scope": "hypothesis",
     "burn_counts_as_second": ["params", "metrics"],
     "exception_approver": "owner",
     "k_components": ["rule", "param", "cut", "window"],
@@ -105,6 +105,8 @@ def make_bar():
         limit_up: float | None = 100.0,
         limit_down: float | None = 1.0,
         suspended: bool = False,
+        st: bool = False,
+        delisted: bool = False,
         open_: float | None = None,
         high: float | None = None,
         low: float | None = None,
@@ -121,6 +123,8 @@ def make_bar():
             limit_up_price=limit_up,
             limit_down_price=limit_down,
             suspended=suspended,
+            st=st,
+            delisted=delisted,
         )
 
     return factory

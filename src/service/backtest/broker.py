@@ -73,24 +73,31 @@ class CostCalculator:
             f"无匹配滑点档位：金额 {amount} 不在 slippage_tiers 覆盖区间内（Q4）"
         )
 
-    def cost(self, amount: float, side: OrderSide) -> tuple[CostBreakdown, tuple[str, ...]]:
+    def cost(
+        self, amount: float, side: OrderSide, *, slippage_multiplier: float = 1.0
+    ) -> tuple[CostBreakdown, tuple[str, ...]]:
+        """四分量成本（R7）。过户费 `included=true` 时**并入佣金、不单列**（§9.3 t37）。"""
         notes: list[str] = []
         raw_commission = amount * self.rules.commission_rate
         commission = max(raw_commission, self.rules.commission_min)
         if raw_commission < self.rules.commission_min:
             notes.append("触发最低佣金")
-        stamp_tax = amount * self.rules.stamp_tax_rate if side is OrderSide.SELL else 0.0
-        slippage = amount * self.slippage_rate(amount)
-        transfer_fee = (
+        # 过户费并入佣金：只在佣金行计一次，transfer_fee 分量固定 0（不双算）
+        merged_transfer = (
             amount * self.rules.transfer_fee_rate if self.rules.transfer_fee_included else 0.0
         )
-        total = commission + stamp_tax + slippage + transfer_fee
+        commission += merged_transfer
+        if merged_transfer > 0:
+            notes.append("过户费已并入佣金")
+        stamp_tax = amount * self.rules.stamp_tax_rate if side is OrderSide.SELL else 0.0
+        slippage = amount * self.slippage_rate(amount) * slippage_multiplier
+        total = commission + stamp_tax + slippage
         return (
             CostBreakdown(
                 commission=commission,
                 stamp_tax=stamp_tax,
                 slippage=slippage,
-                transfer_fee=transfer_fee,
+                transfer_fee=0.0,
                 total=total,
             ),
             tuple(notes),
@@ -206,6 +213,7 @@ def execute_orders(
     max_delay = int(cfg.max_delay_days)
     if max_delay < 1:
         raise MissingBacktestConfigError(f"max_delay_days 非法: {max_delay}")
+    _require_market_rule_config(cfg)
     calculator = CostCalculator.from_config(cfg)
     liquidity = LiquidityRules.from_config(cfg)
     holidays: tuple[str, ...] = ()  # 休市表未在 schema 内 → A2「周一至周五」降级
@@ -226,6 +234,9 @@ def execute_orders(
                 f"{order.code} 在信号日 {order.signal_date} 之后无可成交交易日（R8）"
             )
         bar_by_date = {bar.trade_date: bar for bar in bars}
+        prev_close_by_date = {
+            bars[index].trade_date: bars[index - 1].close for index in range(1, len(bars))
+        }
 
         sellable_from: str | None = None
         if order.side is OrderSide.SELL and order.code in known_buy_dates:
@@ -242,6 +253,8 @@ def execute_orders(
             liquidity=liquidity,
             max_delay=max_delay,
             sellable_from=sellable_from,
+            cfg=cfg,
+            prev_close_by_date=prev_close_by_date,
         )
         fills.append(fill)
         if order.side is OrderSide.BUY and fill.fill_date:
@@ -262,6 +275,8 @@ def _run_order(
     liquidity: LiquidityRules,
     max_delay: int,
     sellable_from: str | None,
+    cfg: BacktestConfig,
+    prev_close_by_date: Mapping[str, float],
 ) -> Fill:
     attempts: list[OrderAttempt] = []
     sealed_days = 0
@@ -281,16 +296,17 @@ def _run_order(
                 OrderAttempt(attempt_date, OrderStatus.SKIPPED_SUSPENDED, "停牌，跳过并顺延")
             )
             continue
-        if order.side is OrderSide.BUY and _sealed(bar, "up"):
+        prev_close = prev_close_by_date.get(attempt_date)
+        seal = _seal_state(bar, prev_close, order.side, cfg)
+        if seal == "flat":
             sealed_days += 1
+            direction = "涨停" if order.side is OrderSide.BUY else "跌停"
             attempts.append(
-                OrderAttempt(attempt_date, OrderStatus.FAILED_LIMIT_SEAL, "一字涨停封板，无法买入")
-            )
-            continue
-        if order.side is OrderSide.SELL and _sealed(bar, "down"):
-            sealed_days += 1
-            attempts.append(
-                OrderAttempt(attempt_date, OrderStatus.FAILED_LIMIT_SEAL, "一字跌停封板，无法卖出")
+                OrderAttempt(
+                    attempt_date,
+                    OrderStatus.FAILED_LIMIT_SEAL,
+                    f"一字{direction}封板（{_limit_pct(bar.code, bar.st, cfg):.0%}），无法成交",
+                )
             )
             continue
         if sellable_from is not None and attempt_date < sellable_from:
@@ -314,9 +330,9 @@ def _run_order(
                     f"最早可卖日={sellable_from}",
                 ),
             )
-        if bar.amount is None or bar.limit_up_price is None or bar.limit_down_price is None:
+        if bar.amount is None:
             raise BacktestDataGapError(
-                f"{order.code} {attempt_date} 缺成交额/涨跌停价，撮合无法判定（R7/R8）"
+                f"{order.code} {attempt_date} 缺成交额，滑点分档不可算（R7）"
             )
         if bar.avg_amount is None:
             raise BacktestDataGapError(
@@ -328,8 +344,13 @@ def _run_order(
         capped = filled < requested
         fill_price = bar.close
         filled_amount = _round_lots(filled, fill_price, order.requested_qty)
-        cost, cost_notes = calculator.cost(filled_amount, order.side)
+        opened_seal = seal == "opened"
+        cost, cost_notes = calculator.cost(
+            filled_amount, order.side, slippage_multiplier=2.0 if opened_seal else 1.0
+        )
         notes: list[str] = list(cost_notes)
+        if opened_seal:
+            notes.append("收盘封板但盘中打开：可成交，滑点加倍")
         if capped:
             notes.append("触及流动性上限")
             notes.append("剩余额度需新订单顺延至下一可成交日")
@@ -360,13 +381,95 @@ def _run_order(
     )
 
 
-def _sealed(bar: PriceBar, direction: str) -> bool:
-    """A3 一字板：开=高=低=收，且收在涨停/跌停价（Q5 未答复前唯一判定口径）。"""
-    limit = bar.limit_up_price if direction == "up" else bar.limit_down_price
-    if limit is None:
-        raise BacktestDataGapError(f"{bar.code} {bar.trade_date} 缺涨跌停价，封板判定不可做（R8）")
+def _require_market_rule_config(cfg: BacktestConfig) -> None:
+    """Q5 口径必须来自配置：缺键即拒绝（broker 不再硬编码任何涨跌停/封板/停牌默认值）。"""
+    if cfg.limit_pct is None:
+        raise MissingBacktestConfigError("回测配置缺值: limit_pct（Q5 涨跌停判定）")
+    for key in ("board", "st", "bj"):
+        if cfg.limit_pct.get(key) is None:
+            raise MissingBacktestConfigError(f"回测配置缺值: limit_pct.{key}（Q5）")
+    if _star_chinext_pct(cfg) is None:
+        raise MissingBacktestConfigError(
+            "回测配置缺值: limit_pct.star_chinext（Q5；兼容 star/chinext 别名）"
+        )
+    if not cfg.seal_definition:
+        raise MissingBacktestConfigError("回测配置缺值: seal_definition（Q5 封板判定口径）")
+    seal_text = str(cfg.seal_definition).lower()
+    if "一字" not in seal_text and "one_word" not in seal_text:
+        raise MissingBacktestConfigError(
+            f"seal_definition 口径未知: {cfg.seal_definition!r}（需含「一字板」/one_word 判定，Q5）"
+        )
+    if not cfg.suspend_source:
+        raise MissingBacktestConfigError("回测配置缺值: suspend_source（Q5 停牌源）")
+
+
+def _board_key(code: str, st: bool) -> str:
+    """按代码前缀/ST 标记映射 limit_pct 档位（ST 优先级最高）。"""
+    if st:
+        return "st"
+    if code.startswith(("688", "689", "300", "301")):
+        return "star_chinext"
+    if code.startswith(("4", "8")):
+        return "bj"
+    return "board"
+
+
+def _star_chinext_pct(cfg: BacktestConfig) -> float | None:
+    """科创板/创业板 20% 档：契约键 `star_chinext`，兼容 `star`/`chinext` 别名（同一口径）。"""
+    mapping = cfg.limit_pct or {}
+    for key in ("star_chinext", "star", "chinext"):
+        value = mapping.get(key)
+        if value is not None:
+            return float(value)
+    return None
+
+
+def _limit_pct(code: str, st: bool, cfg: BacktestConfig) -> float:
+    key = _board_key(code, st)
+    if key == "star_chinext":
+        value = _star_chinext_pct(cfg)
+        if value is None:
+            raise MissingBacktestConfigError(
+                "回测配置缺值: limit_pct.star_chinext（Q5；兼容 star/chinext 别名）"
+            )
+        return value
+    value = (cfg.limit_pct or {}).get(key)
+    if value is None:
+        raise MissingBacktestConfigError(f"回测配置缺值: limit_pct.{key}（Q5）")
+    return float(value)
+
+
+def _seal_state(
+    bar: PriceBar, prev_close: float | None, side: OrderSide, cfg: BacktestConfig
+) -> str:
+    """Q5 封板判定（配置驱动）：`flat`=一字板不可成交；`opened`=收盘封板但盘中打开（可成交+滑点加倍）。
+
+    涨跌停价优先用数据字段（`PriceBar.limit_up_price/limit_down_price`，即真实市场限价）；
+    数据缺该字段时按 §9.3 `limit_pct`（按板/ST 分档）由前收盘价推算；两者都缺 →
+    `BacktestDataGapError`（不猜阈值）。
+    """
+    if side is OrderSide.BUY:
+        limit = bar.limit_up_price
+        if limit is None:
+            if prev_close is None:
+                raise BacktestDataGapError(
+                    f"{bar.code} {bar.trade_date} 缺涨跌停价与前收盘价：封板判定不可做（Q5/R8）"
+                )
+            limit = round(prev_close * (1.0 + _limit_pct(bar.code, bar.st, cfg)) + 1e-9, 2)
+        at_limit = bar.close >= float(limit) - 1e-9
+    else:
+        limit = bar.limit_down_price
+        if limit is None:
+            if prev_close is None:
+                raise BacktestDataGapError(
+                    f"{bar.code} {bar.trade_date} 缺涨跌停价与前收盘价：封板判定不可做（Q5/R8）"
+                )
+            limit = round(prev_close * (1.0 - _limit_pct(bar.code, bar.st, cfg)) + 1e-9, 2)
+        at_limit = bar.close <= float(limit) + 1e-9
+    if not at_limit:
+        return "none"
     flat = bar.open == bar.high == bar.low == bar.close
-    return flat and abs(bar.close - float(limit)) < 1e-9
+    return "flat" if flat else "opened"
 
 
 def _round_lots(amount: float, price: float, requested_qty: int | None) -> float:

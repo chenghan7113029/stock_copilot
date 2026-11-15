@@ -157,14 +157,14 @@ backtest:
   min_events: null                   # R17 事件数下限（§9.3 未列 → 保持未答复，不出结论）
   # Q4 成本（§9.3）
   commission:
-    rate: 0.0001254                  # 0.01254%（= 0.01254/100；Owner 更正，非 0.05%），双边收取
+    rate: 0.0001254                  # 0.01254%（= 0.01254/100；Owner 更正，非 0.05%）；买卖双边、最低 5 元
     min: 5                           # 单笔最低佣金 5 元
   stamp_tax:
     side: sell                       # 仅卖出方向
     rate: 0.001                      # 0.1%
   transfer_fee:
-    rate: 0.00001                    # 0.001%
-    included: true                   # 计入成本
+    rate: 0.00001                    # 0.001%（仍记录）
+    included: true                   # 并入佣金、不单列（§9.3 Owner 二次确认；broker 只在佣金行计一次）
   slippage_tiers:                    # bps：20 = 0.20%
     - {amount_lower: 0, amount_upper: 100000000, bps: 20}          # 成交额 < 1 亿
     - {amount_lower: 100000000, amount_upper: 500000000, bps: 10}  # 1–5 亿
@@ -177,7 +177,7 @@ backtest:
   suspend_source: "tushare 优先 / baostock 兜底"
   # Q6 分组 / 标签（§9.3）
   cut_basis: all_a_cross_section     # 全 A 时点截面分位
-  tier_count: 3                      # ⚠️ 继承默认，未经 Owner 显式确认；换档计入 K
+  tier_count: 5                      # Owner 二次确认「5 档」（5×5=25 组，仍在 9–27 区间）；换档计入 K
   recompute_freq: quarterly
   min_group_size: 30
   # Q7 / KQ-4 三级门禁（§9.3）
@@ -189,7 +189,7 @@ backtest:
   # KQ-2 统计推断（§9.3）
   block_length: 20
   n_bootstrap: 1000
-  shrink: auto_by_sample_size        # KQ-3：按样本量自动收缩（数值/令牌，见 models.AUTO_SHRINK）
+  # shrink: auto_by_sample_size     # TODO 未实现：partial_pooling 缺逐票样本量入参 → 当前显式拒绝；见 docs/improvements/IMPROVEMENTS.md（KQ-3）
   # Q1 样本外烧毁（§9.3）
   burn_scope: hypothesis             # 按「假设」计烧毁；换实现 / 换评价指标不算第二次
   burn_counts_as_second: []          # 对应上述口径：无任何项计为第二次
@@ -197,11 +197,11 @@ backtest:
   # Q2 K 计数分量（§9.3）：参数网格 21 组 → K 计 21（网格规模由预注册提供）
   k_components: [params, cut_point, window]
   # KQ-5 显著性判据（§9.3；§4.1 BacktestConfig 尚未纳入该字段，当前无消费路径）
-  significance: {tail: one_sided, require_corrected: true, require_ci_excludes_zero: true}
+  # significance: {...}             # TODO 未实现：§4.1 BacktestConfig 无该字段、无消费路径；见 docs/improvements/IMPROVEMENTS.md（KQ-5）
   # KQ-1 / KQ-6 校准（§9.3；§4.1 BacktestConfig 尚未纳入 calibration.* 字段，当前无消费路径）
-  calibration:
-    min_history_days: 60             # <60 交易日不触发、标注排除并报排除标的数
-    rerun_triggers: [first_enable, matching_change, data_source_change, caliber_change, every_12_months]
+  # calibration:                     # TODO 未实现：§4.1 BacktestConfig 无 calibration.* 字段、无消费路径；见 docs/improvements/IMPROVEMENTS.md（KQ-1/KQ-6）
+  #   min_history_days: 60           # <60 交易日不触发、标注排除并报排除标的数
+  #   rerun_triggers: [first_enable, matching_change, data_source_change, caliber_change, every_12_months]
   # KQ-7 稳定性（§9.3；§4.1 BacktestConfig 尚未纳入 stability.* 字段，当前无消费路径）
-  stability:
-    market_state: {index: csi300, window_days: 250, bull_bear_threshold: 0.15, drawdown_bear_threshold: 0.20}
+  # stability:                       # TODO 未实现：§4.1 BacktestConfig 无 stability.* 字段、无消费路径；见 docs/improvements/IMPROVEMENTS.md（KQ-7）
+  #   market_state: {index: csi300, window_days: 250, bull_bear_threshold: 0.15, drawdown_bear_threshold: 0.20}

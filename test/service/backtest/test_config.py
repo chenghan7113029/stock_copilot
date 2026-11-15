@@ -167,7 +167,6 @@ REQUIRED_KEYS = (
     "gates",
     "block_length",
     "n_bootstrap",
-    "shrink",
     "burn_scope",
     "burn_counts_as_second",
     "exception_approver",
@@ -221,10 +220,21 @@ def test_owner_values_landed_with_correct_units():
     assert section["burn_counts_as_second"] == []
     assert section["exception_approver"] == "Owner"
     assert section["cut_basis"] == "all_a_cross_section"
-    assert section["tier_count"] == 3
+    assert section["tier_count"] == 5  # Owner 二次确认「5 档」（5×5=25 组）
     assert section["recompute_freq"] == "quarterly"
     assert section["min_group_size"] == 30
-    assert section["shrink"] == "auto_by_sample_size"
+    assert section["limit_pct"] == {
+        "board": 0.10,
+        "st": 0.05,
+        "star_chinext": 0.20,
+        "bj": 0.30,
+    }
+    assert section["seal_definition"]
+    assert section["suspend_source"]
+    assert "shrink" not in section, "未实现键不得留成可配假象（TODO 注释）"
+    assert "significance" not in section
+    assert "calibration" not in section
+    assert "stability" not in section
     assert section["gates"]["shadow"]["min_months"] == 3
     assert section["gates"]["shadow"]["max_months"] == 12
     assert section["gates"]["shadow"]["clock"] == "trading_day"
@@ -239,10 +249,24 @@ def test_example_config_loads_into_backtest_config(tmp_path):
     assert cfg.slippage_tiers is not None
     assert cfg.slippage_tiers[-1].amount_upper is None
     assert cfg.liquidity_cap is not None and cfg.liquidity_cap[0].adv_tier == "adv20"
-    assert cfg.shrink == "auto_by_sample_size"
+    assert cfg.shrink is None  # TODO 未实现 → 键已注释
     assert cfg.k_components == ("params", "cut_point", "window")
     assert cfg.gate_criteria is not None
     assert cfg.gate_criteria.shadow and cfg.gate_criteria.shadow["min_months"] == 3
+
+
+def test_unimplemented_keys_are_commented_with_todo():
+    """未实现键必须注释为 TODO（不留可配假象），并指向 IMPROVEMENTS。"""
+    text = EXAMPLE_PATH.read_text(encoding="utf-8")
+    for key in ("shrink", "significance", "calibration", "stability"):
+        active_lines = [
+            line
+            for line in text.splitlines()
+            if line.strip().startswith(f"{key}:")
+        ]
+        assert active_lines == [], f"{key} 不应作为可配键出现"
+        assert "TODO 未实现" in text
+        assert "docs/improvements/IMPROVEMENTS.md" in text
 
 
 def test_example_config_missing_must_key_still_rejects(tmp_path):

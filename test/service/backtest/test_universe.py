@@ -51,8 +51,9 @@ def test_quarterly_tiers_and_effective_range(cfg):
         "c": {"market_cap": 3.0},
     }
     result = assign_groups(list(features), "2020-06-30", features, cfg=cfg)
+    # tier_count=5（生产口径）时 3 只标的按分位落 0/1/3 档
     assert result["a"].tiers["market_cap_tier"] == 0
-    assert result["c"].tiers["market_cap_tier"] == 2
+    assert result["c"].tiers["market_cap_tier"] == 3
     assert result["a"].effective_range == ("2020-04-01", "2020-06-30")
 
 
@@ -64,7 +65,7 @@ def test_recompute_does_not_rewrite_history(cfg):
     }
     first = assign_groups(list(features), "2020-06-30", features, cfg=cfg)
     assign_groups(list(features), "2021-06-30", features, cfg=cfg)
-    assert first["c"].tiers["market_cap_tier"] == 2
+    assert first["c"].tiers["market_cap_tier"] == 3
     assert first["c"].effective_range == ("2020-04-01", "2020-06-30")
     assert quarter_range("2021-06-30") == ("2021-04-01", "2021-06-30")
 
@@ -156,3 +157,21 @@ def test_build_universe_st_lookup_required_for_every_included_code():
 
     with pytest.raises(BacktestDataGapError):
         build_universe("2020-01-02", "all_a", provider=NoSt(constituents=("000001",)))
+
+
+def test_five_tiers_two_dimensions_makes_25_groups(cfg):
+    """Q6 落值：tier_count=5（Owner 二次确认「5 档」）；5×5=25 组。"""
+    codes = [f"{index:06d}" for index in range(25)]
+    features = {
+        code: {"market_cap": float(index), "dividend_yield": float(index % 5)}
+        for index, code in enumerate(codes)
+    }
+    result = assign_groups(codes, "2021-06-30", features, cfg=cfg)
+    tier_keys = {key for assignment in result.values() for key in assignment.tiers}
+    assert tier_keys == {"market_cap_tier", "dividend_tier"}
+    assert all(0 <= tier <= 4 for assignment in result.values() for tier in assignment.tiers.values())
+    combinations = {
+        (assignment.tiers["market_cap_tier"], assignment.tiers["dividend_tier"])
+        for assignment in result.values()
+    }
+    assert len(combinations) == 25  # 5 档 × 5 档
