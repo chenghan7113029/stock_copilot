@@ -14,6 +14,7 @@ from typing import Mapping, Sequence
 
 from common.exceptions import BacktestError, MissingBacktestConfigError
 from service.backtest.models import (
+    EVENT_WINDOWS,
     AttributionResult,
     BacktestConfig,
     EventObservation,
@@ -409,13 +410,39 @@ def _covariance(left: Sequence[float], right: Sequence[float]) -> float:
 # --------------------------------------------------------------------------
 
 
+def custom_windows(windows: Sequence[int]) -> tuple[int, ...]:
+    """20/60 之外的窗口（Q8：custom_allowed=true 后才允许）。"""
+    return tuple(int(window) for window in windows if int(window) not in EVENT_WINDOWS)
+
+
+def custom_window_k_cost(cfg: BacktestConfig, windows: Sequence[int]) -> int:
+    """自定义窗口的 K 成本（Q8/§9.3：每个额外窗口计 K 一次）。"""
+    custom = custom_windows(windows)
+    if not custom:
+        return 0
+    if cfg.custom_allowed is not True:
+        raise MissingBacktestConfigError(
+            f"自定义窗口未获确认（Q8）: {custom}；未答复前只允许 {EVENT_WINDOWS}"
+        )
+    if cfg.k_cost_per_window is None:
+        raise MissingBacktestConfigError(
+            "回测配置缺值: k_cost_per_window（Q8/§9.3：自定义窗口计 K）"
+        )
+    return len(custom) * int(cfg.k_cost_per_window)
+
+
 def partial_pooling(
-    estimates: Sequence[float], group_mean: float, *, shrink: float | None
+    estimates: Sequence[float], group_mean: float, *, shrink: float | str | None
 ) -> tuple[float, ...]:
     """个股估计向组均值收缩；`shrink` 缺省（None）即拒绝（KQ-3 未答复）。"""
     if shrink is None:
         raise MissingBacktestConfigError(
             "partial_pooling 缺 shrink：收缩强度未确认（KQ-3），禁止预埋默认值"
+        )
+    if isinstance(shrink, str):
+        raise MissingBacktestConfigError(
+            f"shrink={shrink!r} 需要逐票样本量才能自动收缩（KQ-3/§9.3）："
+            "当前签名未含样本量，属「设计有、实现未接」，不得按固定值替代"
         )
     ratio = float(shrink)
     if not 0.0 <= ratio <= 1.0:
@@ -464,8 +491,9 @@ def stability(result: EventStudyResult, *, cfg: BacktestConfig) -> StabilityResu
     by_cap = dict(primary.by_cap_tier)
     by_state: dict[str, WindowStats] = {}
     notes: list[str] = []
-    # KQ-7 未答复：市场状态口径未定，该维度不参与判定
-    notes.append("市场状态口径未定（KQ-7），该维度不参与判定")
+    # KQ-7 已有 Owner 口径（沪深300 滚动 250 日 ±15%），但 §4.1 BacktestConfig 无 stability 字段、
+    # stability() 未接该输入 —— 当前按「未接入」处理，不静默当作无此维度。
+    notes.append("市场状态分档口径（KQ-7）尚未接入 stability 计算（设计有、实现未做）")
 
     significant_years = [year for year, stats in by_year.items() if _significant(stats)]
     if len(significant_years) == 1:

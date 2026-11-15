@@ -18,7 +18,7 @@ from service.backtest.metrics import (
     stability,
     window_excess,
 )
-from service.backtest.models import EventObservation, Verdict, WindowStats
+from service.backtest.models import BacktestConfig, EventObservation, Verdict, WindowStats
 
 
 def observation(code="000001", date="2016-06-01", kind="buy_and_hold", daily=-0.002, days=60):
@@ -246,7 +246,7 @@ def test_stability_scope_note_single_year(cfg):
     )
     stability_result = stability(result, cfg=cfg)
     assert "仅在 2015 年有效" in stability_result.scope_note
-    assert "市场状态口径未定" in stability_result.scope_note
+    assert "市场状态分档口径" in stability_result.scope_note
     assert stability_result.by_market_state == {}
 
 
@@ -266,3 +266,28 @@ def test_gate_machine_signature_matches_contract():
 
     parameters = inspect.signature(GateStateMachine.__init__).parameters
     assert set(parameters) == {"self", "registry", "cfg"}
+
+
+def test_custom_window_k_cost(cfg, tmp_path, config_factory):
+    """Q8/§9.3：20/60 之外每个窗口计 K 一次。"""
+    from service.backtest.metrics import custom_window_k_cost, custom_windows
+
+    assert custom_windows([20, 60]) == ()
+    assert custom_window_k_cost(cfg, [20, 60]) == 0
+    custom_cfg = BacktestConfig.from_config(
+        config_factory(**{"custom_allowed": True, "k_cost_per_window": 1}), base_dir=tmp_path
+    )
+    assert custom_window_k_cost(custom_cfg, [20, 60, 120]) == 1
+    assert custom_window_k_cost(custom_cfg, [20, 60, 120, 250]) == 2
+
+
+def test_custom_window_k_cost_requires_permission_and_key(cfg, tmp_path, config_factory):
+    from service.backtest.metrics import custom_window_k_cost
+
+    with pytest.raises(MissingBacktestConfigError):
+        custom_window_k_cost(cfg, [120])  # custom_allowed=False（BASE_CONFIG）
+    no_cost = BacktestConfig.from_config(
+        config_factory(**{"custom_allowed": True, "k_cost_per_window": None}), base_dir=tmp_path
+    )
+    with pytest.raises(MissingBacktestConfigError):
+        custom_window_k_cost(no_cost, [120])

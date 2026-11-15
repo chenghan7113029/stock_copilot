@@ -144,47 +144,121 @@ def test_resolve_backtest_config_missing_file(tmp_path):
         resolve_backtest_config(None, cwd=tmp_path)
 
 
-def test_app_example_is_canonical_and_has_no_unconfirmed_numbers():
-    """T2-fix-4：契约源 = config/app.example.yaml；键齐全、数值留空。"""
-    path = Path(__file__).resolve().parents[3] / "config" / "app.example.yaml"
-    section = yaml.safe_load(path.read_text(encoding="utf-8"))["backtest"]
-    for key in (
-        "results_dir",
-        "registry_store_path",
-        "segments",
-        "windows",
-        "max_delay_days",
-        "min_events",
-        "commission",
-        "stamp_tax",
-        "transfer_fee",
-        "slippage_tiers",
-        "liquidity_cap",
-        "limit_pct",
-        "seal_definition",
-        "suspend_source",
-        "cut_basis",
-        "tier_count",
-        "recompute_freq",
-        "min_group_size",
-        "gates",
-        "block_length",
-        "n_bootstrap",
-        "shrink",
-        "burn_scope",
-        "burn_counts_as_second",
-        "exception_approver",
-        "k_components",
-        "custom_allowed",
-        "k_cost_per_window",
-    ):
+EXAMPLE_PATH = Path(__file__).resolve().parents[3] / "config" / "app.example.yaml"
+REQUIRED_KEYS = (
+    "results_dir",
+    "registry_store_path",
+    "segments",
+    "windows",
+    "max_delay_days",
+    "min_events",
+    "commission",
+    "stamp_tax",
+    "transfer_fee",
+    "slippage_tiers",
+    "liquidity_cap",
+    "limit_pct",
+    "seal_definition",
+    "suspend_source",
+    "cut_basis",
+    "tier_count",
+    "recompute_freq",
+    "min_group_size",
+    "gates",
+    "block_length",
+    "n_bootstrap",
+    "shrink",
+    "burn_scope",
+    "burn_counts_as_second",
+    "exception_approver",
+    "k_components",
+    "custom_allowed",
+    "k_cost_per_window",
+)
+
+
+def example_section() -> dict:
+    return yaml.safe_load(EXAMPLE_PATH.read_text(encoding="utf-8"))["backtest"]
+
+
+def test_app_example_has_all_schema_keys():
+    section = example_section()
+    for key in REQUIRED_KEYS:
         assert key in section, f"config/app.example.yaml backtest 缺键 {key}"
-    assert section["commission"] == {"rate": None, "min": None}
-    assert section["stamp_tax"]["rate"] is None
-    assert section["transfer_fee"] == {"rate": None, "included": None}
-    assert section["slippage_tiers"] == []
-    assert section["liquidity_cap"] == []
-    assert section["max_delay_days"] is None
-    assert section["min_events"] is None
-    assert section["block_length"] is None
-    assert section["n_bootstrap"] is None
+
+
+def test_owner_values_landed_with_correct_units():
+    """§9.3 落值：单位必须正确（0.01254% = 1.254e-4，不是 0.01254，也不是 0.05%）。"""
+    section = example_section()
+    rate = section["commission"]["rate"]
+    assert rate == pytest.approx(1.254e-4)
+    assert rate == pytest.approx(0.01254 / 100)
+    assert rate != pytest.approx(0.01254), "百分比未换算成小数"
+    assert rate != pytest.approx(0.0005), "佣金不是旧值 0.05%"
+    assert section["commission"]["min"] == 5
+    assert section["stamp_tax"] == {"side": "sell", "rate": 0.001}
+    assert section["transfer_fee"] == {"rate": 0.00001, "included": True}
+    tiers = section["slippage_tiers"]
+    assert [(tier["amount_lower"], tier["amount_upper"], tier["bps"]) for tier in tiers] == [
+        (0, 100_000_000, 20),
+        (100_000_000, 500_000_000, 10),
+        (500_000_000, None, 5),
+    ]
+    assert section["liquidity_cap"] == [{"adv_tier": "adv20", "max_participation": 0.01}]
+    assert section["limit_pct"] == {
+        "board": 0.10,
+        "st": 0.05,
+        "star_chinext": 0.20,
+        "bj": 0.30,
+    }
+    assert section["block_length"] == 20
+    assert section["n_bootstrap"] == 1000
+    assert section["windows"] == [20, 60]
+    assert section["custom_allowed"] is True
+    assert section["k_cost_per_window"] == 1
+    assert section["k_components"] == ["params", "cut_point", "window"]
+    assert section["burn_scope"] == "hypothesis"
+    assert section["burn_counts_as_second"] == []
+    assert section["exception_approver"] == "Owner"
+    assert section["cut_basis"] == "all_a_cross_section"
+    assert section["tier_count"] == 3
+    assert section["recompute_freq"] == "quarterly"
+    assert section["min_group_size"] == 30
+    assert section["shrink"] == "auto_by_sample_size"
+    assert section["gates"]["shadow"]["min_months"] == 3
+    assert section["gates"]["shadow"]["max_months"] == 12
+    assert section["gates"]["shadow"]["clock"] == "trading_day"
+
+
+def test_example_config_loads_into_backtest_config(tmp_path):
+    cfg = BacktestConfig.from_config(example_section(), base_dir=tmp_path)
+    assert cfg.commission is not None
+    assert cfg.commission.rate == pytest.approx(1.254e-4)
+    assert cfg.stamp_tax is not None and cfg.stamp_tax.rate == 0.001
+    assert cfg.transfer_fee is not None and cfg.transfer_fee.included is True
+    assert cfg.slippage_tiers is not None
+    assert cfg.slippage_tiers[-1].amount_upper is None
+    assert cfg.liquidity_cap is not None and cfg.liquidity_cap[0].adv_tier == "adv20"
+    assert cfg.shrink == "auto_by_sample_size"
+    assert cfg.k_components == ("params", "cut_point", "window")
+    assert cfg.gate_criteria is not None
+    assert cfg.gate_criteria.shadow and cfg.gate_criteria.shadow["min_months"] == 3
+
+
+def test_example_config_missing_must_key_still_rejects(tmp_path):
+    section = example_section()
+    section.pop("segments")
+    with pytest.raises(MissingBacktestConfigError):
+        BacktestConfig.from_config(section, base_dir=tmp_path)
+
+
+def test_example_config_missing_cost_rejected_at_consumption(tmp_path):
+    """Q4 成本键缺失：配置可装载（待 Q 形状），但消费处（撮合/校准）必须拒绝。"""
+    from service.backtest.broker import CostCalculator
+
+    section = example_section()
+    section.pop("commission")
+    cfg = BacktestConfig.from_config(section, base_dir=tmp_path)
+    assert cfg.commission is None
+    with pytest.raises(MissingBacktestConfigError):
+        CostCalculator.from_config(cfg)

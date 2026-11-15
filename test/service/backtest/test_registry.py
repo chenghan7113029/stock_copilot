@@ -269,3 +269,31 @@ def test_export_ledger_run_only_row_has_no_verdict(registry, tmp_path):
     assert rows[0].verdict is None
     assert rows[0].run_status == "failed"
     assert rows[0].params == {"ma": 60}
+
+
+def test_k_from_grid_counts_combinations():
+    """§9.3：参数网格 21 组 → K 计 21（分量网格规模乘积）。"""
+    from service.backtest.registry import k_from_grid
+
+    assert k_from_grid({"params": 21}) == 21
+    assert k_from_grid({"params": 3, "cut_point": 7}) == 21
+    assert k_from_grid({"params": 3, "cut_point": 7, "window": 2}) == 42
+
+
+def test_k_from_grid_rejects_invalid(registry):
+    from service.backtest.registry import k_from_grid
+
+    with pytest.raises(BacktestError):
+        k_from_grid({})
+    with pytest.raises(BacktestError):
+        k_from_grid({"params": 0})
+
+
+def test_cumulative_k_grid_mapping(registry):
+    assert registry.cumulative_K({"k_components": {"params": 21}}) == 21
+
+
+def test_cumulative_k_names_only_rejected(registry):
+    """只给分量名、缺网格规模 → 拒绝（不得猜 K）。"""
+    with pytest.raises(BacktestError):
+        registry.cumulative_K({"k_components": ["params", "cut_point", "window"]})

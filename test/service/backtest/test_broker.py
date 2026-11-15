@@ -213,3 +213,23 @@ def test_missing_transfer_fee_rejected(tmp_path, config_factory):
     )
     with pytest.raises(MissingBacktestConfigError):
         CostCalculator.from_config(cfg)
+
+
+def test_slippage_last_tier_is_unbounded(tmp_path, config_factory):
+    """§9.3 滑点三档：<1亿 20bps / 1–5亿 10bps / ≥5亿 5bps（最后一档 amount_upper=null）。"""
+    cfg = BacktestConfig.from_config(
+        config_factory(
+            **{
+                "slippage_tiers": [
+                    {"amount_lower": 0, "amount_upper": 100_000_000, "bps": 20},
+                    {"amount_lower": 100_000_000, "amount_upper": 500_000_000, "bps": 10},
+                    {"amount_lower": 500_000_000, "amount_upper": None, "bps": 5},
+                ]
+            }
+        ),
+        base_dir=tmp_path,
+    )
+    calculator = CostCalculator.from_config(cfg)
+    assert calculator.slippage_rate(10_000_000) == pytest.approx(20 / 10000)
+    assert calculator.slippage_rate(200_000_000) == pytest.approx(10 / 10000)
+    assert calculator.slippage_rate(1_000_000_000) == pytest.approx(5 / 10000)

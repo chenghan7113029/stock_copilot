@@ -114,6 +114,7 @@ from service.backtest.data import load_event_observations, load_price_series
 from service.backtest.gates import GateStateMachine
 from service.backtest.metrics import (
     compute_event_study,
+    custom_window_k_cost,
     insufficient_sample,
     multiple_testing_correction,
     p_value_from_t,
@@ -1895,7 +1896,7 @@ def _run_backtest_experiment(
     observations = load_event_observations(signals, benchmarks, loader=loader, cfg=cfg)
     result = compute_event_study(observations, cfg=cfg)
     insufficient = insufficient_sample(result, cfg=cfg)
-    K = int(params["K"])
+    K = int(params["K"]) + custom_window_k_cost(cfg, cfg.windows)
     corrected_p = None
     if result.windows:  # 零触发（空观测）→ 无窗口可校正，verdict 仍为 INCONCLUSIVE
         corrected_p = _primary_corrected_p(

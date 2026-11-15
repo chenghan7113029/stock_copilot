@@ -252,3 +252,15 @@ def test_event_study_result_has_verdict_field():
     )
     assert result.verdict is Verdict.INCONCLUSIVE
     assert result.windows == {}
+
+
+def test_auto_shrink_token_lands_and_unknown_token_rejected(tmp_path, config_factory):
+    from common.exceptions import MissingBacktestConfigError
+    from service.backtest.models import AUTO_SHRINK, BacktestConfig
+
+    cfg = BacktestConfig.from_config(
+        config_factory(**{"shrink": "auto_by_sample_size"}), base_dir=tmp_path
+    )
+    assert cfg.shrink == AUTO_SHRINK
+    with pytest.raises(MissingBacktestConfigError):
+        BacktestConfig.from_config(config_factory(**{"shrink": "fixed_0.5"}), base_dir=tmp_path)

@@ -146,7 +146,7 @@ def _cost_rules(cfg: BacktestConfig) -> CostRules:
         slippage_tiers=tuple(
             SlippageTier(
                 amount_lower=float(tier.amount_lower),
-                amount_upper=float(tier.amount_upper),
+                amount_upper=(None if tier.amount_upper is None else float(tier.amount_upper)),
                 bps=float(tier.bps),
             )
             for tier in slippage

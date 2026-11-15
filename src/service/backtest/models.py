@@ -35,6 +35,8 @@ LOT_SIZE = 100  # A 股 100 股一手
 DEFAULT_RESULTS_DIR = "data/backtest/results"
 DEFAULT_REGISTRY_STORE = "data/backtest/registry.ndjson"
 DEFAULT_PREREG_DIR = "config/backtest/preregistrations"
+# KQ-3 落值（§9.3）：收缩强度按样本量自动
+AUTO_SHRINK = "auto_by_sample_size"
 # T2-fix-4：必须键（段落键缺失即拒绝；路径键有 design 明文默认值，可省略）
 MUST_KEYS: tuple[str, ...] = ("segments", "windows", "max_delay_days", "min_events")
 
@@ -421,7 +423,7 @@ class TransferFeeSpec:
 @dataclass(frozen=True)
 class SlippageTierSpec:
     amount_lower: float
-    amount_upper: float
+    amount_upper: float | None  # None = +∞（最后一档）
     bps: float
 
 
@@ -470,7 +472,7 @@ class BacktestConfig:
     gate_criteria: GateCriteria | None = None
     block_length: int | None = None
     n_bootstrap: int | None = None
-    shrink: float | None = None
+    shrink: float | str | None = None  # float 或 "auto_by_sample_size"（KQ-3 §9.3）
     burn_scope: str | None = None
     burn_counts_as_second: tuple[str, ...] | None = None
     exception_approver: str | None = None
@@ -518,7 +520,7 @@ class BacktestConfig:
             gate_criteria=_parse_gate_criteria(section.get("gates", section.get("gate_criteria"))),
             block_length=_opt_int(section.get("block_length"), "block_length"),
             n_bootstrap=_opt_int(section.get("n_bootstrap"), "n_bootstrap"),
-            shrink=_opt_float(section.get("shrink"), "shrink"),
+            shrink=_opt_shrink(section.get("shrink")),
             burn_scope=_opt_str(section.get("burn_scope")),
             burn_counts_as_second=_opt_str_tuple(section.get("burn_counts_as_second")),
             exception_approver=_opt_str(section.get("exception_approver")),
@@ -554,6 +556,20 @@ def _opt_float(value: Any, name: str) -> float | None:
         return float(value)
     except (TypeError, ValueError) as exc:
         raise MissingBacktestConfigError(f"{name} 非法: {value!r}") from exc
+
+
+def _opt_shrink(value: Any) -> float | str | None:
+    """KQ-3 落值：数值或 `auto_by_sample_size`（§9.3）；其它字符串拒绝。"""
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        token = value.strip()
+        if token == AUTO_SHRINK:
+            return token
+        raise MissingBacktestConfigError(
+            f"shrink 非法: {value!r}（只允许数值或 {AUTO_SHRINK}）"
+        )
+    return _opt_float(value, "shrink")
 
 
 def _opt_str(value: Any) -> str | None:
@@ -643,13 +659,14 @@ def _parse_slippage(value: Any) -> tuple[SlippageTierSpec, ...] | None:
     for item in value:
         if not isinstance(item, Mapping):
             raise MissingBacktestConfigError(f"slippage_tiers 档位不是映射: {item!r}")
-        missing = [key for key in ("amount_lower", "amount_upper", "bps") if item.get(key) is None]
+        missing = [key for key in ("amount_lower", "bps") if item.get(key) is None]
         if missing:
             raise MissingBacktestConfigError(f"slippage_tiers 缺键: {missing}")
+        upper = item.get("amount_upper")
         tiers.append(
             SlippageTierSpec(
                 amount_lower=float(item["amount_lower"]),
-                amount_upper=float(item["amount_upper"]),
+                amount_upper=None if upper is None else float(upper),
                 bps=float(item["bps"]),
             )
         )

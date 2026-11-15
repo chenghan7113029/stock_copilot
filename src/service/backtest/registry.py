@@ -327,14 +327,26 @@ class ExperimentRegistry:
 
     # ---- K 累计（R5） ----
     def cumulative_K(self, study_scope: str | Mapping[str, Any]) -> int:
-        """按显式声明的 `k_components[]` 累计；字符串 scope 则累加该假设结果行的 K（R5）。"""
+        """K 累计（R5 / §9.3）：`{"k_components": {组件: 网格规模}}` 按组合数计（乘积）；
+        字符串 scope 则累加该假设结果行的 K。
+
+        `k_components` 是**分量名**（params/cut_point/window）；只给名字无法计数 → 拒绝，
+        必须随附各分量网格规模（参数网格 21 组 = K 计 21）。
+        """
         if isinstance(study_scope, Mapping):
             components = study_scope.get("k_components")
             if components is None:
                 raise MissingBacktestConfigError(
                     "cumulative_K 缺 k_components：K 计数边界未确认（Q2），不得擅自合并"
                 )
-            return sum(int(value) for value in components)
+            if isinstance(components, Mapping):
+                return k_from_grid(components)
+            values = list(components)
+            if values and all(isinstance(value, int) for value in values):
+                return sum(int(value) for value in values)  # 旧式「分量即次数」
+            raise MissingBacktestConfigError(
+                "k_components 只有分量名、缺网格规模：K 无法计数（§9.3 要求 {组件: 网格规模}）"
+            )
         scope = str(study_scope)
         total = 0
         for row in self.result_rows(scope):
@@ -470,6 +482,24 @@ class ExperimentRegistry:
 # --------------------------------------------------------------------------
 # 预注册文件（git 跟踪，R1）
 # --------------------------------------------------------------------------
+
+
+def k_from_grid(grid: Mapping[str, Any]) -> int:
+    """K = 各分量网格规模的乘积（§9.3：参数网格 21 组 → K 计 21）。"""
+    if not grid:
+        raise MissingBacktestConfigError("k_components 网格为空：K 无法计数（§9.3）")
+    total = 1
+    for component, size in grid.items():
+        try:
+            count = int(size)
+        except (TypeError, ValueError) as exc:
+            raise MissingBacktestConfigError(
+                f"k_components.{component} 网格规模非法: {size!r}"
+            ) from exc
+        if count < 1:
+            raise MissingBacktestConfigError(f"k_components.{component} 网格规模必须 ≥1: {count}")
+        total *= count
+    return total
 
 
 def load_preregistration_file(path: Path) -> PreregistrationSpec | None:
