@@ -74,6 +74,37 @@
 | `review.md` §9 **R1-04**（low，`data_version` docstring 与 `RunRecord` 无该字段） | 已闭环 | `RunRecord.data_version: str \| None`（`src/service/backtest/models.py:282`，注释「captain R1-04」），与结果行同名同源，design 的「写入每行」现自洽 | 2026-11-15 |
 | `verification.md` §11.11 **F14**（`design.md` §4.2 R13 行签名漂移） | 已消除 | t26（`be35936`，T2-fix-7）已对齐 §4.2 与 §4.1；design 仍 939 行，§10.3 锚点表不受影响 | 2026-11-15 |
 
+### 波次：`add-allocation-executor`（T7 / 2026-11-15）
+
+> 写入者：product-manager（T7）。上游输入：`openspec/changes/add-allocation-executor/verification.md` §6（8 条未覆盖项）+ §7（F1–F3；F1 已由实现解决、F3 已由 T5b `e0fca35` 补录）、`review.md` §Findings（F1 medium / F2 low）+「T5 findings 处置核对」、`knowledge-verification.md` §7（F1–F6，已由 K2-repair `a3fe7c4` 修正）、`test-design.md` §6（2 处待对齐）、`proposal.md` 假设 A1–A6 与 Q1–Q5。
+> 「分流结论」括号内即**晋升 MRD 准入三条**的自评：1 有现存证据能指到行 / 2 影响面能说清改哪条需求 / 3 能被切成独立 change。三条不全 → `P2 观察`。
+> 建议变更名已用 `openspec.cmd list`（在飞 change 仅 `add-allocation-executor`）与 `openspec/changes/archive/`（**55** 个归档）核对，**无一重名**。
+
+| ID | 来源证据 | 影响面 | 建议变更名 | 优先级 | 分流结论 | 记录时间 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `IMP-add-allocation-executor-01` | `review.md` §Findings **F1（medium）+ F2（low）**：迁移月输出「固收迁移 135,000 元」但回显缺 `trial_ratio`（0.30），无法仅凭工单手算；迁移基数/次数（Q2/A3）的理由未标「待确认」（与取整 Q1 已标不对称） | capability `allocation-executor`；**R5**（迁移金额可复算 / 待确认标注）；`src/service/allocation/executor.py:207-210`（迁移理由）、`:255-264`（迁移计算）、`:380-404`（`PlanEcho` 构造）、`:438-457`（文本回显）、`:501-531`（JSON echo）；`src/service/allocation/models.py:133-157`（`PlanEcho` 缺 `trial_ratio`） | `harden-allocation-migration-traceability` | P1 下一波 | 立即（准入 1/2/3 全满足：F1/F2 均带具体 case 与文件行；落 R5 的回显与待确认标注；补一个 `trial_ratio` 字段 + 一处文案 + 用例即可独立成 change。本波 review 已判 pass，不阻塞归档） | 2026-11-15 |
+| `IMP-add-allocation-executor-02` | `verification.md` §6 **#1** + §7 **F2**；`review.md`「T5 findings 处置核对」F2 仍成立；`test-design.md` §6.1（T4 已在 `test-design.md §1.2` 冻结机检契约并做别名归一） | `design.md` 输出契约（`:99-100` 只给中文字段清单、未冻结键名）；下游机检 / 集成可能二次对齐。**不落任何 requirement 锚点** | `freeze-allocation-json-schema` | P2 观察 | 观察（准入 1 满足；**2 不满足**：不落到需求锚点，仅接口契约；由 design 补 JSON schema 或 captain 追认 T4 契约即可，不单独立波） | 2026-11-15 |
+| `IMP-add-allocation-executor-03` | `verification.md` §6 **#2**（「迁移月恰逢权益超限的优先级」spec 未定义，只有 design 状态机顺序）；`test-design.md` §6.3（未定义行为不测） | **R5 / R6**（迁移月 vs 顺延的判定顺序）；`design.md` 状态机（迁移先于顺延，`:143-150`） | `define-allocation-state-precedence` | P2 观察 | 观察（准入 1/2 满足；3 可独立但极小，且是否写入 spec 取决于 Owner 是否在意该边界，先观察） | 2026-11-15 |
+| `IMP-add-allocation-executor-04` | `verification.md` §6 **#3**（KQ-1 / Q4 未答复 → 本波按假设执行）；`proposal.md` 假设 A2–A6 + 开放问题 Q1–Q5；`config/knowledge/known_unknowns.yaml` 6 条 `KU-2026-11-alloc-*`（`status: waiting`，其中 `-holiday-01` 的 `due` = `2026-11-15T22:30:00+08:00`） | **R4 / R5 / R6 / R7 / R9**（取整 `.5` 方向 / 迁移基数与次数 / 现金 20% 是否硬门禁 / 顺延额度是否记账 / 宽基 ETF 标的池 / 执行日遇休市）；落地面 = `config/ips.yaml`（若需新增键）+ `src/service/allocation/executor.py` + spec 对应 Requirement | `resolve-allocation-semantics` | P1 下一波 | 立即（准入 1/2/3 全满足：与回测波「口径波」同型；Owner 答复后一次性落值 + 回填 `proposal.md` 假设表 / spec / KU，并补或改用例。**答复到达前不得开工**；到期未答复按角色规则标「未解决」并在下波回采） | 2026-11-15 |
+| `IMP-add-allocation-executor-05` | `verification.md` §6 **#5**（`--as-of` 省略时「取本机当日」未测；时间依赖会让用例不稳定） | **R2 / R7** 的可测性（不落需求本体）；`src/apps/cli.py:2055`（缺省 `date.today()`） | `add-allocation-clock-injection` | P2 观察 | 观察（准入 1 满足；**2 不满足**：不改变需求口径，只提升可测性；若 T3 愿意补可注入时钟再立项） | 2026-11-15 |
+| `IMP-add-allocation-executor-06` | `verification.md` §6 **#6**（design 的退出码 1/2 细分未断言）；`test-design.md` §6.2 同因 | **R7** 的验收粒度 / CLI 契约；`design.md:105-109`（0 成功 / 1 配置或数据错误 / 2 不可执行） | `freeze-allocation-exit-codes` | P2 观察 | 观察（准入 1 满足；**2 不满足**：spec 只要求「非零」，1/2 细分属设计细节；若 T6/T5 要求纳入验收，先由 design 冻结再补用例） | 2026-11-15 |
+| `IMP-add-allocation-executor-07` | `verification.md` §6 **#4**（真实私人快照 `config/ips.local.yaml` 未参与验证；隐私边界，全用合成数） | 部署自测（不落 requirement）；`config/ips.local.yaml`（gitignored，不入报告） | `add-allocation-local-smoke` | P2 观察 | 观察（准入 1 满足；**2 不满足**：不改变需求；报告 §8 已给人工复现命令，Owner 本机跑一次即可） | 2026-11-15 |
+| `IMP-add-allocation-executor-08` | `config/knowledge/_design.md` §1.2 修订说明「**回溯影响**」（`:113`：30 条 canon 中 **7 条需回填**：6 条进观察名单、1 条与 spec Scenario 冲突）+「回溯核对清单」（`:116-129`，K2 执行、T7 收口更新）；`knowledge-verification.md` §F2（准入③原门槛 4/5 条未达，已由 K2-repair `a3fe7c4` 按修订版去例外化） | 知识治理 `config/knowledge/canon/`（既有回测 canon 的回填状态）；**不落 MRD 需求锚点** | `backfill-canon-admission-baseline` | P2 观察 | 观察（准入 1 满足；**2 不满足**：知识治理债，不改需求；清单在 `_design.md:116-129`，K2 回填后由 T7 更新该表，不必单独立波） | 2026-11-15 |
+
+#### 本波已闭环（留痕，不占改进点）
+
+> 上游 findings 里已在本波修完的条目，只留痕供下一波查账，**不再作为改进点排期**。
+
+| 来源 | 结论 | 闭环证据 | 记录时间 |
+| --- | --- | --- | --- |
+| K3 `knowledge-verification.md` **F1（high，`CAN-ALLOC-005` 把未确认的基数写成确定口径）** | 已闭环 | K2-repair（t12，`a3fe7c4`）：`statement` 改为「试水比例 30%；基数与次数未确认，见 `KU-2026-11-alloc-migration-base-01`」；`grep -n "为目标固收额度的" config/knowledge/` → 0 命中；现状 `config/knowledge/canon/allocation-executor.yaml:120-141` | 2026-11-15 |
+| K3 **F2（medium，canon 准入③ 4/5 条仅 1 条 Requirement）** | 已闭环（规则修订 + 去例外化） | 规则修订：`config/knowledge/_design.md` §1.2 修订版（K1b 复核 t14：消费点可回解 + 强/低分档 + 观察名单）；条目去例外化：K2-repair（`a3fe7c4`）把 `CAN-ALLOC-002/003/004/005` 的 `notes` 逐条登记「Requirement + Scenario」2 个消费点（canon `:74-77`、`:103-106`、`:132-135`、`:164-167`） | 2026-11-15 |
+| K3 **F3 / F4 / F5 / F6**（期限冲突无留痕 / KU-holiday `due` 早于转交 / 003 source 缺判据 4 / 001 scope_note 把推断写成冲突） | 已闭环 | 同一提交 `a3fe7c4`：`CAN-ALLOC-001.notes` 补「期限 24 个月以 `config/ips.yaml:48` 为唯一载体」（canon `:46-48`）；`KU-2026-11-alloc-holiday-01.due` 改转交 +1h（`known_unknowns.yaml:145` = `22:30`）；`CAN-ALLOC-003.source` 补 `annotations.md:39`（canon `:87`）；001 `scope_note` 降为「采集方运维推断」（canon `:40-41`） | 2026-11-15 |
+| T5 `verification.md` **F1（medium，R3-S1 公式字符串未回显）** | 已闭环（实现已回显） | `review.md`「T5 findings 处置核对」：实现 `src/service/allocation/executor.py:418-419` 回显「缺口: 0.35 × 1,000,000 − 250,000 = 100,000」、`:420-422` 回显剩余月数；单测 `test_regular_month_buys_gap_over_remaining_months` 绿 | 2026-11-15 |
+| T5 **F3（low，C1–C5 功能层 trace 未 append）** | 已闭环 | T5b（`e0fca35`）append 5 条 function/number trace（`run_id` → `verification.md`）；同批 `ba3b6d5` 把 `qa.md` trace 口径统一为 9 字段（`conclusion` 用 `C0` 或 `C1..C5`） | 2026-11-15 |
+
+> **流程问题（非改进点，报 captain）**：T3 完成时 completion 校验按字面比对 `inScope`，而计划里新建文件项写作 `src/service/allocation/models.py（待新建）` 这类带注释形式，导致 5 个真实改动无法登记 `changedPaths`（T3 回合报告；`docs/agent-team/plans/add-allocation-executor.yaml` 的 T3 inScope 段）。另 `src/service/allocation/__init__.py` 确不在 inScope（design 影响面有）。建议下一波 inScope 写纯路径，或在设计阶段允许包标记文件。
+
 ## 已晋升记录
 
 <!-- 某条改进点真正进入 MRD 新版本时，在这里登记，形成"改进点 → 基线"的连线 -->
