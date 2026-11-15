@@ -26,7 +26,7 @@ def test_tc_r17_01_twenty_and_sixty_day_windows(load, make_observations, cfg_eve
             assert stats.ci[0] <= stats.ci[1]
 
 
-def test_tc_r17_02_insufficient_events_marks_insufficient_sample(load, make_observations, cfg_event):
+def test_tc_r17_02_insufficient_events_marks_insufficient_sample(load, models, make_observations, cfg_event):
     """TC-R17-02（R17 Scenario2）：有效事件数低于 `min_events` → 标「样本不足」，不给有效/无效判定。"""
     metrics = load("service.backtest.metrics")
     result = metrics.compute_event_study(make_observations(count=3), cfg=cfg_event)
@@ -34,7 +34,8 @@ def test_tc_r17_02_insufficient_events_marks_insufficient_sample(load, make_obse
     thin = result.windows["20"]["buy_and_hold"]
     assert thin.n < cfg_event.min_events, "夹具前置：事件数必须低于配置下限 min_events"
     assert result.n_events == thin.n
-    assert not hasattr(result, "verdict"), "事件研究结果不得自带有效/无效判定（判定在结果行）"
+    # T2-fix-6：`EventStudyResult.verdict` 是契约字段；全样本不足 → INCONCLUSIVE（不得判有效）
+    assert result.verdict is models.Verdict.INCONCLUSIVE, "事件数不足 → INCONCLUSIVE（R17 Scenario2）"
 
 
 def test_tc_r17_03_no_signal_is_a_legal_conclusion(load, models, make_observations, cfg_event):

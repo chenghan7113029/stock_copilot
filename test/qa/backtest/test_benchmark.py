@@ -48,8 +48,9 @@ def test_tc_r13_02_missing_benchmark_is_inconclusive(load, models, make_observat
 
     single = make_observations(benchmark_kinds=("buy_and_hold",))
     assert single and all(obs.benchmark_kind == "buy_and_hold" for obs in single)
-    result = metrics.compute_event_study((), cfg=cfg_event)  # 空观测：无基准可聚合
-    assert result.windows["20"] == {} and result.windows["60"] == {}, "无基准时不得产出超额统计"
+    result = metrics.compute_event_study((), cfg=cfg_event)  # 空观测：不抛异常（T2-fix-6）
+    assert result.windows == {} and result.n_events == 0, "空观测不得产出超额统计"
+    assert result.verdict is models.Verdict.INCONCLUSIVE, "空观测 → INCONCLUSIVE（T2-fix-6 / R13）"
 
 
 def test_tc_r13_03_attribution_has_four_factor_contributions(load, models, benchmarks):

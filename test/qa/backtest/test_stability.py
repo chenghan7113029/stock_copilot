@@ -14,7 +14,7 @@ def _window(models, n, mean, ci):
 
 
 def _result(models, windows):
-    return models.EventStudyResult(windows=windows, n_events=sum(
+    return models.EventStudyResult(verdict=models.Verdict.VALID, windows=windows, n_events=sum(
         stats.n for per_benchmark in windows.values() for stats in per_benchmark.values()),
         inference_method="block_bootstrap", block_length=5, n_bootstrap=1000)
 
