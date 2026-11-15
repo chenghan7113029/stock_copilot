@@ -1,0 +1,25 @@
+# 分组切点口径（三硬标签的分位基准）
+#
+# 来源：Owner 2026-11-15 对 proposal Q6「三硬标签切点基准」的答复（经 captain 转交）。
+# 判别：Q3 业务口径 → canon。注意：Q6 的**档数 3** 未经 Owner 显式确认，落 `hypotheses/grouping.yaml`，
+#      不在本文件（不得把继承默认写成确定口径）。
+layer: canon
+domain: grouping
+entries:
+  - id: CAN-GROUP-001
+    statement: >-
+      三硬标签（市值 / 股息率 / 波动率分位）的切点按全 A 时点截面分位计算，不按组内分位。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:分组切点基准（Q6）｜原话要点「切点 = 全 A 时点截面分位」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R15, R14]
+    as_of: "2026-11-15"
+    scope_note: 仅约束分组切点的计算基准；档位数量另见 HYP-GROUP-001（待 Owner 显式确认）。
+    notes: >-
+      「时点」= 不得用今天的截面回看历史；历史成分与历史分位须按对应时点重算。
+      档数 3 属继承默认，未经 Owner 显式确认，不得引用本条去支撑「必须 3 档」。

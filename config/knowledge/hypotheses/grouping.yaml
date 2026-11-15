@@ -1,0 +1,29 @@
+# 分组档数（待 Owner 显式确认）
+#
+# 来源：Owner 2026-11-15 对 proposal Q6 的答复中明确的一点——
+#       「档数 3 属继承默认，未经 Owner 显式确认」。
+# 判别（_design.md §1.3）：Owner 已确认「切点基准 = 全 A 时点截面分位」（CAN-GROUP-001，canon），
+#       但档数本身仍是继承默认 → 只能标「假设」，不得作为唯一依据驱动代码行为。
+layer: hypotheses
+domain: grouping
+entries:
+  - id: HYP-GROUP-001
+    statement: >-
+      三硬标签（市值 / 股息率 / 波动率分位）的分档档数为 3 档。
+    layer: hypotheses
+    source: >-
+      人工答复:Owner:2026-11-15:分组切点基准（Q6）｜原话要点「档数 3 属继承默认，未经 Owner 显式确认」
+    confidence: 假设
+    owner: Owner
+    strength: 软启发
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R15, R14]
+    as_of: "2026-11-15"
+    review_at: "2027-02-15"
+    stale_after_days: 92
+    scope_note: >-
+      实现只能预埋「档数可配置 + 缺失即拒绝」，禁止把 3 写成不可改的默认值（_design.md §4.1）。
+    notes: >-
+      继承默认，待 Owner 显式确认。切点基准已由 CAN-GROUP-001 定为「全 A 时点截面分位」（确定口径）；
+      本条只承载「档数 = 3」这个尚未被显式确认的值，确认后按 _design.md §3.2 U1 升为 canon。

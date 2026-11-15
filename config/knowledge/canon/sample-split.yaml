@@ -1,0 +1,40 @@
+# 样本切分口径（样本外烧毁粒度 / 区间右边界与滚动）
+#
+# 来源：Owner 2026-11-15 对 proposal Q1「样本外只跑一次的判定粒度」与 Q3「三段样本的右边界与更新节奏」的答复（经 captain 转交）。
+# 判别：Q3 业务口径（什么算用掉一次样本外、边界在哪天）→ canon。
+layer: canon
+domain: sample-split
+entries:
+  - id: CAN-SAMPLE-001
+    statement: >-
+      样本外「只跑一次」按假设（hypothesis）计烧毁：同一假设换实现、换评价指标都不算第二次。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:样本外烧毁粒度（Q1）｜原话要点「样本外按『假设』计烧毁；换实现/换指标不算第二次」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R2, R4, R19]
+    as_of: "2026-11-15"
+    scope_note: 仅界定「样本外烧毁」的计数粒度；不改变预注册与台账 append-only 纪律。
+    notes: >-
+      推论边界（按 Owner 原话可判）：同一假设下改参数属于另一次评估、计入 K（见 CAN-STATS-001），
+      而「换实现 / 换评价指标」不额外烧毁样本外。
+  - id: CAN-SAMPLE-002
+    statement: >-
+      样本区间的右边界取数据截止日；每年 1 月按年滚动一次；滚动前的旧样本外区间标记 expired 并留档。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:样本区间右边界与滚动（Q3）｜原话要点「样本右边界 = 数据截止日；每年 1 月滚动；旧样本外 expired 留档」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R3, R4]
+    as_of: "2026-11-15"
+    notes: >-
+      「数据截止日」= 本机数据实际覆盖的最后交易日（不是写死的日历日）；
+      滚动只前移右边界，已留档的 expired 区间不得回改。
