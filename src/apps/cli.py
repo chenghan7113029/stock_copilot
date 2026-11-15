@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
+import subprocess
 import sys
+from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
+
+import yaml
 
 from apps.formatters import (
     format_checklist_records,
@@ -30,7 +35,14 @@ from apps.formatters import (
 )
 from common.cli_progress import CliProgress, cli_progress_enabled
 from common.config_loader import is_data_source_enabled, load_app_config, resolve_feishu_config
-from common.exceptions import KlineUnavailableError, UnsupportedMarketError
+from common.exceptions import (
+    BacktestDataGapError,
+    BacktestError,
+    CalibrationFailedError,
+    KlineUnavailableError,
+    MissingBacktestConfigError,
+    UnsupportedMarketError,
+)
 from common.watchlist import (
     add_to_watchlist,
     load_watchlist,
@@ -88,6 +100,7 @@ from dao.top_list_repo import (
     TopListSyncMarkerRepo,
 )
 from dao.trade_record_repo import TradeRecordRepo
+from data_provider.backtest import BacktestDataLoader
 from data_provider.base import is_a_share
 from data_provider.chip_distribution_provider import ChipDistributionProvider
 from data_provider.event.provider import EventProvider, EventRepos
@@ -96,12 +109,44 @@ from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
 from data_provider.sentiment.provider import MarketSentimentProvider
 from data_provider.toplist.provider import TopListProvider, TopListRepos
+from service.backtest.calibration import assert_calibrated, calibration_payload, run_calibration
+from service.backtest.config import resolve_backtest_config
+from service.backtest.data import load_price_series
+from service.backtest.gates import GATE_STORE_NAME, GateStateMachine
+from service.backtest.metrics import (
+    compute_event_study,
+    insufficient_sample,
+    multiple_testing_correction,
+    p_value_from_t,
+    t_statistic,
+)
+from service.backtest.models import (
+    EVENT_WINDOWS,
+    AdjustMode,
+    BacktestConfig,
+    Benchmark,
+    ConditionSpec,
+    EventObservation,
+    ExperimentRecord,
+    GateStage,
+    PointInTimeSnapshot,
+    RunRecord,
+    RunStatus,
+    Verdict,
+    segment_of,
+)
+from service.backtest.registry import (
+    ExperimentRegistry,
+    preregistration_from_mapping,
+    write_preregistration_file,
+)
+from service.backtest.signal import evaluate_condition
 from service.dual_track.analyzer import DualTrackAnalyzer
 from service.dual_track.evidence_bucketer import EvidenceBucketer
+from service.event.analyzer import EventAnalyzer
 from service.feishu.paths import feishu_md_path
 from service.feishu.pipeline import FeishuPushDocument, reports_root, run_feishu_push
 from service.feishu.publisher import FeishuPublisherError
-from service.event.analyzer import EventAnalyzer
 from service.fundflow.analyzer import FundFlowAnalyzer
 from service.guard.checklist_validator import ChecklistValidator
 from service.guard.confrontation_declaration_validator import ConfrontationDeclarationValidator
@@ -117,6 +162,8 @@ from service.guard.persona_stress_narrator import (
 from service.portfolio.analyzer import PortfolioAnalyzer
 from service.report.briefing_composer import (
     BriefingComposer,
+)
+from service.report.briefing_composer import (
     LocalDataMissingError as BriefingLocalDataMissingError,
 )
 from service.report.comprehensive_narrator import narrate_comprehensive_report
@@ -1613,6 +1660,458 @@ def _add_code_or_watchlist(parser: argparse.ArgumentParser) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# 回测子命令（design §6.3；零 LLM，全链路确定性）
+# ---------------------------------------------------------------------------
+
+
+def build_backtest_loader(cfg: BacktestConfig) -> BacktestDataLoader:
+    """回测数据注入点：本机默认全缺口（三源前复权 / 无成交额 / 无表级公告日）。
+
+    数据通道补齐前任何取数都 `BacktestDataGapError`（design §1 锚点 3：显式报错、
+    不静默降级）；测试/QA 可 patch 本函数注入合成 loader。
+    """
+    return BacktestDataLoader()
+
+
+def _backtest_clock() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _backtest_registry(cfg: BacktestConfig) -> ExperimentRegistry:
+    return ExperimentRegistry(
+        cfg.registry_store_path,
+        clock=_backtest_clock,
+        data_version=str(cfg.get("data_version") or ""),
+        results_dir=cfg.results_dir,
+    )
+
+
+def _backtest_config(args: argparse.Namespace, *, require_pipeline: bool) -> BacktestConfig:
+    return resolve_backtest_config(
+        getattr(args, "config", None), cwd=Path.cwd(), require_pipeline=require_pipeline
+    )
+
+
+def _git(args: list[str], *, cwd: str | None = None) -> subprocess.CompletedProcess:
+    command = ["git", *args]
+    try:
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except OSError as exc:  # git 不可用 / 句柄异常 → 视为「取不到 commit」，由调用方告警
+        return subprocess.CompletedProcess(command, 1, "", str(exc))
+
+
+def _git_repo_root() -> str | None:
+    result = _git(["rev-parse", "--show-toplevel"])
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _repo_relative(root: str, path: Path) -> str | None:
+    try:
+        return path.resolve().relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def _prereg_commit(path: Path) -> str | None:
+    root = _git_repo_root()
+    if not root:
+        return None
+    relative = _repo_relative(root, path)
+    if relative is None:
+        return None
+    log = _git(["log", "-1", "--format=%H", "--", relative], cwd=root)
+    return log.stdout.strip() or None
+
+
+def _git_commit_preregistration(path: Path, hypothesis_id: str) -> str | None:
+    root = _git_repo_root()
+    if not root:
+        return None
+    relative = _repo_relative(root, path)
+    if relative is None:
+        return None
+    identity = [
+        "-c",
+        "user.name=chenghan7113029",
+        "-c",
+        "user.email=chenghan7113029@users.noreply.github.com",
+    ]
+    _git([*identity, "add", "--", relative], cwd=root)
+    _git(
+        [
+            *identity,
+            "commit",
+            "-m",
+            f"chore(backtest): preregister {hypothesis_id}",
+            "--",
+            relative,
+        ],
+        cwd=root,
+    )
+    return _prereg_commit(path)
+
+
+def _bt_preregister(args: argparse.Namespace) -> int:
+    cfg = _backtest_config(args, require_pipeline=False)
+    file_path = getattr(args, "file", None)
+    hypothesis = getattr(args, "hypothesis", None)
+    if bool(file_path) == bool(hypothesis):
+        print("[error] preregister 需要 --file <path> 或 --hypothesis <id> 二选一", file=sys.stderr)
+        return 1
+    source = Path(file_path) if file_path else cfg.prereg_dir / f"{hypothesis}.yaml"
+    if not source.exists():
+        print(f"[error] 预注册文件不存在: {source}", file=sys.stderr)
+        return 1
+    data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        print(f"[error] 预注册文件顶层不是映射: {source}", file=sys.stderr)
+        return 1
+    if hypothesis and not data.get("hypothesis_id"):
+        data["hypothesis_id"] = hypothesis
+    data.setdefault("created_at", _backtest_clock())
+    spec = preregistration_from_mapping(data)
+    registry = _backtest_registry(cfg)
+    registry.validate_preregistration(spec)
+    destination = cfg.prereg_dir / f"{spec.hypothesis_id}.yaml"
+    write_preregistration_file(spec, destination)
+    commit = _git_commit_preregistration(destination, spec.hypothesis_id)
+    print(f"[ok] 预注册 {spec.hypothesis_id} → {destination}")
+    if commit:
+        print(f"commit {commit}")
+    else:
+        print(
+            "[warn] 预注册已写入但未取得 commit：run 前须提交版本库（R1）",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _bt_run(args: argparse.Namespace) -> int:
+    cfg = _backtest_config(args, require_pipeline=True)
+    registry = _backtest_registry(cfg)
+    hypothesis_id = str(args.hypothesis)
+    identifier = registry.next_experiment_id(hypothesis_id)
+    spec = registry.load_preregistration(hypothesis_id, prereg_dir=cfg.prereg_dir)
+    if spec is None:
+        registry.append_run(
+            RunRecord(
+                run_id=identifier,
+                status=RunStatus.REJECTED,
+                at=registry.clock(),
+                hypothesis_id=hypothesis_id,
+                reason="预注册缺失：拒绝执行（R1）",
+            )
+        )
+        print(
+            f"[error] 预注册缺失: {hypothesis_id}（R1 拒绝执行，不产生结果行）",
+            file=sys.stderr,
+        )
+        return 1
+    registry.validate_preregistration(spec)
+    commit = _prereg_commit(cfg.prereg_dir / f"{hypothesis_id}.yaml")
+    if not commit:
+        reason = "预注册未提交：拒绝执行（R1 Scenario 3）"
+        registry.append_run(
+            RunRecord(
+                run_id=identifier,
+                status=RunStatus.REJECTED,
+                at=registry.clock(),
+                hypothesis_id=hypothesis_id,
+                reason=reason,
+            )
+        )
+        print(f"[error] {reason}", file=sys.stderr)
+        return 1
+    try:
+        record = _run_backtest_experiment(
+            cfg, spec, registry=registry, identifier=identifier, commit=commit
+        )
+    except BacktestError as exc:
+        registry.append_run(
+            RunRecord(
+                run_id=identifier,
+                status=RunStatus.FAILED,
+                at=registry.clock(),
+                hypothesis_id=hypothesis_id,
+                reason=str(exc),
+                prereg_commit=commit,
+            )
+        )
+        print(f"[error] 回测失败：{exc}", file=sys.stderr)
+        return 1
+    print(
+        f"[ok] 实验 {record.experiment_id} verdict={record.verdict.value} K={record.K}"
+    )
+    return 0
+
+
+def _run_backtest_experiment(
+    cfg: BacktestConfig,
+    spec: Any,
+    *,
+    registry: ExperimentRegistry,
+    identifier: str,
+    commit: str,
+) -> ExperimentRecord:
+    params = dict(spec.params or {})
+    codes = params.get("codes")
+    start = params.get("start")
+    end = params.get("end")
+    if not codes or not start or not end:
+        raise MissingBacktestConfigError(
+            "预注册 params 缺 codes/start/end：事件研究无法装配（不猜参数）"
+        )
+    if params.get("K") is None:
+        raise MissingBacktestConfigError("预注册未报告 K：不得下发结论（R5）")
+    condition_raw = dict(params.get("condition") or {})
+    condition = ConditionSpec(
+        condition_id=str(condition_raw.get("condition_id") or "ma60_breakdown"),
+        kind=str(condition_raw.get("kind") or "ma_breakdown"),
+        params=dict(condition_raw.get("params") or {}),
+    )
+    benchmarks = tuple(Benchmark(kind=str(item), label=str(item)) for item in spec.benchmarks)
+    if not benchmarks:
+        raise BacktestError("预注册未指定基准：不得给出有效判定（R13）")
+    loader = build_backtest_loader(cfg)
+    prices = load_price_series(codes, start, end, AdjustMode.HFQ, loader=loader)
+    observations: list[EventObservation] = []
+    for code, bars in prices.items():
+        for index in range(1, len(bars)):
+            snapshot = PointInTimeSnapshot(
+                as_of=bars[index].trade_date, price=tuple(bars[: index + 1])
+            )
+            if evaluate_condition(snapshot, condition) is None:
+                continue
+            for window in EVENT_WINDOWS:
+                exit_index = index + window
+                if exit_index >= len(bars):
+                    continue
+                forward = bars[exit_index].close / bars[index].close - 1.0
+                for benchmark in benchmarks:
+                    excess = _event_excess(loader, benchmark, forward, bars, index, exit_index)
+                    observations.append(
+                        EventObservation(
+                            code=code,
+                            event_date=bars[index].trade_date,
+                            window=window,
+                            benchmark_kind=benchmark.kind,
+                            excess=excess,
+                        )
+                    )
+    if not observations:
+        raise BacktestError("事件研究无事件：不得产出结论（R17）")
+    result = compute_event_study(observations, benchmarks, cfg=cfg)
+    insufficient = insufficient_sample(result, cfg=cfg)
+    alpha = float(cfg.require("alpha"))
+    K = int(params["K"])
+    method = str(spec.correction_method)
+    metrics: dict[str, Any] = {
+        "event_study": asdict(result),
+        "insufficient_sample": list(insufficient),
+        "n_observations": len(observations),
+        "adjust_mode": AdjustMode.HFQ.value,
+        "corrected_p": _primary_corrected_p(cfg, observations, result, K=K, method=method),
+    }
+    verdict = _event_study_verdict(
+        cfg, observations, result, insufficient=insufficient, alpha=alpha, metrics=metrics
+    )
+    at = registry.clock()
+    registry.append_run(
+        RunRecord(
+            run_id=identifier,
+            status=RunStatus.PASSED,
+            at=at,
+            experiment_id=identifier,
+            hypothesis_id=spec.hypothesis_id,
+            prereg_commit=commit,
+        )
+    )
+    record = ExperimentRecord(
+        experiment_id=identifier,
+        hypothesis_id=spec.hypothesis_id,
+        params=params,
+        segment=segment_of(str(end)),
+        K=K,
+        verdict=verdict,
+        metrics=metrics,
+        prereg_commit=commit,
+        data_version=str(cfg.get("data_version") or ""),
+        adjust_mode=AdjustMode.HFQ,
+        timestamps={"created_at": at, "finished_at": registry.clock()},
+    )
+    registry.write_result(identifier, metrics)
+    registry.append(record)
+    return record
+
+
+def _event_excess(
+    loader: Any,
+    benchmark: Benchmark,
+    forward: float,
+    bars: Any,
+    index: int,
+    exit_index: int,
+) -> float:
+    if benchmark.kind == "buy_and_hold":
+        # MVP 事件 = 「条件成立即离场」：空仓相对买入持有的超额（与 R18 校准题同口径）
+        return -forward
+    if benchmark.kind == "market_portfolio":
+        method = getattr(loader, "load_benchmark_return", None)
+        if method is None:
+            raise BacktestDataGapError("市场组合基准序列缺失：不得只算单基准（R13/R17）")
+        benchmark_return = float(
+            method(
+                kind=benchmark.kind,
+                start=bars[index].trade_date,
+                end=bars[exit_index].trade_date,
+            )
+        )
+        return -forward - benchmark_return
+    raise BacktestError(f"未知基准: {benchmark.kind!r}（R13 只允许买入持有/市场组合）")
+
+
+def _primary_sample(
+    observations: Sequence[Any], result: Any
+) -> tuple[str, str, list[float]]:
+    window = str(max(int(key) for key in result.windows))
+    per_benchmark = result.windows[window]
+    kind = "market_portfolio" if "market_portfolio" in per_benchmark else sorted(per_benchmark)[0]
+    values = [
+        float(item.excess)
+        for item in observations
+        if str(item.window) == window and item.benchmark_kind == kind
+    ]
+    return window, kind, values
+
+
+def _primary_corrected_p(
+    cfg: BacktestConfig,
+    observations: Sequence[Any],
+    result: Any,
+    *,
+    K: int,
+    method: str,
+) -> float | None:
+    _window, _kind, values = _primary_sample(observations, result)
+    if len(values) < 2:
+        return None
+    p_value = p_value_from_t(t_statistic(values))
+    return multiple_testing_correction([p_value], K, method, cfg=cfg)[0]
+
+
+def _event_study_verdict(
+    cfg: BacktestConfig,
+    observations: Sequence[Any],
+    result: Any,
+    *,
+    insufficient: Sequence[str],
+    alpha: float,
+    metrics: dict[str, Any],
+) -> Verdict:
+    if insufficient:
+        return Verdict.INCONCLUSIVE
+    window, kind, _values = _primary_sample(observations, result)
+    stats = result.windows[window][kind]
+    corrected = metrics.get("corrected_p")
+    significant = stats.ci[1] < 0.0 or stats.ci[0] > 0.0
+    if corrected is None or float(corrected) >= alpha or not significant:
+        return Verdict.INVALID  # 结论「无信号」（R17 允许），不等于台子不可信
+    return Verdict.VALID
+
+
+def _bt_calibrate(args: argparse.Namespace) -> int:
+    cfg = _backtest_config(args, require_pipeline=True)
+    registry = _backtest_registry(cfg)
+    loader = build_backtest_loader(cfg)
+    result = run_calibration(cfg=cfg, loader=loader, registry=registry)
+    print(json.dumps(calibration_payload(result), ensure_ascii=False, sort_keys=True))
+    try:
+        assert_calibrated(registry)
+    except CalibrationFailedError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _bt_ledger(args: argparse.Namespace) -> int:
+    cfg = _backtest_config(args, require_pipeline=False)
+    registry = _backtest_registry(cfg)
+    experiment_id = getattr(args, "experiment", None)
+    hypothesis_id = getattr(args, "hypothesis", None)
+    rows = registry.export_ledger(
+        experiment_id=experiment_id,
+        hypothesis_id=hypothesis_id,
+        prereg_dir=cfg.prereg_dir,
+    )
+    if (experiment_id or hypothesis_id) and not rows:
+        print(
+            f"[error] 台账无匹配记录: {experiment_id or hypothesis_id}",
+            file=sys.stderr,
+        )
+        return 1
+    payload = [asdict(row) for row in rows]
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def _bt_gate(args: argparse.Namespace) -> int:
+    cfg = _backtest_config(args, require_pipeline=False)
+    machine = GateStateMachine(
+        cfg.registry_store_path.parent / GATE_STORE_NAME,
+        cfg=cfg,
+        clock=_backtest_clock,
+    )
+    rule_id = str(args.rule)
+    target = getattr(args, "to", None)
+    if target:
+        record = machine.transition(
+            rule_id,
+            GateStage(str(target)),
+            {
+                "experiment_id": getattr(args, "experiment", None),
+                "direction_agree": (True if getattr(args, "direction_agree", False) else None),
+            },
+        )
+    else:
+        record = machine.current(rule_id)
+    print(json.dumps(asdict(record), ensure_ascii=False, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def run_backtest_command(args: argparse.Namespace) -> int:
+    """`backtest` 子命令分发；返回码即进程退出码（0 支持 / 1 参数·配置·数据错误 / 2 门禁失败）。"""
+    handlers = {
+        "preregister": _bt_preregister,
+        "run": _bt_run,
+        "calibrate": _bt_calibrate,
+        "ledger": _bt_ledger,
+        "gate": _bt_gate,
+    }
+    action = str(getattr(args, "backtest_command", ""))
+    handler = handlers.get(action)
+    if handler is None:
+        print(f"[error] 未知 backtest 子命令: {action}", file=sys.stderr)
+        return 1
+    try:
+        return handler(args)
+    except CalibrationFailedError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 2
+    except (BacktestError, ValueError, OSError) as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="apps.cli", description="stock_copilot CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1822,6 +2321,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     feishu_push.add_argument("--quiet", action="store_true", help="不输出阶段性进度")
 
+    backtest_parser = sub.add_parser("backtest", help="历史验证台子（确定性计算，零 LLM）")
+    backtest_sub = backtest_parser.add_subparsers(dest="backtest_command", required=True)
+
+    bt_prereg = backtest_sub.add_parser("preregister", help="写入预注册文件并校验 commit（R1）")
+    bt_prereg.add_argument("--file", help="预注册 YAML 路径")
+    bt_prereg.add_argument("--hypothesis", help="假设 ID（默认读 <prereg_dir>/<id>.yaml）")
+    bt_prereg.add_argument("--config", help="回测配置（默认 cwd/config/app.yaml）")
+
+    bt_run = backtest_sub.add_parser("run", help="跑一次事件研究实验（R17/R1/R2）")
+    bt_run.add_argument("--hypothesis", required=True, help="假设 ID")
+    bt_run.add_argument("--config", help="回测配置（默认 cwd/config/app.yaml）")
+
+    bt_calibrate = backtest_sub.add_parser(
+        "calibrate", help="跑 R18 已知答案校准题（门禁失败退出码 2）"
+    )
+    bt_calibrate.add_argument("--config", help="回测配置（默认 cwd/config/app.yaml）")
+
+    bt_ledger = backtest_sub.add_parser("ledger", help="导出实验台账（JSON 数组）")
+    bt_ledger.add_argument("--experiment", help="实验 ID")
+    bt_ledger.add_argument("--hypothesis", help="假设 ID")
+    bt_ledger.add_argument("--format", choices=["json"], default="json", help="导出格式（仅 json）")
+    bt_ledger.add_argument("--config", help="回测配置（默认 cwd/config/app.yaml）")
+
+    bt_gate = backtest_sub.add_parser("gate", help="查询/迁移三级门禁状态（R19）")
+    bt_gate.add_argument("--rule", required=True, help="规则 ID")
+    bt_gate.add_argument("--to", choices=[stage.value for stage in GateStage], help="目标阶段（省略=查询）")
+    bt_gate.add_argument("--experiment", help="依据实验 ID（进入回测通过/影子时必填）")
+    bt_gate.add_argument(
+        "--direction-agree", action="store_true", help="影子→实盘的方向一致判据（R19）"
+    )
+    bt_gate.add_argument("--config", help="回测配置（默认 cwd/config/app.yaml）")
+
     return parser
 
 
@@ -1955,9 +2486,12 @@ def run_feishu_push_cmd(
     )
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     setup_utf8_console()
     args = build_parser().parse_args(argv)
+
+    if args.command == "backtest":
+        return run_backtest_command(args)
 
     config_override: dict[str, Any] | None = None
     if getattr(args, "quiet", False):
@@ -2145,7 +2679,8 @@ def main(argv: list[str] | None = None) -> None:
     except KlineUnavailableError as exc:
         print(f"[error] 数据拉取失败：{exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

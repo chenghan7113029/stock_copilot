@@ -141,3 +141,75 @@ ref:
   daily_stock_analysis: ref/daily_stock_analysis
   valueinvest: ref/valueinvest
   financetoolkit: ref/FinanceToolkit
+# 回测台子（change: add-backtest-engine / design.md §6.4）
+# 纪律：**只放键与空值**——Q1–Q8 / KQ-1…KQ-7 未答复的口径一律留空，缺键即拒绝
+#      （MissingBacktestConfigError，退出码 1）；禁止在此预埋任何费率/税率/阈值/块长/收缩强度。
+backtest:
+  # 落盘路径（design §4.1 BacktestConfig，可注入；非口径数值）
+  results_dir: data/backtest/results
+  registry_store_path: data/backtest/registry.ndjson
+  prereg_dir: config/backtest/preregistrations
+  data_version: null              # 数据快照版本，由数据快照/调用方提供（QA-F6）
+  # Q4 费率与滑点现值（缺键即拒绝，不按 0）
+  commission:
+    rate: null
+    min: null
+  stamp_tax:
+    sell_rate: null
+  transfer_fee:
+    included: null                # 是否计入过户费（Q4）
+    rate: null
+  slippage_tiers: []              # [{amount_lower, amount_upper, bps}]
+  liquidity_cap: []               # [{amount_lower, amount_upper, max_participation}]
+  # R8 撮合反模式封口（design §3H：必须存在，否则拒绝执行）
+  max_delay_days: null
+  trading_calendar:
+    holidays: []                  # 休市表为空 → 降级「周一至周五」并在元数据标注（design §8.3）
+  # Q5 涨跌停/停牌判定口径（未答复前按 A3 一字板）
+  limit_pct: null
+  seal_definition: null
+  suspend_source: null
+  # Q6 分组切点（缺键即拒绝，不默认全 A 截面）
+  cut_basis: null
+  tier_count: null
+  recompute_freq: null
+  min_group_size: null
+  # Q7/KQ-4 三级门禁判据（缺键即不允许 transition）
+  gates:
+    backtest_pass: null
+    shadow_min_months: null
+    shadow_max_months: null
+    direction_agree: null
+    small_position_max_pct: null
+  # R5/R6/KQ-2 统计推断与多重比较（块长/重采样/阈值/alpha 全部待答复）
+  block_length: null
+  n_bootstrap: null
+  alpha: null
+  min_events: null
+  correction_method: null
+  k_components: []                # Q2 K 计数分量（规则/参数网格/切点/档数/窗口）
+  # Q1 样本外烧毁粒度
+  burn_scope: null
+  # R18 校准题（KQ-1/KQ-5/KQ-6）
+  calibration:
+    short_history_policy: null    # ma20_substitute | exclude | flag_only
+    horizon_days: null
+    k: null
+    notional: null
+    codes: []
+    start: null
+    end: null
+  # R14 稳定性（KQ-7：市场状态分档口径未定 → 该维度不参与判定）
+  stability:
+    market_state: null
+  # R3 三段样本边界（Q3 未答复：右边界/滚动留空）
+  segments:
+    train:
+      start: null
+      end: null
+    validation:
+      start: null
+      end: null
+    out_of_sample:
+      start: null
+      end: null
