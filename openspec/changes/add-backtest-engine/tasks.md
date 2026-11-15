@@ -31,7 +31,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `BacktestConfig`（全量 schema：必须键 `results_dir/registry_store_path/segments/windows/max_delay_days/min_events`；待 Q 键 `commission/stamp_tax/transfer_fee/slippage_tiers/liquidity_cap/limit_pct/seal_definition/suspend_source/cut_basis/tier_count/recompute_freq/min_group_size/gate_criteria/block_length/n_bootstrap/shrink/burn_scope/burn_counts_as_second/exception_approver/k_components/custom_allowed/k_cost_per_window`）+ `config.py`、否-2、R7、QA-F10、T2-fix-4
   - 产出文件：`src/service/backtest/config.py` + **`config/app.example.yaml`**（tracked，写 `backtest:` 示例段；`config/app.yaml` 是 gitignore 的本地副本，非契约源）
   - 验证：`python -m pytest -q test/service/backtest/test_config.py`
-  - 判定真伪：必须键缺失 → `MissingBacktestConfigError`；待 Q 键缺值被消费处拒绝（不预埋默认）；`BacktestConfig(results_dir=tmp_path, registry_store_path=tmp_path/...)` 可注入（QA-F10）；`max_delay_days/min_events` 键存在但数值不预埋（T2-fix-4）。
+  - 判定真伪：必须键缺失 → `MissingBacktestConfigError`；待 Q 键缺值被消费处拒绝（不预埋默认）；`BacktestConfig(results_dir=tmp_path, registry_store_path=tmp_path/...)` 可注入（QA-F10）；`max_delay_days/min_events` 键存在但数值不预埋（T2-fix-4）；§9.3 落值（佣金 0.01254% 双边 / 印花税 0.1% 仅卖出 / 过户费 0.001% / 最低 5 元 / 滑点三档 / 流动性 20 日均额 1%）由 engineer 落 `config/app.example.yaml`（T2-fix-8）。
 
 ---
 
@@ -71,7 +71,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `assign_groups`、R15/R16、KD-6-05/KD-6-07
   - 产出文件：`src/service/backtest/universe.py` + `test/service/backtest/test_universe.py`
   - 验证：`python -m pytest -q test/service/backtest/test_universe.py`
-  - 判定真伪：软标签/结果标签作为分组维度被拒；切点基准 `cut_basis` 缺键拒绝；2021Q2 重算不回改 2020 及之前分组（R15 Scenario）。
+  - 判定真伪：软标签/结果标签作为分组维度被拒；`cut_basis="all_a_cross_section"`（全 A 时点截面分位）、`tier_count=3`（继承默认、待 Owner 显式确认）、换档计入 K（§9.3，T2-fix-8）；2021Q2 重算不回改 2020 及之前分组（R15 Scenario）。
 
 ---
 
@@ -131,7 +131,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `assert_not_burnt/mark_burnt/cumulative_K`、R3/R4/R5、QA-F2/QA-F5
   - 产出文件：`src/service/backtest/registry.py` + `test/service/backtest/test_registry.py`
   - 验证：`python -m pytest -q test/service/backtest/test_registry.py`
-  - 判定真伪：`mark_burnt` 追加唯一执行行 `RunRecord(reason="样本外已烧毁", hypothesis_id, experiment_id, at)`（不可撤销，含时间戳 + 实验 ID）；二次请求抛 `RegistryImmutableError` 并落 `RunRecord(status=REJECTED)` 留痕；新实验独立额度（R4 各 Scenario）；`cumulative_K` 按 `k_components[]` 累计；导出 `burnt` 按「是否存在 `reason="样本外已烧毁"` 执行行」派生（T2-fix-4）。
+  - 判定真伪：`mark_burnt` 追加唯一执行行 `RunRecord(reason="样本外已烧毁", hypothesis_id, experiment_id, at)`（不可撤销，含时间戳 + 实验 ID）；`burn_scope="hypothesis"`（按假设计，换实现/换指标不算第二次）、旧样本外 `expired` 留档（§9.3，T2-fix-8）；二次请求抛 `RegistryImmutableError` 并落 `RunRecord(status=REJECTED)` 留痕；新实验独立额度（R4 各 Scenario）；`cumulative_K` 按 `k_components[]` 累计；导出 `burnt` 按「是否存在 `reason="样本外已烧毁"` 执行行」派生（T2-fix-4）。
 
 ---
 
@@ -147,7 +147,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `GateStateMachine(registry, *, cfg)` + `GateCriteria`、R19、否-3、KD-9-01/06、Q7/KQ-4、T2-fix-4
   - 产出文件：`src/service/backtest/gates.py` + `test/service/backtest/test_gates.py`
   - 验证：`python -m pytest -q test/service/backtest/test_gates.py`
-  - 判定真伪：判据来自 `cfg.gate_criteria`（`backtest.gates`），缺失/None → `transition` 抛 `MissingBacktestConfigError`（不允许 transition）；回测未通过 → 拒进影子；影子期 < 6 个月 → 拒进实盘；跳级抛 `GateSkipError` 并留痕；每规则唯一状态可查询且带每级通过时间与实验 ID（R19 各 Scenario）。
+  - 判定真伪：判据来自 `cfg.gate_criteria`（`backtest.gates`），缺失/None → `transition` 抛 `MissingBacktestConfigError`（不允许 transition）；回测未通过 → 拒进影子；影子期 **< 3 个月**（KQ-4 修正，3 个月起、12 个月封顶、按交易日、规则改则清零）→ 拒进实盘；「方向一致」= 同号且年化差 ≤ 回测年化波动 50%、实盘上限 = min(权益 10%, 单票 1%)（§9.3，T2-fix-8）；跳级抛 `GateSkipError` 并留痕；每规则唯一状态可查询且带每级通过时间与实验 ID（R19 各 Scenario）。
 
 ---
 
@@ -157,7 +157,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.0/§6.3（入口 = 既有 `src/apps/cli.py`，`main(argv) -> int`，不另建入口文件）、B 项（pipeline 装配）、QA-F9/QA-F10/QA-F11
   - 产出文件：`src/apps/cli.py`（扩展，新增 `backtest preregister/run/calibrate/ledger/gate`）+ `pyproject.toml`（`[project.scripts]` 既有 `backtest` 入口不变）+ `test/apps/test_cli.py`（扩展）
   - 验证：`python -m pytest -q test/apps/test_cli.py`
-  - 判定真伪：`backtest preregister` 写预注册文件并取到 commit；`backtest run` 缺预注册 → `exit 1` 且无结果行（R1）；`--config <path>`（相对路径按 cwd）覆盖默认 `cwd/config/app.yaml`（QA-F11）；`backtest ledger --experiment <id> --format json` 输出 `LedgerExportRow` JSON 数组（QA-F10）；`backtest calibrate` 门禁失败 → 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（QA-F9）；`backtest calibrate` 无论成败写 `<results_dir>/calibration.json`（QA-F11）。
+  - 判定真伪：`backtest preregister` 写预注册文件并取到 commit；`backtest run` 缺预注册 → `exit 1` 且无结果行（R1）；`--config <path>`（相对路径按 cwd）覆盖默认 `cwd/config/app.yaml`（QA-F11）；`backtest ledger --experiment <id> --format json` 输出 `LedgerExportRow` JSON 数组（QA-F10）；`backtest calibrate` 门禁失败 → 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（QA-F9）；`backtest calibrate` 无论成败写 `<results_dir>/calibration.json`（QA-F11）；`custom_allowed=true`（允许 20/60 之外窗口）且每额外窗口计入 K（`k_cost_per_window=1`，§9.3，T2-fix-8）。
 
 - [x] **T2.20 端到端 + 全量门禁**
   - 设计依据：proposal `## 成功标准` 5 条 + design.md §6.6/6.7
