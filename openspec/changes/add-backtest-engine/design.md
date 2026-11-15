@@ -83,7 +83,7 @@
 preregister ─▶ load(data/universe) ─▶ signal ─▶ broker ─▶ metrics ─▶ registry ─▶ [calibration/gate] ─▶ 结果 JSON + 台账行
 ```
 
-- **编排者**：`src/apps/backtest_cli.py`（CLI 装配），不承载业务逻辑（业务逻辑全在 `service/backtest/`）。
+- **编排者**：既有 `src/apps/cli.py`（`main(argv) -> int` + `build_parser()`）新增 `backtest` 子命令组装配，**不另建入口文件**（QA-F11）；不承载业务逻辑（业务逻辑全在 `service/backtest/`）。
 - **全局状态**：实验台账（`data/backtest/registry.ndjson`，append-only）+ 门禁状态（同一台账内按 `rule_id` 的记录或独立 `gate` 段）。只有 `registry.py` 有写权。
 - **防无限 fork / 回环**：无 agent 分叉，故无 fork 爆炸；pipeline 是 DAG（无环）。唯一可能「循环」的是撮合顺延，用**最大顺延交易日上限**（见 §4.1 broker 契约）封死。
 - **交接契约 = 产物文件，不是会话记忆**：步骤间交接结构化对象（dataclass）→ 最终落 `data/backtest/` 的 JSON + 台账 NDJSON；任何一步失败即整条终止并留痕（不吞错）。
@@ -188,13 +188,13 @@ src/data_provider/backtest/
 ├── universe.py          # 退市 / ST / 历史成分（同上）
 └── financial_timing.py  # ann_date（公告日）对齐（同上）
 
-src/apps/backtest_cli.py # CLI 装配（preregister / run / calibrate / ledger / gate）
+src/apps/cli.py        # 既有 CLI：新增 `backtest` 子命令组（preregister / run / calibrate / ledger / gate），不另建入口（QA-F11）
 ```
 
 **依赖方向**（不违反 `apps → controller → service → data_provider/dao → common`）：
 
 ```text
-apps/backtest_cli ──▶ service/backtest ──▶ data_provider/backtest + dao ──▶ common
+apps/cli ──▶ service/backtest ──▶ data_provider/backtest + dao ──▶ common
 ```
 
 - `service/backtest/*` 只依赖 `data_provider/backtest`、`dao`、`common`、以及 `service/tech`/`service/value` 的**纯计算口径**（不依赖其实时取数 Facade）。
@@ -532,8 +532,9 @@ class ExperimentRegistry:
         """导出结果行（QA-F10，覆盖 proposal S2 六类 + R4 额度用尽）；CLI `ledger` 打印为 JSON 数组。"""
 
 # calibration.py
-def run_calibration(*, cfg, loader) -> CalibrationResult: ...          # R18 校准题
-def assert_calibrated(registry) -> None: ...                           # 库层：未过 → raise CalibrationFailedError（QA-F9）；CLI 捕获后 sys.exit(2)
+def run_calibration(*, cfg, loader, registry) -> CalibrationResult: ...  # R18 校准题；内部写 calibration.json + RunRecord（QA-F11）
+def assert_calibrated(registry) -> None: ...                           # 库层：最近校准未过/缺失 → raise CalibrationFailedError（QA-F9）；CLI 捕获后 sys.exit(2)
+def write_calibration_result(result, results_dir: Path, *, run_id, at) -> Path: ...  # 原子写 <results_dir>/calibration.json（QA-F11）
 
 # gates.py —— 三级门禁状态机（R19）
 class GateStateMachine:
@@ -571,8 +572,14 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 **失败表达二分（QA-F9：库层异常 vs CLI 退出码）**
 
 - **库层** `calibration.assert_calibrated()` 直接 `raise CalibrationFailedError`（带 `reason` / `corrected_p` / `verdict` 等字段）；单测只断 `pytest.raises(CalibrationFailedError)`，**不断 `SystemExit`**（TC-R18-02）。
-- **CLI 层** `apps/backtest_cli.py` 捕获 `CalibrationFailedError` → 打印到 **stderr** 并 `sys.exit(2)`（端到端断退出码非 0，TC-SC-01）。
+- **CLI 层** `apps/cli.py` 的 `backtest calibrate` 处理器捕获 `CalibrationFailedError` → 打印到 **stderr** 并 `sys.exit(2)`（端到端断退出码非 0，TC-SC-01）。
 - **退出码语义**（新 `backtest` 子命令）：`1` = 参数/配置/数据错误（与既有 CLI `SystemExit(1)` 一致，见 `src/apps/cli.py`）；`2` = 门禁失败（校准未通过）。既有 CLI 的 `SystemExit(2)` 用于 argparse 用法错误、发生在子命令逻辑之前，与本子命令内的门禁失败 `2` 不同代码路径，不冲突。
+
+**校准结果写盘点（QA-F11）**
+
+- `run_calibration(*, cfg, loader, registry)` **无论成败都写** `<cfg.results_dir>/calibration.json`：字段 = `CalibrationResult` 全部字段（`passed/direction/ci/K/corrected_p/verdict/params/notes`）+ `run_id` + `at`；成功写 `passed=True`，失败写 `passed=False` + `reason`（TC-EXIT-01 断言 `passed is False`）。
+- 写盘为**原子写**（写临时文件 + `os.replace`），重跑**覆盖**同名文件并带新 `run_id`（留痕）。
+- 同时 `registry.append_run(RunRecord(status=PASSED/FAILED, reason=...))` 落执行行（R18「台账记校准失败与所用参数」）；`assert_calibrated(registry)` 据此判定最近一次校准是否通过。
 
 **台账存储机制（R2 append-only + QA-F2 双行模型的机械保证）**
 
@@ -593,7 +600,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 
 | Requirement | 落地模块 / 接口 | 关键机制 |
 | --- | --- | --- |
-| R1 预注册先于跑数 | `registry.py::validate_preregistration` + `PreregistrationSpec` + `apps/backtest_cli.py::preregister` | 预注册文件入 git 并校验 commit；必填字段缺一 → 报错含字段名；缺失/未提交 → 拒绝、不落结果行 |
+| R1 预注册先于跑数 | `registry.py::validate_preregistration` + `PreregistrationSpec` + `apps/cli.py::backtest preregister` | 预注册文件入 git 并校验 commit；必填字段缺一 → 报错含字段名；缺失/未提交 → 拒绝、不落结果行 |
 | R2 台账 append-only + K 不可改 | `registry.py::ExperimentRegistry.append / append_run` + NDJSON 哈希 | 执行行（RunRecord）+ 结果行（ExperimentRecord）均 append、无 UPDATE/DELETE；改假设 → 新实验 + `parent_experiment_id`；篡改 → `RegistryCorruptedError` |
 | R3 三段切分 | `config.py::BacktestConfig.segments` + `Segment` 枚举 | 每段独立可用状态；跨段报告显式列出各段（不合并单一数字） |
 | R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` + `export_ledger` | 首次确认后写 `burnt=True`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕；`ledger` 导出 `burnt=True` 即「额度用尽」（QA-F10） |
@@ -668,12 +675,18 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 - `src/data_provider/backtest/universe.py`
 - `src/data_provider/backtest/financial_timing.py`
 
-### 6.3 新增：CLI 入口
+### 6.3 新增：CLI 入口（在既有 `src/apps/cli.py` 内扩展，不另建入口文件）
 
-- `src/apps/backtest_cli.py`（子命令：`preregister` / `run` / `calibrate` / `ledger` / `gate`）
-- `pyproject.toml`（`[project.scripts]` 注册 `backtest` 入口，或并入既有 CLI 子命令）
+- **入口契约（QA-F11）**：既有 `src/apps/cli.py` 的 `main(argv: list[str]) -> int`（返回码即进程退出码）与 `build_parser()` 内新增 `backtest` 子命令组；`pyproject.toml` 的 `[project.scripts]` 既有 `backtest` 入口不变（复用现有 CLI 命令风格，**不另建 `backtest_cli.py`**）。
+- **子命令与参数**（退出码映射见下）：
+  - `backtest preregister --file <path>`（或 `--hypothesis <id>`）：写预注册文件并校验 commit（R1）。
+  - `backtest run --hypothesis <id> [--config <path>]`：跑一次事件研究实验（R17/R1/R2）。
+  - `backtest calibrate [--config <path>]`：跑 R18 校准题；内部写 `<results_dir>/calibration.json` + `RunRecord`（QA-F11）。
+  - `backtest ledger [--experiment <id> | --hypothesis <id>] [--format json]`：导出 `LedgerExportRow` JSON 数组（QA-F10）。
+  - `backtest gate --rule <id> [--to <stage>]`：查询/迁移三级门禁状态（R19）。
+- **配置来源解析顺序（QA-F11）**：`--config <path>`（**相对路径按 cwd 解析**）> 默认 `config/app.yaml`（同样按 **cwd** 解析，即 `cwd/config/app.yaml`）> 二者缺失或 `backtest:` 段缺键 → `MissingBacktestConfigError`，退出码 `1`。选 cwd 的理由：与端到端夹具 `cli_runner(cwd=tmp_path)` 一致——夹具在 `tmp_path/config/app.yaml` 准备最小骨架即可被自动发现，无需强制 `--config`；`--config` 仅用于覆盖。
 - `ledger` 导出契约（QA-F10）：`ledger --experiment <id> | --hypothesis <id> --format json` → 输出 `LedgerExportRow` 的 JSON 数组（字段见 §4.1：`experiment_id / hypothesis_id / statement / params / segments / K / metrics / verdict / burnt / prereg_commit / run_status / data_version / adjust_mode`）；`burnt is True` 即表达「样本外额度已用尽」（R4 S1）。
-- 退出码（QA-F9）：`1` = 参数/配置/数据错误；`2` = 门禁失败（校准未通过）；门禁失败由 CLI 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（stderr 打印「先修台子」）。
+- 退出码（QA-F9）：`0` = 成功；`1` = 参数/配置/数据错误（`MissingBacktestConfigError` / `InvalidAdjustModeError` / `BacktestDataGapError` / `RegistryCorruptedError` / `RegistryImmutableError` / `GateSkipError` / 预注册缺失或未提交 / 未知 `--experiment`）；`2` = 门禁失败（`backtest calibrate` 捕获 `CalibrationFailedError` 后 `sys.exit(2)`，stderr 打印「先修台子」）。
 
 ### 6.4 配置（T3 落，本波只登记不改）
 
@@ -697,7 +710,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 - `test/service/backtest/test_gates.py`
 - `test/data_provider/backtest/test_adjust_price.py`
 - `test/data_provider/backtest/test_financial_timing.py`
-- `test/apps/test_backtest_cli.py`
+- `test/apps/test_cli.py`（扩展既有，覆盖 `backtest` 子命令）
 
 ### 6.7 测试：`test/qa/`（QA，盲测，负向/边界/对抗）
 
@@ -795,6 +808,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | QA-F8（low，三处字段） | §4.1 `ExperimentRecord` / `CalibrationResult` + `registry.next_experiment_id` | ① `experiment_id = f"{hypothesis_id}-{seq:04d}"`（seq 由 registry 单调递增）；② `K: int | None`（None 表达「未报告 K」→ `INCONCLUSIVE`）；③ `CalibrationResult.corrected_p: float | None` + `verdict: Verdict` |
 | QA-F9（low，校准失败表达二分） | §4.1 `assert_calibrated` 签名 + 「失败表达二分」小节 + §4.2 R18 + §6.3 退出码 | 库层 `assert_calibrated()` 直接 `raise CalibrationFailedError`（单测断 `pytest.raises`，不断 `SystemExit`）；CLI 捕获后 `sys.exit(2)`；退出码 `1`=参数/配置/数据错误、`2`=门禁失败 |
 | QA-F10（medium，ledger 导出 + 结果目录注入） | §4.1 `BacktestConfig`（`results_dir`/`registry_store_path`）+ `LedgerExportRow` + `ExperimentRegistry.__init__(..., results_dir)` / `write_result` / `export_ledger` + §6.3/§6.4/§6.5 | 导出字段清单 = `experiment_id / hypothesis_id / statement / params / segments / K / metrics / verdict / burnt / prereg_commit / run_status / data_version / adjust_mode`（JSON 数组）；`burnt=True` 表达「额度用尽」；结果目录可注入 tmp_path |
+| QA-F11（low，CLI 配置/数据注入面） | §4.0/§4.1/§6.3（入口 = 既有 `src/apps/cli.py`，不另建入口）+ `run_calibration`/`write_calibration_result` | `main(argv) -> int`；子命令 `backtest preregister/run/calibrate/ledger/gate` + 参数（`--file/--hypothesis/--experiment/--format/--config/--rule/--to`）；配置解析 `--config <path>`（相对路径按 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 1）；`calibration.json` 由 `run_calibration` 无论成败原子写 `<results_dir>/calibration.json`（字段 = `CalibrationResult` + `run_id` + `at`，失败写 `passed=False`+`reason`，重跑覆盖带新 `run_id`） |
 
 ---
 

@@ -153,11 +153,11 @@ Phase 7 CLI 装配与端到端
 
 ## Phase 7 · CLI 装配与端到端
 
-- [ ] **T2.19 CLI 子命令装配（含 ledger 导出与退出码）**
-  - 设计依据：design.md §4.0 `apps/backtest_cli.py`、B 项（pipeline 装配）、§6.3（`ledger` 导出契约 + 退出码）、QA-F9/QA-F10
-  - 产出文件：`src/apps/backtest_cli.py` + `pyproject.toml`（`[project.scripts]` 注册 `backtest`）+ `test/apps/test_backtest_cli.py`
-  - 验证：`python -m pytest -q test/apps/test_backtest_cli.py`
-  - 判定真伪：`preregister` 写预注册文件并取到 commit；`run` 缺预注册 → `exit != 0` 且无结果行（R1）；`ledger --experiment <id> --format json` 输出 `LedgerExportRow` JSON 数组（字段见 §4.1，QA-F10）；`calibrate` 门禁失败 → CLI 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（QA-F9）。
+- [ ] **T2.19 CLI 子命令装配（在既有 `src/apps/cli.py` 内扩展 + 配置解析 + 退出码）**
+  - 设计依据：design.md §4.0/§6.3（入口 = 既有 `src/apps/cli.py`，`main(argv) -> int`，不另建入口文件）、B 项（pipeline 装配）、QA-F9/QA-F10/QA-F11
+  - 产出文件：`src/apps/cli.py`（扩展，新增 `backtest preregister/run/calibrate/ledger/gate`）+ `pyproject.toml`（`[project.scripts]` 既有 `backtest` 入口不变）+ `test/apps/test_cli.py`（扩展）
+  - 验证：`python -m pytest -q test/apps/test_cli.py`
+  - 判定真伪：`backtest preregister` 写预注册文件并取到 commit；`backtest run` 缺预注册 → `exit 1` 且无结果行（R1）；`--config <path>`（相对路径按 cwd）覆盖默认 `cwd/config/app.yaml`（QA-F11）；`backtest ledger --experiment <id> --format json` 输出 `LedgerExportRow` JSON 数组（QA-F10）；`backtest calibrate` 门禁失败 → 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（QA-F9）；`backtest calibrate` 无论成败写 `<results_dir>/calibration.json`（QA-F11）。
 
 - [ ] **T2.20 端到端 + 全量门禁**
   - 设计依据：proposal `## 成功标准` 5 条 + design.md §6.6/6.7
@@ -169,7 +169,7 @@ Phase 7 CLI 装配与端到端
     - `python -m pytest -q -m "not network and not akshare_legacy"`
     - `python -m ruff check .`
     - `openspec.cmd validate add-backtest-engine --strict`
-  - 判定真伪：5 条成功标准逐条由命令输出支撑（校准可复现 / 台账可审计 / 样本外只烧一次 / 成本手算复算 / 无未来函数证伪）。
+  - 判定真伪：5 条成功标准逐条由命令输出支撑（校准可复现 / 台账可审计 / 样本外只烧一次 / 成本手算复算 / 无未来函数证伪）；QA 退出码契约（TC-EXIT-01/02/03：门禁失败 `2` / 参数·数据错误 `1` / 成功 `0`）与 `calibration.json` 写出（QA-F11）由 `test/qa/backtest/` 的校准与退出码用例覆盖。
 
 ---
 
