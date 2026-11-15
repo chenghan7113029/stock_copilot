@@ -1,6 +1,7 @@
 """R11 财务字段按公告日对齐（TC-R11-01..02）。
 
-锚点：spec R11；design §4.1 `FinancialRecord.visible_from`（= max(ann_date, 保守截止日)）、
+锚点：spec R11；design §4.1（T2-fix-4 修正）`FinancialRecord.visible_from`：**有 ann_date = ann_date**
+（缺 ann_date 才回退保守截止日 4/8/10 月底，spec 优先，不是 max()）、
 `load_financials_point_in_time(codes, as_of, *, loader)`、§4.2 R11「回退须标注」。
 """
 

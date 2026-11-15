@@ -1,6 +1,7 @@
 """R5 多重比较校正与 K 报告（TC-R05-01..03）。
 
-锚点：spec R5；design §4.1 `metrics.multiple_testing_correction(p_values, K, method, *, cfg)`、
+锚点：spec R5；design §4.1 `metrics.multiple_testing_correction(p_values, K, method, *, cfg)`（`cfg` 为
+`BacktestConfig`；alpha 是 KQ-5 待答复判据，**不在 config 内**，测试以 `ALPHA` 常量为输入）、
 `ExperimentRecord.K: int | None`、§4.2 R5「K 缺（None）→ INCONCLUSIVE」。
 """
 
@@ -9,14 +10,14 @@ from __future__ import annotations
 import pytest
 
 
-def test_tc_r05_01_reports_k_and_corrected_significance(load, cfg_inference):
+def test_tc_r05_01_reports_k_and_corrected_significance(load, cfg, alpha):
     """TC-R05-01（R5 Scenario1）：p=0.01 / K=30 / Bonferroni → 校正值 = min(1, 0.3)，判定不显著。"""
     metrics = load("service.backtest.metrics")
-    corrected = metrics.multiple_testing_correction([0.01], 30, "bonferroni", cfg=cfg_inference)
+    corrected = metrics.multiple_testing_correction([0.01], 30, "bonferroni", cfg=cfg)
 
     assert len(corrected) == 1
     assert corrected[0] == pytest.approx(0.3, abs=1e-12)  # 0.01 × 30（独立算式）
-    assert corrected[0] > cfg_inference["alpha"], "校正后不显著须如实标不显著（spec R5 Scenario1）"
+    assert corrected[0] > alpha, "校正后不显著须如实标不显著（spec R5 Scenario1）"
 
 
 def test_tc_r05_02_missing_k_is_inconclusive(models):
@@ -32,12 +33,11 @@ def test_tc_r05_02_missing_k_is_inconclusive(models):
     assert record.verdict is not models.Verdict.VALID, "缺 K 的结果不得标为有效（spec R5 Scenario2）"
 
 
-def test_tc_r05_03_k_increase_flips_verdict(load, cfg_inference):
+def test_tc_r05_03_k_increase_flips_verdict(load, cfg, alpha):
     """TC-R05-03（R5 Scenario3）：同一原始 p 在 K=1 显著、K=50 不显著（判定随 K 单调反向）。"""
     metrics = load("service.backtest.metrics")
-    alpha = cfg_inference["alpha"]
-    k1 = metrics.multiple_testing_correction([0.01], 1, "bonferroni", cfg=cfg_inference)[0]
-    k50 = metrics.multiple_testing_correction([0.01], 50, "bonferroni", cfg=cfg_inference)[0]
+    k1 = metrics.multiple_testing_correction([0.01], 1, "bonferroni", cfg=cfg)[0]
+    k50 = metrics.multiple_testing_correction([0.01], 50, "bonferroni", cfg=cfg)[0]
 
     assert k1 == pytest.approx(0.01, abs=1e-12)
     assert k50 == pytest.approx(0.5, abs=1e-12)

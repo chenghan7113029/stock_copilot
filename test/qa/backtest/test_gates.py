@@ -1,8 +1,9 @@
 """R19 三级门禁状态机（TC-R19-01..03）。
 
-锚点：spec R19；design §4.1 `GateStage`（BACKTEST_PENDING/BACKTEST_PASSED/SHADOW_RUNNING/LIVE_SMALL/REJECTED）、
-`GateStateMachine.current(rule_id)` / `transition(rule_id, to, evidence)`（只允许上一级→下一级，
-跳级抛 `GateSkipError` 并留痕）、`GateRecord{stage, stage_timestamps, evidence_experiment_ids, direction_agree}`。
+锚点：spec R19；design §4.1（T2-fix-4 后）`GateStage`、`GateStateMachine(registry, *, cfg)`：
+判据来自 `cfg.gate_criteria`（`backtest.gates`，Q7），`gate_criteria` 缺失 → `MissingBacktestConfigError`
+且**不允许 transition**；跳级 → `GateSkipError` 并留痕；`GateRecord{stage, stage_timestamps,
+evidence_experiment_ids, direction_agree}` 唯一可查。
 """
 
 from __future__ import annotations
@@ -10,10 +11,15 @@ from __future__ import annotations
 import pytest
 
 
-def test_tc_r19_01_cannot_enter_shadow_without_backtest(gate_sm, models, rule_id, registry_path, run_rows):
-    """TC-R19-01（R19 Scenario1）：回测未通过就请求影子运行 → GateSkipError，状态不变，拒绝留痕。"""
-    assert gate_sm.current(rule_id).stage is models.GateStage.BACKTEST_PENDING
+def test_tc_r19_01_cannot_enter_shadow_without_backtest(gate_sm, gate_sm_no_criteria, models, rule_id,
+                                                        registry_path, run_rows):
+    """TC-R19-01（R19 Scenario1）：回测未通过就请求影子运行 → GateSkipError，状态不变，拒绝留痕；
+    判据缺失时更早一层被拒（MissingBacktestConfigError，不允许降级放行）。"""
+    with pytest.raises(models.MissingBacktestConfigError):
+        gate_sm_no_criteria.transition(rule_id, models.GateStage.SHADOW_RUNNING,
+                                       evidence={"experiment_id": "exp-001"})
 
+    assert gate_sm.current(rule_id).stage is models.GateStage.BACKTEST_PENDING
     with pytest.raises(models.GateSkipError):
         gate_sm.transition(rule_id, models.GateStage.SHADOW_RUNNING,
                            evidence={"experiment_id": "exp-001"})
