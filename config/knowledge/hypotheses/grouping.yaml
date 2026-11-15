@@ -1,9 +1,9 @@
-# 分组档数（待 Owner 显式确认）
+# 分组档数（原「继承默认」假设 → 已被 Owner 二次确认的 5 档取代，条目保留不删除）
 #
-# 来源：Owner 2026-11-15 对 proposal Q6 的答复中明确的一点——
-#       「档数 3 属继承默认，未经 Owner 显式确认」。
-# 判别（_design.md §1.3）：Owner 已确认「切点基准 = 全 A 时点截面分位」（CAN-GROUP-001，canon），
-#       但档数本身仍是继承默认 → 只能标「假设」，不得作为唯一依据驱动代码行为。
+# 历史：Owner 2026-11-15 对 proposal Q6 的答复为「档数 3 属继承默认，未经 Owner 显式确认」→
+#       本条当时只能标「假设」（_design.md §1.3）。
+# 2026-11-15 二次确认：Owner 明确「5 档」→ 新建 CAN-GROUP-002（canon）并取代本条；
+#       本条按 _design.md §3.2 U1 / §3.4 保留原文并标 `deprecated`（append-only，禁止删除）。
 layer: hypotheses
 domain: grouping
 entries:
@@ -17,13 +17,15 @@ entries:
     owner: Owner
     strength: 软启发
     frequency: 低
-    lifecycle: active
+    lifecycle: deprecated
     requirement_refs: [R15, R14]
     as_of: "2026-11-15"
     review_at: "2027-02-15"
     stale_after_days: 92
+    superseded_by: CAN-GROUP-002
     scope_note: >-
-      实现只能预埋「档数可配置 + 缺失即拒绝」，禁止把 3 写成不可改的默认值（_design.md §4.1）。
+      已失效口径：本条的 3 档不得再作为实现依据。现行档数见 CAN-GROUP-002（5 档）；
+      实现侧仍只允许「配置取值 + 缺值即拒绝」，不得把任何档数写成不可改的代码默认。
     notes: >-
-      继承默认，待 Owner 显式确认。切点基准已由 CAN-GROUP-001 定为「全 A 时点截面分位」（确定口径）；
-      本条只承载「档数 = 3」这个尚未被显式确认的值，确认后按 _design.md §3.2 U1 升为 canon。
+      退役原因（deprecated）：Owner 2026-11-15 二次确认档数为 5，CAN-GROUP-002 已 supersede 本条。
+      原文保留不删除，供追溯「继承默认 → 显式确认」的升级路径（U1）。
