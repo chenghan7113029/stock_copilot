@@ -50,3 +50,19 @@
 - 飞书同步：7 篇（01 提案 / 02 规格增量 / 03 知识缺口 / 04 知识分层 / 05 技术方案 / 06 任务拆解 / 07 测试设计），05/06 已刷新为冻结版
 - 待 Owner：Q1–Q8、KQ-1…KQ-7、前后复权裁决；未答复前 `BacktestConfig` 缺键即拒绝，台子不出带成本结论
 - 未做：T3 实现、T5 验证、T6 评审、T7 回流、T8 归档（等设计评审意见后另起）
+
+## 实现段收口状态（2026-11-15）
+
+- 冻结 commit：`1fe099c`（代码树；`6f61ab3` 为 T7 台账提交，仅 docs）
+- 门禁：全量 `-m "not network and not akshare_legacy"` **1065 passed / 35 deselected / exit 0**；QA `test/qa/backtest` **57 passed**（56 Scenario + 1 条 R2-01 锁定用例）；本 change ruff 路径 **新增 0**；`validate --strict` valid
+- T5 终审：`verification.md` §11 **通过**（t25；t27 补记 §11.13；t30 复验补记 §11.14）
+- T6 代码评审：`review-implementation.md` **pass**，3 条 finding（R2-01 medium 已由 t29 修复 + t30 锁定；R2-02/R2-03 low 入 T7）
+- T7：`IMPROVEMENTS.md` 10 条（P0×2 口径波/数据波、P1×6、P2×2）+ `docs/mrd/mrd-v2.md` 建议稿（待 Owner 确认，未定稿）
+- 残留：R2-01 已闭环；`--specs --strict` 76 failed 属 ENV.md 已登记的主规格 Purpose 存量债（非本 change）
+- 失败任务账面：`t13`（首轮实现，全量含 QA 未绿）、`t14`/`t20`（验证基线「不通过」，5 条待裁决）均已由后续 t17/t21/t23 对齐 + t19/t24/t30 修夹具 + T5 终审闭环。框架提示「failed without follow-up repair」是因为 repair 类型要求 `sourceFindingId`，而三次 failed 均为「闸门红」而非评审 finding，故未造 finding 补账；对应工作由 t29（R2-01 repair）与 T5 终审逐条核对承担。
+
+## captain 裁定补充（2026-11-15）
+
+- **IMP-06（ruff 38 存量基线）**：维持「本波不修、不记失败」口径；T7 台账标 **P1 下一波 / 独立 housekeeping change**，不得并入功能波。理由是静态债与回测需求无关，混入会让评审 diff 失真。
+- **归档（T8）未执行**：`openspec archive` + `merge --no-ff` 属发布动作，等 Owner 明确同意后再派 integrator。
+- **口径波与数据波**：IMP-07（Q1–Q8 + KQ-1…KQ-7）与 IMP-08（A1/A4/avg_amount）是 P0，二者合起来才可能让 proposal S1 从「机制层」走到「业务层」；在答复前，所有未确认值保持「缺键即拒绝」。
