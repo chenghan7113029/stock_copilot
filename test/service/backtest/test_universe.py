@@ -69,40 +69,90 @@ def test_recompute_does_not_rewrite_history(cfg):
     assert quarter_range("2021-06-30") == ("2021-04-01", "2021-06-30")
 
 
-def test_build_universe_includes_delisted_before_delist_date():
-    class Provider:
-        def load_members(self, as_of, spec):
-            return ("000001", "000002", "000003")
+class SpyProvider:
+    """T2-fix-6 `UniverseProvider` 协议夹具（记录调用，便于断言时点/scope）。"""
 
-        def load_flags(self, codes, as_of):
-            return {
-                "000001": {"delisted": False, "delist_date": None, "st": False},
-                "000002": {"delisted": True, "delist_date": "2019-06-30", "st": True},
-                "000003": {"delisted": True, "delist_date": "2021-06-30", "st": False},
-            }
+    def __init__(self, constituents=("000001", "000002"), delisted=(), st=(), *, calls=None):
+        self._constituents = tuple(constituents)
+        self._delisted = tuple(delisted)
+        self._st = set(st)
+        self.calls = calls if calls is not None else []
 
-    before = build_universe("2019-05-31", {"kind": "all_a"}, provider=Provider())
-    assert "000002" in before  # 退市日前计入，且当时 ST 保留
-    after = build_universe("2019-07-01", {"kind": "all_a"}, provider=Provider())
-    assert "000002" not in after  # 退市日之后不计入
-    assert "000003" in after  # 尚未退市
+    def historical_constituents(self, as_of, scope):
+        self.calls.append(("constituents", as_of, scope))
+        return self._constituents
+
+    def delisted_codes(self, as_of):
+        self.calls.append(("delisted", as_of))
+        return self._delisted
+
+    def st_status(self, code, as_of):
+        self.calls.append(("st", code, as_of))
+        return code in self._st
 
 
-def test_build_universe_missing_flags_reports_gap():
-    class Provider:
-        def load_members(self, as_of, spec):
-            return ("000001",)
+def test_build_universe_excludes_delisted_and_asks_point_in_time_st():
+    calls = []
+    provider = SpyProvider(
+        constituents=("000001", "000002", "000003"),
+        delisted=("000002",),
+        st=("000003",),
+        calls=calls,
+    )
+    members = build_universe("2019-07-01", "all_a", provider=provider)
+    assert members == ("000001", "000003")  # 退市股剔除；当时 ST 股仍计入（R12）
+    assert ("constituents", "2019-07-01", "all_a") in calls
+    assert ("st", "000003", "2019-07-01") in calls, "ST 必须按时点查询，不得回填"
 
-        def load_flags(self, codes, as_of):
-            return {}
+
+def test_build_universe_keeps_code_before_delisting():
+    before = SpyProvider(constituents=("000001", "600001"), delisted=())
+    assert "600001" in build_universe("2018-06-29", "all_a", provider=before)
+    after = SpyProvider(constituents=("000001", "600001"), delisted=("600001",))
+    assert "600001" not in build_universe("2019-07-01", "all_a", provider=after)
+
+
+def test_build_universe_empty_constituents_is_legal():
+    """T2-fix-6：名单可得但确实为空 → 空 tuple（不是缺口）。"""
+    provider = SpyProvider(constituents=())
+    assert build_universe("2020-01-02", "csi300", provider=provider) == ()
+
+
+def test_build_universe_provider_unavailable_reports_gap():
+    class UnavailableProvider:
+        def historical_constituents(self, as_of, scope):
+            raise BacktestDataGapError("历史成分不可得")
+
+        def delisted_codes(self, as_of):
+            raise BacktestDataGapError("退市名单不可得")
+
+        def st_status(self, code, as_of):
+            raise BacktestDataGapError("ST 状态不可得")
 
     with pytest.raises(BacktestDataGapError):
-        build_universe("2020-01-02", {"kind": "all_a"}, provider=Provider())
+        build_universe("2020-01-02", "all_a", provider=UnavailableProvider())
 
 
-def test_build_universe_without_source_reports_gap():
-    class Provider:
-        pass
+def test_build_universe_missing_protocol_methods_reports_gap():
+    with pytest.raises(BacktestDataGapError) as exc:
+        build_universe("2020-01-02", "all_a", provider=object())
+    assert "historical_constituents" in str(exc.value)
+
+
+def test_build_universe_delisted_unavailable_reports_gap():
+    class HalfProvider(SpyProvider):
+        def delisted_codes(self, as_of):
+            raise BacktestDataGapError("退市名单缺失；影响范围：R12")
+
+    with pytest.raises(BacktestDataGapError) as exc:
+        build_universe("2020-01-02", "all_a", provider=HalfProvider())
+    assert "R12" in str(exc.value)
+
+
+def test_build_universe_st_lookup_required_for_every_included_code():
+    class NoSt(SpyProvider):
+        def st_status(self, code, as_of):
+            raise BacktestDataGapError(f"{code} ST 不可得")
 
     with pytest.raises(BacktestDataGapError):
-        build_universe("2020-01-02", {"kind": "all_a"}, provider=Provider())
+        build_universe("2020-01-02", "all_a", provider=NoSt(constituents=("000001",)))

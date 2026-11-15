@@ -299,3 +299,37 @@ Phase 7 CLI 装配与端到端
 
 - `verification.md` 本波归 **T5**（t14/t20）撰写与维护；本文件（tasks.md）不复制其证据正文，只给「T3 验收原文」供 T5 引用。
 - t13 的 T3 实现证据在 `HEAD~1`（即 t13 提交链 `bab72ad` / `04a7c09`；对齐后的最终实现证据在 t17 `d9c860a`、t21 `a6db784`），不因后续 design 修订丢失。
+
+---
+
+## T3-align-3 记录（engineer，t23；按 t22 T2-fix-6 实现 F7/F8/F9）
+
+> 基线：`ba5265f`（design §4.1 `EventStudyResult.verdict` / `UniverseProvider` / gate 优先序 / attribution 恒等式 / CalibrationResult 语义）。本波只改实现与 engineer 单测。
+> 证据：`pytest test/service/backtest test/data_provider/backtest test/apps/test_cli_backtest.py` **174 passed**；`--ignore=test/qa` **1003 passed**；ruff scoped 0；compileall 0；openspec validate 0。
+
+### F7 空观测
+
+- `models.py::EventStudyResult` 增 `verdict: Verdict`（首字段）；`metrics.py::compute_event_study(())` 直接返回 `EventStudyResult(verdict=INCONCLUSIVE, windows={}, n_events=0, inference_method="block_bootstrap", block_length/cfg…)`，**不抛异常**；非空时 `verdict` 由 `_study_verdict`（样本不足→INCONCLUSIVE；任一窗口 CI 不含 0→VALID；否则 INVALID）给出；CLI 结果行直接采用 `result.verdict`（删除重复判定函数）。
+
+### F8 UniverseProvider
+
+- `service/backtest/universe.py`：新增 `@runtime_checkable UniverseProvider`（`historical_constituents(as_of, scope)` / `delisted_codes(as_of)` / `st_status(code, as_of)`）与 `build_universe(as_of, universe_scope: str, *, provider)`；任一方法不可得/抛错 → `BacktestDataGapError`；成分可得但为空 → 空 tuple（合法）；退市名单剔除（退市日前不在名单→计入）；ST 逐票按时点查询且**不剔除**（R12）。
+- `data_provider/backtest/universe.py::UniverseAdapter` 补三个协议方法（`fetch` 以 `kind="constituents"/"delisted"/"st"` 分派；无源即缺口；成分空合法），保留原 `load_members/load_flags` 供 `BacktestDataLoader` 使用。
+
+### F9 gate 优先序
+
+- `gates.py::GateStateMachine.transition` 重排为 ① 边合法性（跳级/回退/同态/已拒绝 → `GateSkipError` + `append_run(REJECTED)`）② 判据可用性（`cfg.gate_criteria` 为 None/缺该级键 → `MissingBacktestConfigError`，**不落业务拒绝行**，design 明文）③ 达成性（evidence 不满足 → `GateSkipError` + `append_run(REJECTED)`）；三段分别落 `_validate_edge` / `_ensure_criteria` / `_validate_attainment`。
+
+### 两条期望修正（已钉进单测）
+
+- `attribution`：`Σcontributions + unexplained == mean(returns["rule"])`（`test_attribution_identity_sum_plus_unexplained_equals_mean_rule`，abs=1e-12）。
+- `CalibrationResult`：`passed`（台子可信）与 `verdict`（所测规则有效性）分离、不互相推导（`test_passed_and_verdict_are_separate_fields`：通过→`passed=True, verdict=INVALID`；未复现→`passed=False, verdict=INCONCLUSIVE`；dataclass 允许二者独立组合）。
+
+### 同步单测
+
+`test_models`（EventStudyResult.verdict 字段）、`test_metrics`（空观测不抛异常 + 非空 verdict + attribution 恒等式）、`test_universe`（SpyProvider：退市/ST 时点/空名单合法/不可得缺口/缺方法缺口）、`test_data_provider/backtest/test_universe`（三协议方法 + 无源缺口）、`test_gates`（边先于判据、判据缺失不落拒绝行、达成性失败落拒绝行）、`test_calibration`（passed/verdict 分离）。
+
+### 闸门状态
+
+- 5 条验收命令全部 exit 0（engineer 174 passed / `--ignore=test/qa` 1003 passed / compileall 0 / ruff 0 / openspec 0）。
+- 全量含 QA：**8 failed / 1051 passed / exit 1**（t21 时 24 failed → 本次消除 16 条）。余下 8 条为 QA 侧尚未按 t22 更新的旧夹具（`EventStudyResult` 未传 `verdict`、旧 provider 形状、断言「结果不得带 verdict」等），归 T5 更新用例，engineer 未改 `test/qa/`。

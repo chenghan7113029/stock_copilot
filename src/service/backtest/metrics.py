@@ -248,7 +248,15 @@ def compute_event_study(
     - 入参只收 `EventObservation`，不直接读价格。
     """
     if not observations:
-        raise BacktestError("事件研究无观测：不得产出结论（R17）")
+        # F7/T2-fix-6：空观测是「不可判定」而非异常
+        return EventStudyResult(
+            verdict=Verdict.INCONCLUSIVE,
+            windows={},
+            n_events=0,
+            inference_method="block_bootstrap",
+            block_length=cfg.block_length,
+            n_bootstrap=cfg.n_bootstrap,
+        )
     block_length, n_bootstrap = _inference_cfg(cfg)
     kinds = sorted({item.benchmark_kind for item in observations})
     windows: dict[str, dict[str, WindowStats]] = {}
@@ -269,12 +277,30 @@ def compute_event_study(
     if not windows:
         raise BacktestError("没有任何窗口有足够的事件收益：不得产出结论（R17）")
     return EventStudyResult(
+        verdict=_study_verdict(windows, cfg),
         windows=windows,
         n_events=len({(item.code, item.event_date, item.condition_id) for item in observations}),
         inference_method="block_bootstrap",
         block_length=block_length,
         n_bootstrap=n_bootstrap,
     )
+
+
+def _study_verdict(
+    windows: Mapping[str, Mapping[str, WindowStats]], cfg: BacktestConfig
+) -> Verdict:
+    """事件研究判定：全部样本不足 → INCONCLUSIVE；任一窗口显著 → VALID；否则 INVALID（R17）。"""
+    stats_list = [stats for per_benchmark in windows.values() for stats in per_benchmark.values()]
+    if not stats_list:
+        return Verdict.INCONCLUSIVE
+    threshold = cfg.min_events
+    if threshold is None:
+        return Verdict.INCONCLUSIVE
+    sufficient = [stats for stats in stats_list if stats.n >= int(threshold)]
+    if not sufficient:
+        return Verdict.INCONCLUSIVE
+    significant = any(stats.ci[1] < 0.0 or stats.ci[0] > 0.0 for stats in sufficient)
+    return Verdict.VALID if significant else Verdict.INVALID
 
 
 def insufficient_sample(

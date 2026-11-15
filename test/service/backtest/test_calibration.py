@@ -15,7 +15,7 @@ from service.backtest.calibration import (
     assert_calibrated,
     run_calibration,
 )
-from service.backtest.models import RunStatus, Verdict
+from service.backtest.models import CalibrationResult, RunStatus, Verdict
 
 
 def weekday_dates(start: str, count: int) -> list[str]:
@@ -153,3 +153,20 @@ def test_calibration_rejects_missing_q4_cost_keys(cfg, registry, tmp_path, confi
             loader=CalibrationLoader(BREAKDOWN_THEN_RALLY, codes=2),
             registry=registry,
         )
+
+
+def test_passed_and_verdict_are_separate_fields(cfg, registry):
+    """T2-fix-6：`passed`（台子可信）与 `verdict`（规则有效性）是两件事，不互相推导。"""
+    passed = run_calibration(
+        cfg=cfg, loader=CalibrationLoader(BREAKDOWN_THEN_RALLY), registry=registry
+    )
+    assert passed.passed is True and passed.verdict is Verdict.INVALID
+    failed = run_calibration(
+        cfg=cfg, loader=CalibrationLoader(BREAKDOWN_THEN_DROP), registry=registry
+    )
+    assert failed.passed is False and failed.verdict is Verdict.INCONCLUSIVE
+    # dataclass 允许两者独立：passed=True 不强制 verdict 三值中的某一个
+    manual = CalibrationResult(
+        passed=True, direction="显著跑输", params={}, verdict=Verdict.INCONCLUSIVE
+    )
+    assert manual.passed is True and manual.verdict is Verdict.INCONCLUSIVE

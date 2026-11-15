@@ -323,6 +323,9 @@ class WindowStats:
 
 @dataclass(frozen=True)
 class EventStudyResult:
+    """R17 结果（T2-fix-6）：空观测 → `verdict=INCONCLUSIVE, windows={}, n_events=0`（不抛异常）。"""
+
+    verdict: Verdict
     windows: Mapping[str, Mapping[str, WindowStats]]
     n_events: int
     inference_method: str

@@ -49,3 +49,50 @@ def test_missing_flags_reports_gap():
     adapter = UniverseAdapter(fetch=lambda **kwargs: [])
     with pytest.raises(BacktestDataGapError):
         adapter.load_flags(["000001"], "2020-01-02")
+
+
+def dispatch_fetch(*, kind, **kwargs):
+    if kind == "constituents":
+        return [{"code": "000001"}, {"code": "000002"}]
+    if kind == "delisted":
+        return [{"code": "000002"}]
+    if kind == "st":
+        return [{"code": kwargs["code"], "st": kwargs["code"] == "000001"}]
+    raise AssertionError(f"unexpected kind: {kind}")
+
+
+def test_protocol_historical_constituents():
+    adapter = UniverseAdapter(fetch=dispatch_fetch)
+    assert adapter.historical_constituents("2020-01-02", "csi300") == ("000001", "000002")
+
+
+def test_protocol_empty_constituents_is_legal():
+    adapter = UniverseAdapter(fetch=lambda **kwargs: [])
+    assert adapter.historical_constituents("2020-01-02", "all_a") == ()
+
+
+def test_protocol_delisted_codes():
+    adapter = UniverseAdapter(fetch=dispatch_fetch)
+    assert adapter.delisted_codes("2020-01-02") == ("000002",)
+
+
+def test_protocol_st_status_point_in_time():
+    adapter = UniverseAdapter(fetch=dispatch_fetch)
+    assert adapter.st_status("000001", "2020-01-02") is True
+    assert adapter.st_status("000002", "2020-01-02") is False
+
+
+def test_protocol_st_status_missing_reports_gap():
+    adapter = UniverseAdapter(fetch=lambda **kwargs: [])
+    with pytest.raises(BacktestDataGapError):
+        adapter.st_status("000001", "2020-01-02")
+
+
+def test_protocol_without_source_reports_gap():
+    adapter = UniverseAdapter()
+    with pytest.raises(BacktestDataGapError):
+        adapter.historical_constituents("2020-01-02", "all_a")
+    with pytest.raises(BacktestDataGapError):
+        adapter.delisted_codes("2020-01-02")
+    with pytest.raises(BacktestDataGapError):
+        adapter.st_status("000001", "2020-01-02")

@@ -132,7 +132,6 @@ from service.backtest.models import (
     PointInTimeSnapshot,
     RunRecord,
     RunStatus,
-    Verdict,
     segment_of,
 )
 from service.backtest.registry import (
@@ -1906,7 +1905,7 @@ def _run_backtest_experiment(
             cfg, observations, result, K=K, method=str(spec.correction_method)
         ),
     }
-    verdict = _event_study_verdict(insufficient=insufficient, metrics=metrics, result=result)
+    verdict = result.verdict  # T2-fix-6：判定随 EventStudyResult 返回
     at = registry.clock()
     registry.append_run(
         RunRecord(
@@ -1958,22 +1957,6 @@ def _primary_corrected_p(
         return None
     p_value = p_value_from_t(t_statistic(values))
     return multiple_testing_correction([p_value], K, method, cfg=cfg)[0]
-
-
-def _event_study_verdict(
-    *,
-    insufficient: Sequence[str],
-    metrics: dict[str, Any],
-    result: Any,
-) -> Verdict:
-    if insufficient:
-        return Verdict.INCONCLUSIVE
-    window = str(max(int(key) for key in result.windows))
-    per_benchmark = result.windows[window]
-    kind = "market_portfolio" if "market_portfolio" in per_benchmark else sorted(per_benchmark)[0]
-    stats = per_benchmark[kind]
-    significant = stats.ci[1] < 0.0 or stats.ci[0] > 0.0
-    return Verdict.VALID if significant else Verdict.INVALID
 
 
 def _bt_calibrate(args: argparse.Namespace) -> int:

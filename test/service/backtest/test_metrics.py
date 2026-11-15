@@ -78,9 +78,17 @@ def test_event_study_requires_block_params(tmp_path, config_factory):
         )
 
 
-def test_event_study_rejects_empty(cfg):
-    with pytest.raises(BacktestError):
-        compute_event_study((), cfg=cfg)
+def test_event_study_empty_is_inconclusive_not_exception(cfg):
+    """F7/T2-fix-6：空观测 → verdict=INCONCLUSIVE、windows={}、n_events=0，不抛异常。"""
+    result = compute_event_study((), cfg=cfg)
+    assert result.verdict is Verdict.INCONCLUSIVE
+    assert result.windows == {}
+    assert result.n_events == 0
+
+
+def test_event_study_non_empty_verdict_present(cfg):
+    result = compute_event_study(make_observations(), cfg=cfg)
+    assert result.verdict in (Verdict.VALID, Verdict.INVALID, Verdict.INCONCLUSIVE)
 
 
 def test_insufficient_sample_flags(cfg):
@@ -143,6 +151,24 @@ def test_attribution_beta_from_market_benchmark():
     assert result.unexplained is not None and math.isfinite(result.unexplained)
 
 
+def test_attribution_identity_sum_plus_unexplained_equals_mean_rule():
+    """T2-fix-6：Σcontributions + unexplained == mean(rule)。"""
+    returns = {
+        "rule": [0.01, -0.02, 0.015, 0.0, -0.005],
+        "market_portfolio": [0.005, -0.01, 0.007, 0.0, -0.002],
+    }
+    factors = {
+        "size": [0.2, -0.1, 0.0, 0.1, -0.2],
+        "value": [0.1, 0.0, -0.1, 0.2, 0.05],
+        "momentum": [0.3, 0.1, -0.2, 0.0, 0.1],
+    }
+    result = attribution(returns, factors)
+    mean_rule = sum(returns["rule"]) / len(returns["rule"])
+    assert sum(result.contributions.values()) + result.unexplained == pytest.approx(
+        mean_rule, abs=1e-12
+    )
+
+
 def test_attribution_requires_three_factor_keys():
     returns = {"rule": [0.01], "market_portfolio": [0.01]}
     with pytest.raises(MissingBacktestConfigError) as exc:
@@ -197,6 +223,7 @@ def test_stability_scope_note_single_year(cfg):
     from service.backtest.models import EventStudyResult
 
     result = EventStudyResult(
+        verdict=Verdict.VALID,
         windows={
             "60": {
                 "market_portfolio": WindowStats(

@@ -237,3 +237,18 @@ def test_attribution_result_verdict_and_optional_fields():
     )
     assert result.verdict is Verdict.INCONCLUSIVE
     assert result.beta is None and result.unexplained is None
+
+
+def test_event_study_result_has_verdict_field():
+    from service.backtest.models import EventStudyResult
+
+    fields = set(EventStudyResult.__dataclass_fields__)
+    assert "verdict" in fields
+    result = EventStudyResult(
+        verdict=Verdict.INCONCLUSIVE,
+        windows={},
+        n_events=0,
+        inference_method="block_bootstrap",
+    )
+    assert result.verdict is Verdict.INCONCLUSIVE
+    assert result.windows == {}

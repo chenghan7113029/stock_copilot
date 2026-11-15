@@ -85,7 +85,7 @@ class GateStateMachine:
             direction_agree=direction_agree,
         )
 
-    # ---- 迁移 ----
+    # ---- 迁移（T2-fix-6 优先序：① 边 → ② 判据可用性 → ③ 达成性）----
     def transition(
         self, rule_id: str, to: GateStage, evidence: Mapping[str, Any] | None = None
     ) -> GateRecord:
@@ -95,13 +95,24 @@ class GateStateMachine:
         experiment_id = payload.get("experiment_id")
         if experiment_id is not None:
             experiment_id = str(experiment_id)
+
+        # ① 边合法性：跳级/回退/同态 → GateSkipError + 业务拒绝留痕
         try:
-            self._validate(current, target, payload)
-        except MissingBacktestConfigError:
-            raise  # 判据缺失不是「跳级」：不落拒绝留痕，直接拒绝 transition
+            self._validate_edge(current, target)
         except GateSkipError as exc:
             self._record_rejection(rule_id, current, target, experiment_id, payload, exc)
             raise
+
+        # ② 判据可用性：gate_criteria 缺 → 配置错误（不落业务拒绝行）
+        self._ensure_criteria(target)
+
+        # ③ 达成性：evidence 不满足 → GateSkipError + 业务拒绝留痕
+        try:
+            self._validate_attainment(current, target, payload)
+        except GateSkipError as exc:
+            self._record_rejection(rule_id, current, target, experiment_id, payload, exc)
+            raise
+
         self._append(
             _Transition(
                 rule_id=rule_id,
@@ -146,6 +157,62 @@ class GateStateMachine:
             )
         )
 
+    def _validate_edge(self, current: GateRecord, target: GateStage) -> None:
+        if target is GateStage.REJECTED:
+            if current.stage is GateStage.REJECTED:
+                raise GateSkipError(f"规则 {current.rule_id} 门禁已拒绝，不得重复拒绝（R19）")
+            return
+        if target not in STAGE_ORDER:
+            raise GateSkipError(f"未知门禁阶段: {target!r}（R19）")
+        if target is GateStage.BACKTEST_PENDING:
+            raise GateSkipError("门禁不可回退到「回测未通过」（R19）")
+        if current.stage is GateStage.REJECTED:
+            raise GateSkipError(f"规则 {current.rule_id} 门禁已拒绝，不得继续迁移（R19）")
+        current_index = STAGE_ORDER.index(current.stage)
+        target_index = STAGE_ORDER.index(target)
+        if target_index != current_index + 1:
+            raise GateSkipError(
+                f"跳级请求被拒：{current.stage.value} → {target.value}（R19 只允许逐级）"
+            )
+
+    def _ensure_criteria(self, target: GateStage) -> None:
+        if target is GateStage.BACKTEST_PASSED:
+            self._criterion("backtest_pass")
+        elif target is GateStage.SHADOW_RUNNING:
+            self._criterion("shadow")
+        elif target is GateStage.LIVE_SMALL:
+            shadow = self._criterion("shadow")
+            self._criterion("direction_agree")
+            if shadow.get("min_months") is None:
+                raise MissingBacktestConfigError(
+                    "回测配置缺值: gate_criteria.shadow.min_months（Q7/KQ-4）"
+                )
+
+    def _validate_attainment(
+        self, current: GateRecord, target: GateStage, evidence: Mapping[str, Any]
+    ) -> None:
+        if target is GateStage.REJECTED:
+            return
+        if target is GateStage.BACKTEST_PASSED:
+            if not evidence.get("experiment_id"):
+                raise GateSkipError("进入「回测通过」需给出依据实验 ID（R19 Scenario 3）")
+        elif target is GateStage.SHADOW_RUNNING:
+            if not evidence.get("experiment_id"):
+                raise GateSkipError("进入影子运行需给出依据实验 ID（R19）")
+        elif target is GateStage.LIVE_SMALL:
+            if evidence.get("direction_agree") is not True:
+                raise GateSkipError("方向一致判据未满足：不得进入实盘小仓位（R19）")
+            started = current.stage_timestamps.get(GATE_LEVEL_KEYS[GateStage.SHADOW_RUNNING])
+            if not started:
+                raise GateSkipError("影子运行起始时间缺失，无法核对最短期限（KQ-4）")
+            shadow = self._criterion("shadow")
+            min_months = int(shadow["min_months"])
+            elapsed = _months_between(started, self.registry.clock())
+            if elapsed < min_months:
+                raise GateSkipError(
+                    f"影子期未满：已 {elapsed} 个月 < 最短 {min_months} 个月（R19 Scenario 2）"
+                )
+
     def _criteria(self) -> Any:
         if self.cfg is None or self.cfg.gate_criteria is None:
             raise MissingBacktestConfigError(
@@ -161,50 +228,6 @@ class GateStateMachine:
                 f"回测配置缺值: gate_criteria.{name}（Q7）；判据未配置不允许 transition"
             )
         return value
-
-    def _validate(
-        self, current: GateRecord, target: GateStage, evidence: Mapping[str, Any]
-    ) -> None:
-        if target is GateStage.REJECTED:
-            return
-        if target not in STAGE_ORDER:
-            raise GateSkipError(f"未知门禁阶段: {target!r}（R19）")
-        if target is GateStage.BACKTEST_PENDING:
-            raise GateSkipError("门禁不可回退到「回测未通过」（R19）")
-        if current.stage is GateStage.REJECTED:
-            raise GateSkipError(f"规则 {current.rule_id} 门禁已拒绝，不得继续迁移（R19）")
-        current_index = STAGE_ORDER.index(current.stage)
-        target_index = STAGE_ORDER.index(target)
-        if target_index != current_index + 1:
-            raise GateSkipError(
-                f"跳级请求被拒：{current.stage.value} → {target.value}（R19 只允许逐级）"
-            )
-        if target is GateStage.BACKTEST_PASSED:
-            self._criterion("backtest_pass")
-            if not evidence.get("experiment_id"):
-                raise GateSkipError("进入「回测通过」需给出依据实验 ID（R19 Scenario 3）")
-        elif target is GateStage.SHADOW_RUNNING:
-            self._criterion("shadow")
-            if not evidence.get("experiment_id"):
-                raise GateSkipError("进入影子运行需给出依据实验 ID（R19）")
-        elif target is GateStage.LIVE_SMALL:
-            shadow = self._criterion("shadow")
-            self._criterion("direction_agree")
-            min_months = shadow.get("min_months")
-            if min_months is None:
-                raise MissingBacktestConfigError(
-                    "回测配置缺值: gate_criteria.shadow.min_months（Q7/KQ-4）"
-                )
-            if evidence.get("direction_agree") is not True:
-                raise GateSkipError("方向一致判据未满足：不得进入实盘小仓位（R19）")
-            started = current.stage_timestamps.get(GATE_LEVEL_KEYS[GateStage.SHADOW_RUNNING])
-            if not started:
-                raise GateSkipError("影子运行起始时间缺失，无法核对最短期限（KQ-4）")
-            elapsed = _months_between(started, self.registry.clock())
-            if elapsed < int(min_months):
-                raise GateSkipError(
-                    f"影子期未满：已 {elapsed} 个月 < 最短 {int(min_months)} 个月（R19 Scenario 2）"
-                )
 
     # ---- 持久化 ----
     def _append(self, transition: _Transition) -> None:

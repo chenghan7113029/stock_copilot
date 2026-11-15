@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import calendar
-from typing import Any, Mapping, Sequence
+from typing import Mapping, Protocol, Sequence, runtime_checkable
 
 from common.exceptions import BacktestDataGapError, BacktestError, MissingBacktestConfigError
 from service.backtest.models import BacktestConfig, GroupAssignment
@@ -49,38 +49,44 @@ DIMENSION_TO_TIER = {
 }
 
 
+@runtime_checkable
+class UniverseProvider(Protocol):
+    """universe 数据源协议（design §4.1，T2-fix-6）；不可得 → `BacktestDataGapError`。"""
+
+    def historical_constituents(self, as_of: str, scope: str) -> tuple[str, ...]:
+        """历史时点成分名单（scope 如 "csi300"/"all_a"）；可得但确实为空 → 空 tuple（合法）。"""
+
+    def delisted_codes(self, as_of: str) -> tuple[str, ...]:
+        """截至 as_of 的退市名单（供「退市日前计入」判定）。"""
+
+    def st_status(self, code: str, as_of: str) -> bool:
+        """as_of 时点的 ST 状态（按时点判定，不回填）。"""
+
+
 def build_universe(
-    as_of: str, universe_spec: Mapping[str, Any], *, provider: Any
+    as_of: str, universe_scope: str, *, provider: UniverseProvider
 ) -> tuple[str, ...]:
-    """含退市（退市日前计入）、当时 ST、历史成分（R12）；名单不可得→报缺口。"""
-    if not hasattr(provider, "load_members"):
-        raise BacktestDataGapError("universe provider 缺 load_members：名单不可得（R12）")
-    members = tuple(provider.load_members(as_of, dict(universe_spec)))
-    if not members:
-        raise BacktestDataGapError(f"{as_of} 成分名单为空：按缺口处理，不静默降级")
-    flags = _load_flags(provider, members, as_of)
-    included: list[str] = []
-    for code in members:
-        flag = flags[code]
-        if flag["delisted"]:
-            delist_date = flag.get("delist_date")
-            if not delist_date:
-                raise BacktestDataGapError(f"{code} 已退市但无退市日：无法判定计入区间（R12）")
-            if str(delist_date) <= as_of:
-                continue  # 退市日之后不再计入
-        included.append(code)
-    return tuple(included)
+    """合并历史成分 + 退市（退市日前计入）+ 当时 ST（R12）。
 
-
-def _load_flags(provider: Any, members: Sequence[str], as_of: str) -> dict[str, dict[str, Any]]:
-    loader = getattr(provider, "load_flags", None)
-    if loader is None:
-        raise BacktestDataGapError("universe provider 缺 load_flags：退市/ST 状态不可得（R12）")
-    flags = loader(members, as_of)
-    missing = [code for code in members if code not in flags]
+    - 任一名单数据源不可得 → `BacktestDataGapError`（不静默剔除）；
+    - 名单可得但确实为空 → 空 tuple（合法，不是缺口）。
+    """
+    missing = [
+        method
+        for method in ("historical_constituents", "delisted_codes", "st_status")
+        if not hasattr(provider, method)
+    ]
     if missing:
-        raise BacktestDataGapError(f"退市/ST 标记缺失: {missing[:5]}（共 {len(missing)} 只）")
-    return flags
+        raise BacktestDataGapError(
+            f"universe provider 缺方法 {missing}：名单不可得，按缺口处理（R12/T2-fix-6）"
+        )
+    members = tuple(str(code) for code in provider.historical_constituents(as_of, universe_scope))
+    delisted = {str(code) for code in provider.delisted_codes(as_of)}
+    included = [code for code in members if code not in delisted]
+    for code in included:
+        # ST 状态按时点可查（R12 Scenario2）：不可得即缺口；ST 股仍计入（不是剔除）
+        provider.st_status(code, as_of)
+    return tuple(included)
 
 
 def assign_groups(

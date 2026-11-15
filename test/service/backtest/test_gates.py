@@ -111,3 +111,45 @@ def test_rejected_is_terminal(tmp_path, cfg):
     assert record.stage is GateStage.REJECTED
     with pytest.raises(GateSkipError):
         machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
+
+
+def test_edge_checked_before_criteria(tmp_path, config_factory):
+    """F9：跳级先报 GateSkipError，不应先报判据缺失。"""
+    raw = config_factory()
+    raw.pop("gates")
+    cfg = BacktestConfig.from_config(raw, base_dir=tmp_path)
+    registry = make_registry(tmp_path, Clock())
+    machine = GateStateMachine(registry, cfg=cfg)
+    with pytest.raises(GateSkipError):
+        machine.transition("rule-1", GateStage.LIVE_SMALL, {"experiment_id": "e1"})
+
+
+def test_criteria_missing_leaves_no_business_rejection(tmp_path, config_factory):
+    """F9：判据可用性属配置错误 → MissingBacktestConfigError，不落业务拒绝行。"""
+    raw = config_factory()
+    raw.pop("gates")
+    cfg = BacktestConfig.from_config(raw, base_dir=tmp_path)
+    registry = make_registry(tmp_path, Clock())
+    machine = GateStateMachine(registry, cfg=cfg)
+    with pytest.raises(MissingBacktestConfigError):
+        machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
+    rejected = [
+        row for row in registry.rows() if getattr(row, "status", None) is RunStatus.REJECTED
+    ]
+    assert rejected == []
+    assert not (tmp_path / "gates.ndjson").exists()
+
+
+def test_attainment_failure_leaves_rejection_row(tmp_path, cfg):
+    """F9 ③：判据可用但未达成 → GateSkipError + 拒绝留痕。"""
+    registry, machine = make_machine(tmp_path, cfg)
+    machine.transition("rule-1", GateStage.BACKTEST_PASSED, {"experiment_id": "e1"})
+    machine.transition("rule-1", GateStage.SHADOW_RUNNING, {"experiment_id": "e1"})
+    with pytest.raises(GateSkipError):
+        machine.transition(
+            "rule-1", GateStage.LIVE_SMALL, {"experiment_id": "e1", "direction_agree": True}
+        )
+    rejected = [
+        row for row in registry.rows() if getattr(row, "status", None) is RunStatus.REJECTED
+    ]
+    assert len(rejected) == 1
