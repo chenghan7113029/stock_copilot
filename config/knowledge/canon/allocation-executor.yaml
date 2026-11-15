@@ -5,7 +5,9 @@
 #       + tracked 政策文件 config/ips.yaml（生效载体）。
 # 判别（_design.md §0.0 四问）：Q1 不是一次性入参 / Q2 不是通用算法 /
 #       Q3 是「业务上什么算对」且 Owner 不发版就能改、改完为结论负责 → 知识（canon 口径层）。
-# 准入（_design.md §1.2）：能写成一个配置 key + 有权威来源 + 被执行器的多条 Requirement 消费。
+# 准入（_design.md §1.2）：能写成一个配置 key + 有权威来源 + 被 Requirement 消费；
+#       本条只有 001 满足「多条 Requirement」，002–005 各由 1 条 Requirement 消费，
+#       按先例 CAN-GATE-002 登记为例外（见各条 notes），门槛是否收紧待 K1 复核。
 # 归属判断依据：openspec/changes/add-allocation-executor/knowledge-delta.md §1、§4（K1 结论：新增 5 条）。
 # 护栏（_design.md §2.4、§4.2）：本条只写「口径措辞 + source 指向文件行号」，
 #       **不复制 config/ips.local.yaml 的私人数值**（金额 / 持仓 / 池总额）；
@@ -34,12 +36,16 @@ entries:
     stale_after_days: 365
     scope_note: >-
       三桶目标与容许带只定义「应该是什么」；当前占比属于快照入参（allocation.current），
-      不得写进本条。顺延阈值与目标权益同为 0.35，`config/ips.yaml` 是唯一生效载体：
-      改目标权益时须同时确认 `skip_if_equity_above`，两处不一致即与 Owner #1 答复冲突。
+      不得写进本条。顺延阈值与目标权益当前同为 0.35，`config/ips.yaml` 是唯一生效载体；
+      「两处须同值」是本条采集方的运维推断，不是 Owner #1 的答复原话（Owner 只答复权益 35%、期限 24 个月）：
+      改目标权益时须同时确认 `skip_if_equity_above`，两处不一致须由 Owner 复核。
     notes: >-
       上位约束见 CAN-IPS-001（本条只覆盖配置结构与顺延阈值，不重复目标收益 / 回撤硬线）。
       40% 权益上限、单票 5%、行业 25% 已在飞书 v2 §三 修订中移出验收标准、只能作提示
       （docs/cases/case-20261115-allocation-executor/annotations.md:16），不属本条硬规则。
+      期限冲突裁决留痕（K3 F3）：投放期限以 `config/ips.yaml:48`（`horizon_months: 24`）为唯一载体；
+      `docs/design/portfolio-plan-v0.1.md:40`、`:167` 的「12 个月定投（本次确认）」是 2026-11-14 旧草案措辞，
+      已被 Owner 2026-11-15 答复「期限 24 个月」（annotations.md:23）覆盖。
 
   - id: CAN-ALLOC-002
     statement: >-
@@ -65,6 +71,8 @@ entries:
       信源冲突裁决：docs/design/portfolio-plan-v0.1.md:89 的「建议月末最后一个工作日前的周四」
       是待确认草案措辞（该文件 :4 自述「草案，待 Owner 确认」），已被 Owner 2026-11-15 答复覆盖。
       差异是实质的：2026-12 按本条为 12-31，按草案字面会取 12-24。
+      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R2）消费，
+      低于「≥2 条」静态门槛，按先例 CAN-GATE-002 放行；门槛是否收紧待 K1 复核。
 
   - id: CAN-ALLOC-003
     statement: >-
@@ -73,7 +81,8 @@ entries:
     layer: canon
     source: >-
       config/ips.yaml:61｜引文「R4_rebalance_band: 0.05｜任一桶偏离目标 5pp」；
-      docs/design/portfolio-plan-v0.1.md:110｜引文「任一桶偏离目标 > 5pp｜季度调整回目标带」
+      docs/design/portfolio-plan-v0.1.md:110｜引文「任一桶偏离目标 > 5pp｜季度调整回目标带」；
+      docs/cases/case-20261115-allocation-executor/annotations.md:39｜引文「任一桶偏离目标 > 5pp → 输出再平衡提示（不自动调仓）」
     confidence: 确定
     owner: Owner
     strength: 硬规则
@@ -89,6 +98,8 @@ entries:
     notes: >-
       本条是「B 已有·未入 canon」类：口径本体在 tracked `config/ips.yaml`，本条只补知识层治理
       （来源 / owner / 复核期），不改 `config/ips.yaml` 的取值。
+      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R8）消费，
+      低于「≥2 条」静态门槛，按先例 CAN-GATE-002 放行；门槛是否收紧待 K1 复核。
 
   - id: CAN-ALLOC-004
     statement: >-
@@ -114,10 +125,13 @@ entries:
     notes: >-
       Owner 原话只给「超 7 天拒绝」；边界（恰好 7 天 / 缺失 / 未来日期）由 spec R7 写死，
       本条照录，不改阈值。
+      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R7）消费，
+      低于「≥2 条」静态门槛，按先例 CAN-GATE-002 放行；门槛是否收紧待 K1 复核。
 
   - id: CAN-ALLOC-005
     statement: >-
-      固收端迁移的试水比例为目标固收额度的 30%（trial_ratio = 0.30）。
+      固收端迁移的试水比例为 30%（trial_ratio = 0.30）；
+      基数（以哪一档固收额度为基数）与次数未确认，见 KU-2026-11-alloc-migration-base-01。
     layer: canon
     source: >-
       人工答复:Owner:2026-11-15:买什么类别｜原话「固收端先按 30% 试水迁移」；
@@ -137,3 +151,9 @@ entries:
     notes: >-
       信源冲突：docs/design/portfolio-plan-v0.1.md:80、:171 的「20%–30%」区间下限不成立，
       Owner 已明确取 30%（区间下限不得作为实现依据）。
+      statement 只固定「比例 = 30%」这一个有 Owner 原话的事实；基数与次数是本波假设（proposal.md:141 A3），
+      不写进 statement。修正留痕：K3 盲验 F1 退回「把未确认的基数写进 statement」的写法
+      （openspec/changes/add-allocation-executor/knowledge-verification.md:158-160），已按 requiredFix 改写，
+      数值 0.30 与 source 均未改。
+      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R5）消费，低于「≥2 条」静态门槛，
+      按先例 CAN-GATE-002（`requirement_refs: [R19]`，同为单消费）放行；门槛是否收紧待 K1 复核。

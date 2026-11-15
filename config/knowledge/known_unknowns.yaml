@@ -142,16 +142,18 @@ known_unknowns:
       每月的执行日（最后一个周四）若恰逢休市日 / 法定节假日，是仍按该日历日给指令、
       顺延到之后第一个交易日、还是提前到前一交易日
     assignee: Owner（程晗）经 captain 转交
-    due: "2026-11-15"
+    due: "2026-11-15T22:30:00+08:00"
     impact: >-
       R2 指令日期标注与人工执行时点；不影响金额公式（INSTRUCTION 不是成交）。
       现行材料只有日期口径（Owner #2、`config/ips.yaml:50`），无节假日规则
     remedy: >-
       本波按「仍按该日历周四给出指令」执行并标「待确认」；到期未答复 → 记 IMPROVEMENTS 下波回采，
-      实现不得自行加入交易日顺延（会让指令日与政策日不一致）
+      实现不得自行加入交易日顺延（会让指令日与政策日不一致）。
+      未转交前不得计入 IMPROVEMENTS（避免把「从未问过」记成「Owner 未答复」）
     status: waiting
     blocking_case: case-20261115-allocation-executor 判据 1 的执行日标注
     asked_at: "2026-11-15"
     note: >-
-      K1 本波新识别（knowledge-delta.md §5 KQ-1、KD-7-01），尚未经 captain 转交 Owner；
-      转交后按 knowledge-engineer.md:53 的 1 小时超时口径判未解决
+      K1 本波新识别（knowledge-delta.md §5 KQ-1、KD-7-01）。该问题**已由 captain 于 2026-11-15 21:30 转交 Owner**
+      （转交事实来自 captain，仓库材料不可独立复核）；按 knowledge-engineer.md:53 的 1 小时超时口径，
+      `due` = 转交时刻 + 1 小时 = 2026-11-15T22:30:00+08:00（K3 F4 修正：原 due 在未转交前即起算，属治理噪声）
