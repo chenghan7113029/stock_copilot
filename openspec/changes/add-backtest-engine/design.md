@@ -411,9 +411,10 @@ class WindowStats:
 
 @dataclass(frozen=True)
 class EventStudyResult:
-    """R17 结果（QA-F4）：按窗口 × 基准组织。"""
-    windows: dict[str, dict[str, WindowStats]]   # {window(20/60): {benchmark_kind: WindowStats}}
-    n_events: int
+    """R17 结果（QA-F4 + T2-fix-6）：按窗口 × 基准组织；空观测 → verdict=INCONCLUSIVE、windows={}（不抛异常）。"""
+    verdict: Verdict                # T2-fix-6：VALID/INVALID/INCONCLUSIVE；空观测（observations 为空）→ INCONCLUSIVE
+    windows: dict[str, dict[str, WindowStats]]   # {window(20/60): {benchmark_kind: WindowStats}}；空观测 = {}
+    n_events: int                   # 空观测 = 0
     inference_method: str           # "block_bootstrap"
     block_length: int | None        # KQ-2 未答复：None；缺键即拒绝发生在 cfg 层
     n_bootstrap: int | None
@@ -429,6 +430,7 @@ class AttributionResult:
     exposures: dict[str, float]     # {beta, size, value, momentum}（beta 缺时省略 beta 键）
     contributions: dict[str, float]
     unexplained: float | None       # None = 缺 market_portfolio，未解释部分不可算
+    # 恒等式（T2-fix-6）：Σ(contributions.values()) + unexplained == mean(returns["rule"])（缺 market_portfolio 时该恒等式不成立，unexplained=None）
 
 @dataclass(frozen=True)
 class StabilityResult:
@@ -440,14 +442,16 @@ class StabilityResult:
 
 @dataclass(frozen=True)
 class CalibrationResult:
-    passed: bool
+    """R18 校准结果（QA-F8 + T2-fix-6）：`passed` 与 `verdict` 是两件事。"""
+    passed: bool                    # 台子可信：校准题复现出「显著跑输」→ True；否则 False（台子不可信）
     direction: str                  # 「显著跑输」/「未复现」
     ci: tuple[float, float] | None
     K: int | None                   # QA-F8：缺 K 可表达
     corrected_p: float | None       # QA-F8：校正后 p（KQ-5 判据未答复前可为 None，但字段必须存在）
-    verdict: Verdict                # QA-F8：校正后判定（VALID/INVALID/INCONCLUSIVE）
+    verdict: Verdict                # QA-F8 + T2-fix-6：校准题所测**规则本身**的判定；「跌破 MA60 卖出」显著跑输 → INVALID（该规则有害）
     params: dict
     notes: tuple[str, ...]
+    # 字段对应关系（T2-fix-6）：校准通过 = passed=True 且 verdict=INVALID（台子可信 + 该规则被判无效/有害）；passed=False 时 verdict 通常为 INCONCLUSIVE（复现不出，无结论）。
 
 @dataclass(frozen=True)
 class GateRecord:
@@ -540,9 +544,17 @@ def load_financials_point_in_time(codes, as_of, *, loader) -> dict[str, tuple[Fi
 def build_point_in_time(codes, as_of, *, loader) -> PointInTimeSnapshot:
     """把价格 + 财务裁到 as_of，构造 signal 输入。"""
 
-# universe.py
-def build_universe(as_of, universe_spec, *, provider) -> tuple[str, ...]:
-    """含退市（退市日前计入）、当时 ST、历史成分（R12）；名单不可得→报缺口。"""
+# universe.py —— provider 协议（T2-fix-6：engineer 照此实现，QA 造 spy provider）
+class UniverseProvider(Protocol):
+    def historical_constituents(self, as_of: str, scope: str) -> tuple[str, ...]:
+        """历史时点成分名单（scope 如 "csi300"/"all_a"）；数据源不可得 → BacktestDataGapError；可得但确实为空 → 空 tuple（合法，非缺口）。"""
+    def delisted_codes(self, as_of: str) -> tuple[str, ...]:
+        """截至 as_of 的退市名单（含退市日，供「退市日前计入」判定）；不可得 → BacktestDataGapError。"""
+    def st_status(self, code: str, as_of: str) -> bool:
+        """as_of 时点的 ST 状态（按时点判定，不回填）；不可得 → BacktestDataGapError。"""
+
+def build_universe(as_of, universe_scope: str, *, provider: UniverseProvider) -> tuple[str, ...]:
+    """合并历史成分 + 退市（退市日前计入）+ 当时 ST（R12）；任一名单数据源不可得 → BacktestDataGapError（不静默剔除）。"""
 
 def assign_groups(codes, as_of, features, *, cfg) -> dict[str, GroupAssignment]:
     """分位切点分组，季度重算，生效区间不回改历史（R15/R16）。"""
@@ -571,7 +583,8 @@ def load_event_observations(signals: Sequence[EventSignal], benchmarks: Sequence
 
 # metrics.py —— 纯函数（入 EventObservation，出结构化结果）
 def compute_event_study(observations: Sequence[EventObservation], *, cfg) -> EventStudyResult:
-    """按 benchmark_kind × window 聚合超额分布：每基准 n/mean/median/std/CI/分年度/分档（R17；R13 双基准）。"""
+    """按 benchmark_kind × window 聚合超额分布：每基准 n/mean/median/std/CI/分年度/分档（R17；R13 双基准）。
+    空观测（observations 为空）→ 返回 EventStudyResult(verdict=INCONCLUSIVE, windows={}, n_events=0)，不抛异常（T2-fix-6，R17「不可判定不得标 VALID」）。"""
 
 def block_bootstrap(excess, *, block_length, n_bootstrap, seed) -> tuple[tuple[float,float], int]:
     """有效样本（时间块）重采样，返回 CI 与有效样本量（R6）。"""
@@ -582,7 +595,8 @@ def multiple_testing_correction(p_values, K, method, *, cfg) -> tuple[float, ...
 def attribution(returns: dict[str, Sequence[float]], factors: dict[str, Sequence[float]]) -> AttributionResult:
     """四项归因（R13，T2-fix-5）：returns 键集固定 {"rule","market_portfolio"}（同长）；beta 由 returns["rule"] 对 returns["market_portfolio"] 回归推导（不入参）；
     factors 键集固定 {"size","value","momentum"}；缺 "market_portfolio" 键 → 返回 AttributionResult(verdict=INCONCLUSIVE, beta=None, unexplained=None)（不抛异常，R13 判不可判定）；
-    缺任一因子键 → MissingBacktestConfigError。"""
+    缺任一因子键 → MissingBacktestConfigError。
+    恒等式（T2-fix-6）：Σ(contributions.values()) + unexplained == mean(returns["rule"])。"""
 
 def partial_pooling(estimates, group_mean, *, shrink) -> tuple[float, ...]:
     """个股估计向组均值收缩，输出组内分位（R16）。"""
@@ -621,7 +635,9 @@ class GateStateMachine:
         时间戳经 registry 的 clock 注入。"""
     def current(self, rule_id) -> GateRecord: ...
     def transition(self, rule_id, to: GateStage, evidence) -> GateRecord:
-        """只允许 上一级→下一级 的合法边；判据缺 → MissingBacktestConfigError；跳级 → GateSkipError 并留痕。"""
+        """判定优先序（T2-fix-6）：① 先查边——to 必须是 current.stage 的唯一合法后继，非法（跳级/回退/同态）→ GateSkipError 并 append_run(REJECTED) 留痕；
+        ② 再查判据可用性——cfg.gate_criteria 为 None 或缺该级键 → MissingBacktestConfigError（配置错误，不落业务拒绝行）；
+        ③ 最后查达成性——evidence 不满足该级判据 → GateSkipError 并留痕；满足 → 迁移并写 GateRecord。"""
 ```
 
 **异常清单（QA-F5：每类拒绝可由异常类型二分，口径非法 ≠ 数据缺失）**
@@ -648,7 +664,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | `RegistryCorruptedError` | 台账 NDJSON 行哈希校验失败 | R2「修改已写入的台账行被拒绝」 |
 | `RegistryImmutableError` | 修改已写入行 / 样本外二次请求 / 改假设未新开实验 | R2/R4 拒绝并留痕 |
 | `CalibrationFailedError` | 校准题未复现「显著跑输」 | R18「先修台子，封锁输出」 |
-| `GateSkipError` | 门禁状态机收到跳级 transition | R19「跳级请求被拒并留痕」 |
+| `GateSkipError` | 门禁跳级（边非法）或判据未达成（T2-fix-6） | R19「跳级/未通过被拒并留痕」 |
 
 **失败表达二分（QA-F9：库层异常 vs CLI 退出码）**
 
@@ -909,6 +925,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | QA-F11（low，CLI 配置/数据注入面） | §4.0/§4.1/§6.3（入口 = 既有 `src/apps/cli.py`，不另建入口）+ `run_calibration`/`write_calibration_result` | `main(argv) -> int`；子命令 `backtest preregister/run/calibrate/ledger/gate` + 参数（`--file/--hypothesis/--experiment/--format/--config/--rule/--to`）；配置解析 `--config <path>`（相对路径按 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 1）；`calibration.json` 由 `run_calibration` 无论成败原子写 `<results_dir>/calibration.json`（字段 = `CalibrationResult` + `run_id` + `at`，失败写 `passed=False`+`reason`，重跑覆盖带新 `run_id`） |
 | T2-fix-4（config schema + 4 处歧义裁决） | §4.1 `BacktestConfig`/`GateCriteria`/成本 spec + `EventObservation`/`ConditionSpec` + `RunRecord.hypothesis_id` + `load_event_observations`/`compute_event_study`/`attribution`/`GateStateMachine`/`mark_burnt` + §4.2 R11 + §6.4 | ①config 键清单落在 `config/app.example.yaml`（tracked）+ design §4.1（app.yaml 是本地副本）；②事件载体 = `EventObservation`（`EventSignal` 只判条件成立）；③`GateStateMachine(registry, *, cfg)` 判据来自 `cfg.gate_criteria`（缺 → `MissingBacktestConfigError`）；④`mark_burnt` 追加执行行 `reason="样本外已烧毁"`，导出 `burnt` 按此派生；⑤`attribution` beta 由 `market_portfolio` 基准回归推导、`factors` 键集固定 `{size,value,momentum}`；⑥R11 `visible_from = ann_date`（缺才回退），spec 优先 |
 | T2-fix-5（4 条残余歧义裁决） | §4.1 `PriceBar.avg_amount` + `AttributionResult.verdict/beta=None/unexplained=None` + `load_forward_returns`/`load_benchmark_forward_returns`/`attribution(returns: dict)` + 「校准口径 spec 固定」+ 撮合机制第 5 条 | ①事件收益 loader 形状 = `load_forward_returns(signal, horizon)` + `load_benchmark_forward_returns(kind, signal, horizon)`，`excess_returns[t] = 前者 − 后者`；②`AttributionResult` 增 `verdict`，缺 `market_portfolio` → `verdict=INCONCLUSIVE`（不抛异常），缺因子键 → `MissingBacktestConfigError`；③校准口径全 spec 固定（不新增 `calibration.*` 键），成本走 broker 四分量、Q4 缺即拒绝（不采用比例成本近似）；④`PriceBar.avg_amount`（日均成交额）为流动性上限数据源，无 adv 数据 → `BacktestDataGapError`（多档不退化单档） |
+| T2-fix-6（F7/F8/F9 + 两条期望修正） | §4.1 `EventStudyResult.verdict` + `UniverseProvider` 协议 + `GateStateMachine.transition` 优先序 + `AttributionResult` 恒等式 + `CalibrationResult` 语义 | ①空观测 → `EventStudyResult(verdict=INCONCLUSIVE, windows={}, n_events=0)` 不抛异常；②`UniverseProvider`（`historical_constituents`/`delisted_codes`/`st_status`，不可得 → `BacktestDataGapError`，可得为空 → 空 tuple）；③gate `transition` 先查边（跳级 → `GateSkipError`）→ 再查判据可用性（缺 → `MissingBacktestConfigError`）→ 最后查达成性（不满足 → `GateSkipError`）；④`Σcontributions + unexplained == mean(rule)`；⑤校准 `passed=True`（台子可信）与 `verdict=INVALID`（规则有害）是两件事 |
 
 ---
 

@@ -279,3 +279,23 @@ Phase 7 CLI 装配与端到端
 - **未采用比例成本近似**：校准成本只走 `broker.execute_orders` 的佣金/印花税/滑点/过户费四分量；Q4 成本键缺失即 `MissingBacktestConfigError`。
 - 残余（非契约）：`avg_amount` 属本机数据缺口（KD-4-07）；QA 夹具造 `PriceBar` 时需补 `avg_amount`，否则撮合按 R7 报缺口（这是 R7/T2-fix-5 的预期行为）。
 - 全量含 QA：**24 failed / 1018 passed / exit 1**（与 t17 的 24 failed 数量持平，无新增红点；余下为 QA 夹具/调用面待 T5）。
+
+---
+
+## 附录 A：T3 验收原文（8 条，T2-fix-6 / t22 落盘，逐字抄自 t13 契约）
+
+> 用途：T5（verification）逐条核对时的**唯一权威原文**。来源 = 任务清单 t13 的 `acceptance` 字段（team 状态内）。原 t14 曾报「T3 验收原文未落盘」（F11），本附录补上。
+
+1. `tasks.md` 的 T2.1–T2.20 全部勾选，且每条对应验证命令真实跑过（输出贴进任务产物）
+2. 全量单测绿：`python -m pytest -q -m "not network and not akshare_legacy"` 退出码 0
+3. `python -m compileall -q src test` 退出码 0
+4. `python -m ruff check src/service/backtest src/data_provider/backtest src/apps/cli.py test/service/backtest` 新增错误 0（既有 39 个基线不修）
+5. `openspec.cmd validate add-backtest-engine --strict` 退出码 0
+6. 静态自证：`src/service/backtest` 与 `src/data_provider/backtest` 内无 openai/LLM 调用；`src/` 内无 `import ref.`
+7. `config/app.yaml` 的 `backtest:` 段只有键与注释，无任何未确认数值（佣金/印花税/滑点等）
+8. 台账 append-only 有测试：篡改已写行被拒、失败也落执行行（RunRecord FAILED）
+
+### 证据归属说明（F13，T2-fix-6）
+
+- `verification.md` 本波归 **T5**（t14/t20）撰写与维护；本文件（tasks.md）不复制其证据正文，只给「T3 验收原文」供 T5 引用。
+- t13 的 T3 实现证据在 `HEAD~1`（即 t13 提交链 `bab72ad` / `04a7c09`；对齐后的最终实现证据在 t17 `d9c860a`、t21 `a6db784`），不因后续 design 修订丢失。
