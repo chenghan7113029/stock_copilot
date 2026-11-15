@@ -124,7 +124,7 @@
 
 ## 假设/开放问题
 
-> **MRD v1 仍未定稿**：`docs/mrd/mrd-v1.md` 的 §1–§7 全部是占位（`<为什么现在做、不做会怎样>` / `TODO` / 空的 `OPEN-1`），**本波没有任何 MRD 锚点可引用**。本波需求锚点 = 飞书《投资Agent》revision 482（`docs/agent-team/inputs/feishu-invest-agent.md`，Owner 一手材料原文）+ 仓库一手材料（`docs/dev/engineering-conventions.md`、`docs/architecture/STRUCTURE.md`、`openspec/specs/`、`config/`、`src/`）。MRD 定稿后由 T7 回填 `MRD-*` 锚点，本波**不虚构** MRD 编号。
+> **MRD v1 仍未定稿**：`docs/mrd/mrd-v1.md` 的 §1–§7 全部是占位（`<为什么现在做、不做会怎样>` / `TODO` / 空的 `OPEN-1`），**本波没有任何 MRD 锚点可引用**。本波需求锚点 = 飞书《投资Agent》revision 482（`docs/agent-team/inputs/feishu-invest-agent.md`，Owner 一手材料原文）+ 仓库一手材料（`docs/dev/engineering-conventions.md`、`docs/architecture/STRUCTURE.md`、`openspec/specs/`、`config/`、`src/`）。MRD 定稿后由 T7 回填正式锚点编号，本波**不虚构**任何 MRD 编号。
 
 **假设（答复前按此执行，Owner 答复后回填）**
 
