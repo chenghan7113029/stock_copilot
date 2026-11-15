@@ -27,7 +27,10 @@ def _sell(models, qty=10_000):
 def test_tc_r07_01_cost_components_match_hand_calc(load, models, make_bar, cfg_cost, cfg_cost_raw):
     """TC-R07-01（R7 Scenario1）：10 万买 / 11 万卖 → 四项分金额与手算一致（滑点按 `bps` 折算）。"""
     broker = load("service.backtest.broker")
-    prices = {"000001": (make_bar("2020-01-07", close=11.0),)}
+    # 买：信号 01-06 → 成交 01-07（10 元）；卖：信号 01-07 → 成交 01-08（11 元，T+1）
+    # avg_amount=1e8 → 流动性上限 = 1e8×1% = 100 万 ≫ 10 万，不触发截断
+    prices = {"000001": (make_bar("2020-01-07", close=10.0, amount=1e8, avg_amount=1e8),
+                         make_bar("2020-01-08", close=11.0, amount=1e8, avg_amount=1e8))}
     fills = broker.execute_orders([_buy(models), _sell(models)], prices, cfg=cfg_cost)
     buy_cost, sell_cost = fills[0].cost, fills[1].cost
 

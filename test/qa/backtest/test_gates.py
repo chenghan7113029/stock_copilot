@@ -15,11 +15,13 @@ def test_tc_r19_01_cannot_enter_shadow_without_backtest(gate_sm, gate_sm_no_crit
                                                         registry_path, run_rows):
     """TC-R19-01（R19 Scenario1）：回测未通过就请求影子运行 → GateSkipError，状态不变，拒绝留痕；
     判据缺失时更早一层被拒（MissingBacktestConfigError，不允许降级放行）。"""
+    # 判据缺失：走**合法边**（BACKTEST_PENDING → BACKTEST_PASSED）即被拒（不允许降级放行）
     with pytest.raises(models.MissingBacktestConfigError):
-        gate_sm_no_criteria.transition(rule_id, models.GateStage.SHADOW_RUNNING,
-                                       evidence={"experiment_id": "exp-001"})
+        gate_sm_no_criteria.transition(rule_id, models.GateStage.BACKTEST_PASSED,
+                                       evidence={"experiment_id": "exp-000"})
 
     assert gate_sm.current(rule_id).stage is models.GateStage.BACKTEST_PENDING
+    # 未过回测就请求影子运行 → 跳级拒绝（R19 Scenario1）
     with pytest.raises(models.GateSkipError):
         gate_sm.transition(rule_id, models.GateStage.SHADOW_RUNNING,
                            evidence={"experiment_id": "exp-001"})

@@ -66,8 +66,17 @@ def test_tc_r01_03_uncommitted_preregistration_rejected(cli_runner, tmp_path, re
     """TC-R01-03（R1 Scenario3）：预注册只在工作区未提交 → 拒绝并提示「未提交」。"""
     prereg_dir = tmp_path / "config" / "backtest" / "preregistrations"
     prereg_dir.mkdir(parents=True, exist_ok=True)
-    (prereg_dir / "hyp-uncommitted.yaml").write_text(
-        json.dumps({"hypothesis_id": "hyp-uncommitted", "statement": "x"}), encoding="utf-8")
+    (prereg_dir / "hyp-uncommitted.yaml").write_text(json.dumps({
+        "hypothesis_id": "hyp-uncommitted",
+        "statement": "跌破 MA60 后 60 日跑输买入持有",
+        "params": {"ma_days": 60},
+        "metrics": ["excess_mean"],
+        "segments": ["validation", "out_of_sample"],
+        "benchmarks": ["buy_and_hold", "market_portfolio"],
+        "correction_method": "bonferroni",
+        "k_definition": "rule+param+cut+window",
+        "created_at": "2026-01-02T09:30:00+08:00",
+    }), encoding="utf-8")
     before = len(result_rows(registry_path))
 
     run = cli_runner(["run", "--hypothesis", "hyp-uncommitted"])
@@ -80,9 +89,11 @@ def test_tc_r01_03_uncommitted_preregistration_rejected(cli_runner, tmp_path, re
 def test_tc_r02_01_each_run_appends_one_row_with_unique_id(registry, models, result_rows, registry_path):
     """TC-R02-01（R2 Scenario1）：同一预注册执行两次 → 两行、experiment_id 不同且递增。"""
     spec = _spec(models)
-    ids = [registry.next_experiment_id(spec.hypothesis_id) for _ in range(2)]
-    for experiment_id in ids:
+    ids = []
+    for _ in range(2):
+        experiment_id = registry.next_experiment_id(spec.hypothesis_id)  # 追加后再取下一个序号
         registry.append(_record(models, experiment_id))
+        ids.append(experiment_id)
 
     rows = result_rows(registry_path)
     assert len(rows) == 2

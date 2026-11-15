@@ -26,16 +26,17 @@ def test_tc_r13_01_event_study_reports_both_benchmarks(load, make_observations, 
 
 
 def test_tc_r13_02_missing_benchmark_is_inconclusive(load, models, make_observations, cfg_event):
-    """TC-R13-02（R13 Scenario2）：无基准 → 不得产出超额统计，实验判定只能 INCONCLUSIVE。
-
-    同时覆盖 `attribution` 的契约：只给 `buy_and_hold`（缺 `market_portfolio`）→ 归因 INCONCLUSIVE。
-    """
+    """TC-R13-02（R13 Scenario2）：无基准 → 不得产出有效结论；attribution 缺 `market_portfolio`
+    按 T2-fix-5 返回 `verdict=INCONCLUSIVE`（不抛异常、beta 省略）；空观测不得产出结论（F7 待裁决）。"""
     metrics = load("service.backtest.metrics")
-    single = make_observations(benchmark_kinds=("buy_and_hold",))
-    result = metrics.compute_event_study((), cfg=cfg_event)  # 空观测：无基准可聚合
+    factors = {"size": [0.1, 0.0, -0.1, 0.2, 0.05],
+               "value": [0.2, -0.1, 0.0, 0.1, -0.2],
+               "momentum": [0.3, 0.1, -0.2, 0.0, 0.1]}
 
-    assert result.windows["20"] == {} and result.windows["60"] == {}, "无基准时不得产出超额统计"
-    assert single and all(obs.benchmark_kind == "buy_and_hold" for obs in single)
+    attribution = metrics.attribution({"rule": [0.01, -0.02, 0.015, 0.0, -0.005]}, factors)
+    assert attribution.verdict is models.Verdict.INCONCLUSIVE, "缺市场基准 → 归因不可判定（R13）"
+    assert attribution.beta is None and "beta" not in attribution.exposures
+    assert attribution.unexplained is None
 
     record = models.ExperimentRecord(
         experiment_id="hyp-001-0001", hypothesis_id="hyp-001", params={},
@@ -45,24 +46,26 @@ def test_tc_r13_02_missing_benchmark_is_inconclusive(load, models, make_observat
     assert record.verdict is models.Verdict.INCONCLUSIVE
     assert record.verdict is not models.Verdict.VALID, "基准缺失的实验不得标为有效（spec R13 Scenario2）"
 
-    benchmarks = [models.Benchmark(kind="buy_and_hold", label="买入持有")]
-    with pytest.raises(models.MissingBacktestConfigError):
-        metrics.attribution([0.01, -0.02, 0.0], {"size": [0.1, 0.0, -0.1],
-                                                 "value": [0.0, 0.1, -0.1],
-                                                 "momentum": [0.2, -0.1, 0.0]}, benchmarks)
+    single = make_observations(benchmark_kinds=("buy_and_hold",))
+    assert single and all(obs.benchmark_kind == "buy_and_hold" for obs in single)
+    result = metrics.compute_event_study((), cfg=cfg_event)  # 空观测：无基准可聚合
+    assert result.windows["20"] == {} and result.windows["60"] == {}, "无基准时不得产出超额统计"
 
 
-def test_tc_r13_03_attribution_has_four_factor_contributions(load, benchmarks):
-    """TC-R13-03（R13 Scenario3）：beta（推导）+ 规模/价值/动量三项因子，贡献合计 + 未解释 = 全部收益。"""
+def test_tc_r13_03_attribution_has_four_factor_contributions(load, models, benchmarks):
+    """TC-R13-03（R13 Scenario3）：beta（由 market_portfolio 回归推导，T2-fix-5）+ 规模/价值/动量，
+    贡献合计 + 未解释 = 规则收益均值（归因恒等式）。"""
     metrics = load("service.backtest.metrics")
-    returns = [0.01, -0.02, 0.015, 0.0, -0.005]
+    rule = [0.01, -0.02, 0.015, 0.0, -0.005]
+    market = [0.008, -0.015, 0.01, 0.002, -0.004]
     factors = {"size": [0.2, -0.1, 0.0, 0.1, -0.2], "value": [0.1, 0.0, -0.1, 0.2, 0.05],
                "momentum": [0.3, 0.1, -0.2, 0.0, 0.1]}
 
-    result = metrics.attribution(returns, factors, benchmarks)
+    result = metrics.attribution({"rule": rule, "market_portfolio": market}, factors)
 
+    assert result.verdict is models.Verdict.VALID
     assert set(result.exposures) == {"beta", "size", "value", "momentum"}
     assert set(result.contributions) == {"beta", "size", "value", "momentum"}
     assert isinstance(result.unexplained, float)
-    assert pytest.approx(sum(result.contributions.values()) + result.unexplained,
-                         abs=1e-6) == pytest.approx(1.0, abs=1e-6)
+    assert sum(result.contributions.values()) + result.unexplained == pytest.approx(
+        sum(rule) / len(rule), abs=1e-9)

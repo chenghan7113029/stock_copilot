@@ -832,6 +832,8 @@ openspec.cmd validate add-backtest-engine --strict
 
 ### 10.3 本设计引用的 design 契约（断言锚点清单）
 
+> **行号漂移登记（t19，2026-11-15）**：本表行号以 design **895 行**版为基线；t18（T2-fix-5）后 design 已增至 **922 行**，行号整体下移。t19 只改夹具、不动契约，故本次**只登记漂移**，由 t20 二审按最终冻结版统一重算（避免两次重算互相覆盖）。
+
 > 行号按**最终冻结版 `design.md`（895 行，T2-fix-4 后）**标注：含 config schema、事件载体
 > （`EventObservation` + `load_event_observations`）、gate 判据注入（`GateStateMachine(registry, *, cfg)`）、
 > `mark_burnt` 追加执行行、`attribution` 四项口径五处新契约。每行给「契约要点 → 出处 → 对应用例」。

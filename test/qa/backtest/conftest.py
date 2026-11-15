@@ -188,6 +188,94 @@ def cfg_gates_no_criteria(cfg):
 
 
 @pytest.fixture
+def cfg_calibration(cfg_from, results_dir, registry_path):
+    """校准题配置：必须键 + 成本四分量（Q4 缺即拒绝）+ block_length/n_bootstrap（KQ-2，T2-fix-5 口径）。"""
+    return cfg_from(_with_paths(_merge(CFG_REQUIRED, CFG_BROKER, CFG_EVENT), results_dir, registry_path))
+
+
+def _business_days(start: str, end: str) -> list[str]:
+    import datetime as dt
+
+    day = dt.date.fromisoformat(start)
+    stop = dt.date.fromisoformat(end)
+    out: list[str] = []
+    while day <= stop:
+        if day.weekday() < 5:
+            out.append(day.isoformat())
+        day += dt.timedelta(days=1)
+    return out
+
+
+class _CalibrationAdapter:
+    """校准 loader 假件：`load_universe_codes` + `load_price_rows`（data.py 的两条注入通道）。"""
+
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
+
+    def load_universe_codes(self, as_of: str):
+        return ("000001",)
+
+    def load_price_rows(self, codes, start, end, mode):
+        window = [row for row in self._rows if start <= row["trade_date"] <= end]
+        return {code: list(window) for code in codes}
+
+
+@pytest.fixture
+def calibration_adapter():
+    """校准题夹具数据：`whipsaw` = 上升趋势 + 周期性急跌（MA60 跌破后 60 日仍上涨 → 卖出跑输）；
+    `no_signal` = 单调上涨（不触发 MA60 跌破 → 无事件、校准不可判定）。"""
+
+    def _build(profile: str = "whipsaw"):
+        import math
+
+        days = _business_days("2015-01-05", "2026-12-31")
+        close = 10.0
+        rows: list[dict] = []
+        phase, cycle = 0, 0
+        for day in days:
+            if profile == "whipsaw":
+                # 上升趋势 + 每 60 个交易日 5 日急跌（触发 MA60 跌破）；
+                # 每轮幅度做确定性微扰，使「跌破后 60 日仍上涨」在事件间有差异
+                # （否则 excess 恒定 → CI 退化、t 值无定义）。实测：约 49 个事件、
+                # mean_excess ≈ -0.013、CI = (-0.018, -0.009)（上界 < 0）、p ≈ 1.5e-9。
+                dip = 0.03 + 0.003 * math.sin(cycle * 1.3)
+                up = 0.003 + 0.0003 * math.sin(cycle * 0.7)
+                close *= (1.0 - dip) if phase >= 55 else (1.0 + up)
+                phase += 1
+                if phase >= 60:
+                    cycle, phase = cycle + 1, 0
+            else:
+                close *= 1.0005
+            rows.append({
+                "trade_date": day,
+                "open": round(close * 1.0005, 4),
+                "high": round(close * 1.01, 4),
+                "low": round(close * 0.99, 4),
+                "close": round(close, 4),
+                "amount": 1e8,
+                "avg_amount": 1e8,
+                "limit_up_price": round(close * 1.1, 2),
+                "limit_down_price": round(close * 0.9, 2),
+                "suspended": False,
+                "delisted": False,
+                "st": False,
+            })
+        return _CalibrationAdapter(rows)
+
+    return _build
+
+
+@pytest.fixture
+def calibration_loader(calibration_adapter):
+    return calibration_adapter("whipsaw")
+
+
+@pytest.fixture
+def calibration_loader_no_signal(calibration_adapter):
+    return calibration_adapter("no_signal")
+
+
+@pytest.fixture
 def registry(registry_module, registry_path, clock, results_dir):
     """设计 §4.1：`ExperimentRegistry(store_path, *, clock, data_version, results_dir)`，全部落 tmp_path。"""
     return registry_module.ExperimentRegistry(
@@ -196,15 +284,20 @@ def registry(registry_module, registry_path, clock, results_dir):
 
 @pytest.fixture
 def make_bar(models):
+    """按 design §4.1 `PriceBar`（T2-fix-4/5）构造：涨跌停价与日均成交额撮合必需，缺则实现报缺口。"""
     def _bar(trade_date: str, *, code: str = "000001", close: float = 10.0, open_: float | None = None,
-             high: float | None = None, low: float | None = None, amount: float | None = 1_000_000.0,
-             limit_up: float | None = None, limit_down: float | None = None,
-             suspended: bool = False, delisted: bool = False, st: bool = False):
+             high: float | None = None, low: float | None = None, amount: float = 1_000_000.0,
+             avg_amount: float | None = None, limit_up: float | None = None,
+             limit_down: float | None = None, suspended: bool = False, delisted: bool = False,
+             st: bool = False):
         px = close if open_ is None else open_
         return models.PriceBar(
             code=code, trade_date=trade_date, open=px, high=px if high is None else high,
-            low=px if low is None else low, close=close, amount=amount, limit_up_price=limit_up,
-            limit_down_price=limit_down, suspended=suspended, delisted=delisted, st=st)
+            low=px if low is None else low, close=close, amount=amount,
+            avg_amount=amount if avg_amount is None else avg_amount,
+            limit_up_price=round(close * 1.1, 2) if limit_up is None else limit_up,
+            limit_down_price=round(close * 0.9, 2) if limit_down is None else limit_down,
+            suspended=suspended, delisted=delisted, st=st)
 
     return _bar
 
@@ -274,7 +367,7 @@ def cli_runner(load, monkeypatch, capsys, tmp_path, cfg_raw):
         root = Path(cwd) if cwd is not None else tmp_path
         cfg_dir = root / "config"
         cfg_dir.mkdir(parents=True, exist_ok=True)
-        (cfg_dir / "app.yaml").write_text(json.dumps(cfg_raw), encoding="utf-8")
+        (cfg_dir / "app.yaml").write_text(json.dumps({"backtest": cfg_raw}), encoding="utf-8")
         monkeypatch.chdir(root)
         apps_cli = load("apps.cli")
         code = apps_cli.main(["backtest", *list(argv)])

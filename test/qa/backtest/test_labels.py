@@ -13,7 +13,10 @@ import pytest
 
 
 def _features(**overrides):
-    base = {"market_cap_tier": {"000001": 2}, "dividend_tier": {"000001": 1}}
+    """分组特征按 design §4.1 的维度名（market_cap / dividend_yield / volatility）给三档（R15）。"""
+    base = {
+        "000001": {"market_cap": 2.0, "dividend_yield": 1.0, "volatility": 0.3},
+    }
     base.update(overrides)
     return base
 
@@ -24,7 +27,9 @@ def test_tc_r15_01_soft_label_rejected(load, models, cfg_labels):
 
     with pytest.raises(models.BacktestError) as exc:
         universe_mod.assign_groups(["000001"], "2021-06-30",
-                                   _features(theme={"000001": "新能源"}), cfg=cfg_labels)
+                                   _features(**{"000001": {"market_cap": 2.0, "dividend_yield": 1.0,
+                                                           "volatility": 0.3, "theme": 1}}),
+                                   cfg=cfg_labels)
 
     assert "软标签" in str(exc.value)
 
@@ -35,7 +40,9 @@ def test_tc_r15_02_future_grouping_rejected(load, models, cfg_labels):
 
     with pytest.raises(models.BacktestError) as exc:
         universe_mod.assign_groups(["000001"], "2015-06-30",
-                                   _features(future_return={"000001": 0.87}), cfg=cfg_labels)
+                                   _features(**{"000001": {"market_cap": 2.0, "dividend_yield": 1.0,
+                                                           "volatility": 0.3, "future_return": 0.87}}),
+                                   cfg=cfg_labels)
     assert "未来" in str(exc.value) or "时点" in str(exc.value)
 
     ok = universe_mod.assign_groups(["000001"], "2015-06-30", _features(), cfg=cfg_labels)
