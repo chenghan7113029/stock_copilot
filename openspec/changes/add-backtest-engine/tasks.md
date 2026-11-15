@@ -22,16 +22,16 @@ Phase 7 CLI 装配与端到端
 ## Phase 1 · 契约与配置（models / config）
 
 - [ ] **T2.1 定义回测契约 dataclass 与枚举（含 T4 findings 补齐的契约）**
-  - 设计依据：design.md §4.1 全部 + §10 QA 反馈处理表（`AdjustMode` / `OrderStatus` / `Segment` / `Verdict` / `RunStatus` / `GateStage` / `PriceBar` / `FinancialRecord` / `GroupAssignment` / `PointInTimeSnapshot` / `EventSignal` / `PreregistrationSpec` / `Order` / `OrderAttempt` / `CostBreakdown` / `Fill` / `RunRecord` / `ExperimentRecord`（`K: int | None`、`row_type`）/ `Benchmark` / `WindowStats` / `EventStudyResult` / `AttributionResult` / `StabilityResult` / `CalibrationResult`（含 `corrected_p` / `verdict`）/ `GateRecord` + §4.1「异常清单」的 `BacktestError` 族 8 类）
+  - 设计依据：design.md §4.1 全部 + §10 QA 反馈处理表（`AdjustMode` / `OrderStatus` / `Segment` / `Verdict` / `RunStatus` / `GateStage` / `PriceBar` / `FinancialRecord` / `GroupAssignment` / `PointInTimeSnapshot` / `EventSignal` / `PreregistrationSpec` / `Order` / `OrderAttempt` / `CostBreakdown` / `Fill` / `RunRecord` / `ExperimentRecord`（`K: int | None`、`row_type`）/ `Benchmark` / `WindowStats` / `EventStudyResult` / `AttributionResult` / `StabilityResult` / `CalibrationResult`（含 `corrected_p` / `verdict`）/ `GateRecord` / `BacktestConfig`（`results_dir`/`registry_store_path`）/ `LedgerExportRow` + §4.1「异常清单」的 `BacktestError` 族 8 类）
   - 产出文件：`src/service/backtest/models.py`
   - 验证：`python -m pytest -q test/service/backtest/test_models.py`
   - 判定真伪：`PointInTimeSnapshot.__post_init__` 对 `trade_date > as_of` / `visible_from > as_of` 抛 `FutureDataError`（R10 负向）；`Fill.attempts` 可表达「封板失败→顺延成交」（QA-F7）；`ExperimentRecord.K=None` 可构造（QA-F8）；异常族按类型二分（QA-F5）。
 
-- [ ] **T2.2 定义 `BacktestConfig` 装载器（缺键即拒绝）**
-  - 设计依据：design.md §4.1 `config.py`、否-2、R7「费率配置缺失时拒绝执行」
-  - 产出文件：`src/service/backtest/config.py` + `config/app.yaml` 的 `backtest:` 段（键形态见 K1 §12.1，**不填数值**）
+- [ ] **T2.2 定义 `BacktestConfig` 装载器（缺键即拒绝 + 落盘路径可注入）**
+  - 设计依据：design.md §4.1 `BacktestConfig`（`results_dir`/`registry_store_path`）、`config.py`、否-2、R7「费率配置缺失时拒绝执行」、QA-F10
+  - 产出文件：`src/service/backtest/config.py` + `config/app.yaml` 的 `backtest:` 段（键形态见 K1 §12.1，**不填数值**；`results_dir` 默认 `data/backtest/results/`、`registry_store_path` 默认 `data/backtest/registry.ndjson`）
   - 验证：`python -m pytest -q test/service/backtest/test_config.py`
-  - 判定真伪：构造缺 `commission`/`stamp_tax`/`slippage_tiers` 的配置 → 抛 `MissingBacktestConfigError`，`exit != 0`；不含任何预埋默认业务值。
+  - 判定真伪：构造缺 `commission`/`stamp_tax`/`slippage_tiers` 的配置 → 抛 `MissingBacktestConfigError`，`exit != 0`；`BacktestConfig(results_dir=tmp_path, registry_store_path=tmp_path/...)` 可注入且落盘只经注入点（QA-F10）；不含任何预埋默认业务值。
 
 ---
 
@@ -121,11 +121,11 @@ Phase 7 CLI 装配与端到端
 
 ## Phase 5 · 台账（registry）
 
-- [ ] **T2.15 实验台账 append-only + 执行行/结果行 + 哈希校验 + 注入点**
-  - 设计依据：design.md §4.1 `ExperimentRegistry(store_path, *, clock, data_version)` + `append_run`/`append`/`get`/`next_experiment_id`/`validate_preregistration` + `RunRecord`/`ExperimentRecord`、R1/R2、台账存储机制、QA-F2/QA-F3/QA-F6/QA-F8
+- [ ] **T2.15 实验台账 append-only + 执行行/结果行 + 哈希校验 + 注入点 + 导出**
+  - 设计依据：design.md §4.1 `ExperimentRegistry(store_path, *, clock, data_version, results_dir)` + `append_run`/`append`/`get`/`next_experiment_id`/`validate_preregistration`/`write_result`/`export_ledger` + `RunRecord`/`ExperimentRecord`/`LedgerExportRow`、R1/R2/R4、台账存储机制、QA-F2/QA-F3/QA-F6/QA-F8/QA-F10
   - 产出文件：`src/service/backtest/registry.py` + `test/service/backtest/test_registry.py`
   - 验证：`python -m pytest -q test/service/backtest/test_registry.py`
-  - 判定真伪：同一预注册执行两次 → 两行、`experiment_id = f"{hypothesis_id}-{seq:04d}"` 两值不同；改已写入行 → 抛 `RegistryCorruptedError` + 执行行留痕（无 UPDATE/DELETE）；改假设 → 新实验 + `parent_experiment_id`（R2 各 Scenario）；`RunRecord(status=REJECTED/FAILED)` 可追加留痕；`validate_preregistration` 缺键报错含字段名。
+  - 判定真伪：同一预注册执行两次 → 两行、`experiment_id = f"{hypothesis_id}-{seq:04d}"` 两值不同；改已写入行 → 抛 `RegistryCorruptedError` + 执行行留痕（无 UPDATE/DELETE）；改假设 → 新实验 + `parent_experiment_id`（R2 各 Scenario）；`RunRecord(status=REJECTED/FAILED)` 可追加留痕；`validate_preregistration` 缺键报错含字段名；`export_ledger()` 返回 `LedgerExportRow` 清单且 `burnt=True` 体现额度用尽（QA-F10）；`write_result` 落盘到注入的 `results_dir`。
 
 - [ ] **T2.16 样本外烧毁 + K 累计**
   - 设计依据：design.md §4.1 `assert_not_burnt/mark_burnt/cumulative_K`、R3/R4/R5、QA-F2/QA-F5
@@ -138,10 +138,10 @@ Phase 7 CLI 装配与端到端
 ## Phase 6 · 校准与三级门禁（calibration + gates）
 
 - [ ] **T2.17 已知答案校准门禁 `calibration.py`**
-  - 设计依据：design.md §4.1 `run_calibration/assert_calibrated` + `CalibrationResult`（`passed/direction/ci/K/corrected_p/verdict`）、R18、KD-10-01/02、KQ-1/KQ-5/KQ-6、QA-F5/QA-F8
+  - 设计依据：design.md §4.1 `run_calibration/assert_calibrated` + `CalibrationResult`（`passed/direction/ci/K/corrected_p/verdict`）、R18、KD-10-01/02、KQ-1/KQ-5/KQ-6、QA-F5/QA-F8/QA-F9
   - 产出文件：`src/service/backtest/calibration.py` + `test/service/backtest/test_calibration.py`
   - 验证：`python -m pytest -q test/service/backtest/test_calibration.py`
-  - 判定真伪：「跌破 MA60」跑全 A 显著跑输买入持有 → `CalibrationResult(verdict=INVALID, passed=True)` 标记台子可信；复现不出 → 抛 `CalibrationFailedError`、`exit != 0` + 封锁研究输出 + 台账落 `RunRecord(status=FAILED)` 记校准失败；校准失败不被表述为「策略无效」（R18 各 Scenario）。
+  - 判定真伪：「跌破 MA60」跑全 A 显著跑输买入持有 → `CalibrationResult(verdict=INVALID, passed=True)` 标记台子可信；复现不出 → **库层 `assert_calibrated` 抛 `CalibrationFailedError`（QA-F9）** + 台账落 `RunRecord(status=FAILED)` 记校准失败；校准失败不被表述为「策略无效」（R18 各 Scenario）。
 
 - [ ] **T2.18 三级门禁状态机 `gates.py`**
   - 设计依据：design.md §4.1 `GateStateMachine`、R19、否-3、KD-9-01/06、Q7/KQ-4
@@ -153,11 +153,11 @@ Phase 7 CLI 装配与端到端
 
 ## Phase 7 · CLI 装配与端到端
 
-- [ ] **T2.19 CLI 子命令装配**
-  - 设计依据：design.md §4.0 `apps/backtest_cli.py`、B 项（pipeline 装配）
+- [ ] **T2.19 CLI 子命令装配（含 ledger 导出与退出码）**
+  - 设计依据：design.md §4.0 `apps/backtest_cli.py`、B 项（pipeline 装配）、§6.3（`ledger` 导出契约 + 退出码）、QA-F9/QA-F10
   - 产出文件：`src/apps/backtest_cli.py` + `pyproject.toml`（`[project.scripts]` 注册 `backtest`）+ `test/apps/test_backtest_cli.py`
   - 验证：`python -m pytest -q test/apps/test_backtest_cli.py`
-  - 判定真伪：`preregister` 写预注册文件并取到 commit；`run` 缺预注册 → `exit != 0` 且无结果行（R1）。
+  - 判定真伪：`preregister` 写预注册文件并取到 commit；`run` 缺预注册 → `exit != 0` 且无结果行（R1）；`ledger --experiment <id> --format json` 输出 `LedgerExportRow` JSON 数组（字段见 §4.1，QA-F10）；`calibrate` 门禁失败 → CLI 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（QA-F9）。
 
 - [ ] **T2.20 端到端 + 全量门禁**
   - 设计依据：proposal `## 成功标准` 5 条 + design.md §6.6/6.7

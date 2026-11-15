@@ -436,6 +436,30 @@ class GateRecord:
     stage_timestamps: dict[str, str]  # 每级通过时间
     evidence_experiment_ids: dict[str, str]  # 每级依据的实验 ID（R19）
     direction_agree: bool | None
+
+@dataclass(frozen=True)
+class BacktestConfig:
+    """回测运行配置（QA-F10：落盘路径可注入，测试不污染工作区）。"""
+    results_dir: Path                # 默认 Path("data/backtest/results/")，测试注入 tmp_path（QA-F10）
+    registry_store_path: Path        # 默认 Path("data/backtest/registry.ndjson")，测试注入 tmp_path（QA-F6）
+    # 其余口径参数（费率/税率/档位/切点/门禁阈值/块长等）来自 config/app.yaml backtest: 段，缺键即拒绝，不在此预置数值
+
+@dataclass(frozen=True)
+class LedgerExportRow:
+    """`ledger` 导出一行（QA-F10：覆盖 proposal S2 六类 + R4 额度用尽 + 执行状态）。"""
+    experiment_id: str
+    hypothesis_id: str
+    statement: str                  # 假设陈述（proposal S2「假设」）
+    params: dict                    # 参数
+    segments: tuple[str, ...]       # 样本区间（proposal S2「样本区间」）
+    K: int | None                   # K（proposal S2「K」）
+    metrics: dict                   # 结果指标（proposal S2「结果」）
+    verdict: str                    # VALID / INVALID / INCONCLUSIVE
+    burnt: bool                     # 是否触达样本外（proposal S2 + R4 S1「额度用尽」）
+    prereg_commit: str              # 预注册 commit（proposal S2）
+    run_status: str                 # 最近一次执行 RunStatus（PASSED / REJECTED / FAILED）
+    data_version: str
+    adjust_mode: str
 ```
 
 **函数签名（公开接口，T3 实现时不得擅自偏离；偏离须回本 design 修订）**
@@ -488,11 +512,13 @@ def partial_pooling(estimates, group_mean, *, shrink) -> tuple[float, ...]:
 def stability(result, *, cfg) -> StabilityResult:
     """分年度 / 分市场状态 / 分市值组；仅一段显著→标注（R14）。"""
 
-# registry.py —— append-only；注入点使测试可隔离、可确定性重放（QA-F6）
+# registry.py —— append-only；注入点使测试可隔离、可确定性重放（QA-F6/QA-F10）
 class ExperimentRegistry:
-    def __init__(self, store_path: Path, *, clock: Callable[[], str], data_version: str) -> None:
+    def __init__(self, store_path: Path, *, clock: Callable[[], str], data_version: str,
+                 results_dir: Path | None = None) -> None:
         """store_path：台账 NDJSON 路径（测试用 tmp_path，不碰真实 data/backtest/）；
-        clock：时间戳注入（测试注入固定时刻，断言 timestamps 确定性）；data_version：写入每行。"""
+        clock：时间戳注入（测试注入固定时刻，断言 timestamps 确定性）；data_version：写入每行；
+        results_dir：结果 JSON 落盘目录（QA-F10，默认取 BacktestConfig.results_dir；测试注入 tmp_path）。"""
     def append_run(self, record: RunRecord) -> None: ...              # 执行行（含拒绝/失败留痕，QA-F2）
     def append(self, record: ExperimentRecord) -> None: ...           # 结果行（PASSED 后追加）
     def get(self, experiment_id) -> ExperimentRecord: ...
@@ -501,10 +527,13 @@ class ExperimentRegistry:
     def assert_not_burnt(self, hypothesis_id, segment) -> None: ...   # R4：二次请求样本外抛 RegistryImmutableError 留痕
     def mark_burnt(self, hypothesis_id, experiment_id) -> None: ...   # 不可撤销
     def cumulative_K(self, study_scope) -> int: ...                   # R5：K 累计
+    def write_result(self, experiment_id, payload: dict) -> Path: ...  # 写 <results_dir>/<experiment_id>.json（QA-F10）
+    def export_ledger(self, *, experiment_id: str | None = None, hypothesis_id: str | None = None) -> list[LedgerExportRow]:
+        """导出结果行（QA-F10，覆盖 proposal S2 六类 + R4 额度用尽）；CLI `ledger` 打印为 JSON 数组。"""
 
 # calibration.py
 def run_calibration(*, cfg, loader) -> CalibrationResult: ...          # R18 校准题
-def assert_calibrated(registry) -> None: ...                           # 未过 → exit != 0，封锁研究输出
+def assert_calibrated(registry) -> None: ...                           # 库层：未过 → raise CalibrationFailedError（QA-F9）；CLI 捕获后 sys.exit(2)
 
 # gates.py —— 三级门禁状态机（R19）
 class GateStateMachine:
@@ -524,7 +553,7 @@ class MissingBacktestConfigError(BacktestError): ...   # R7 配置缺键：费�
 class FutureDataError(BacktestError): ...              # R10 越界访问 t 之后数据
 class RegistryCorruptedError(BacktestError): ...       # R2 台账哈希校验失败（被篡改）
 class RegistryImmutableError(BacktestError): ...       # R2/R4 修改已写入行 / 样本外二次请求 / 改假设未新开实验
-class CalibrationFailedError(BacktestError): ...       # R18 校准未通过（封锁研究输出，exit != 0）
+class CalibrationFailedError(BacktestError): ...       # R18 校准未通过（库层 raise；CLI 捕获后 sys.exit(2)）
 class GateSkipError(BacktestError): ...                # R19 门禁跳级请求被拒
 ```
 
@@ -539,13 +568,19 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | `CalibrationFailedError` | 校准题未复现「显著跑输」 | R18「先修台子，封锁输出」 |
 | `GateSkipError` | 门禁状态机收到跳级 transition | R19「跳级请求被拒并留痕」 |
 
+**失败表达二分（QA-F9：库层异常 vs CLI 退出码）**
+
+- **库层** `calibration.assert_calibrated()` 直接 `raise CalibrationFailedError`（带 `reason` / `corrected_p` / `verdict` 等字段）；单测只断 `pytest.raises(CalibrationFailedError)`，**不断 `SystemExit`**（TC-R18-02）。
+- **CLI 层** `apps/backtest_cli.py` 捕获 `CalibrationFailedError` → 打印到 **stderr** 并 `sys.exit(2)`（端到端断退出码非 0，TC-SC-01）。
+- **退出码语义**（新 `backtest` 子命令）：`1` = 参数/配置/数据错误（与既有 CLI `SystemExit(1)` 一致，见 `src/apps/cli.py`）；`2` = 门禁失败（校准未通过）。既有 CLI 的 `SystemExit(2)` 用于 argparse 用法错误、发生在子命令逻辑之前，与本子命令内的门禁失败 `2` 不同代码路径，不冲突。
+
 **台账存储机制（R2 append-only + QA-F2 双行模型的机械保证）**
 
 - 预注册文件（git 跟踪，R1「写入版本库并生成 commit」）：`config/backtest/preregistrations/<hypothesis_id>.yaml`（schema 见 `PreregistrationSpec`，必填字段缺一即报错并列出字段名）。
 - 运行台账（append-only，不入 git）：`data/backtest/registry.ndjson`。**每行** = `RunRecord`（执行行）或 `ExperimentRecord`（结果行），均带 `row_type` 判别符 + `record_sha256`（该行内容哈希）。写入只允许 `append`（追加一字节不覆盖），**不提供 UPDATE/DELETE 接口**；读取时逐行校验哈希，发现被篡改即抛 `RegistryCorruptedError`（R2 Scenario「修改已写入的台账行被拒绝」）。
   - **执行行（`RunRecord`）**：每次执行尝试一行——`RUNNING/PASSED/REJECTED/FAILED`；**拒绝与失败必须落执行行留痕**（R2 改假设被拒、R4 样本外二次被拒、R10 未来函数失败、R19 门禁跳级被拒）。
   - **结果行（`ExperimentRecord`）**：仅 `PASSED` 执行追加一行（含 verdict + metrics + K）；`REJECTED/FAILED` **不落结果行**（与 R1「缺失预注册不产生结果记录」一致）。
-- 结果 JSON（明账）：`data/backtest/results/<experiment_id>.json`；校准结果 `data/backtest/results/calibration.json`。
+- 结果 JSON（明账）：`<results_dir>/<experiment_id>.json`；校准结果 `<results_dir>/calibration.json`。`results_dir` 来自 `BacktestConfig.results_dir`（默认 `data/backtest/results/`），**可注入 tmp_path（QA-F10）**；台账 `store_path` 与结果 `results_dir` 是唯一落盘入口，测试不得写真实 `data/backtest/`。
 
 **撮合顺延与未来函数的具体机制（R8/R10 的防作弊）**
 
@@ -561,7 +596,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | R1 预注册先于跑数 | `registry.py::validate_preregistration` + `PreregistrationSpec` + `apps/backtest_cli.py::preregister` | 预注册文件入 git 并校验 commit；必填字段缺一 → 报错含字段名；缺失/未提交 → 拒绝、不落结果行 |
 | R2 台账 append-only + K 不可改 | `registry.py::ExperimentRegistry.append / append_run` + NDJSON 哈希 | 执行行（RunRecord）+ 结果行（ExperimentRecord）均 append、无 UPDATE/DELETE；改假设 → 新实验 + `parent_experiment_id`；篡改 → `RegistryCorruptedError` |
 | R3 三段切分 | `config.py::BacktestConfig.segments` + `Segment` 枚举 | 每段独立可用状态；跨段报告显式列出各段（不合并单一数字） |
-| R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` | 首次确认后写 `burnt=True`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕 |
+| R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` + `export_ledger` | 首次确认后写 `burnt=True`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕；`ledger` 导出 `burnt=True` 即「额度用尽」（QA-F10） |
 | R5 多重比较 + K | `metrics.py::multiple_testing_correction` + `registry.py::cumulative_K` | K 缺（`K=None`）→ `Verdict.INCONCLUSIVE`；校正方法预注册固定 |
 | R6 block bootstrap | `metrics.py::block_bootstrap` | 报告名义样本 + 有效样本（时间块）；禁 iid t 检验下结论 |
 | R7 成本摩擦 + 流动性上限 | `broker.py::execute_orders` + `config.py`（费率/档位） | 佣金/印花税/滑点/过户费四分量；缺配置 → `MissingBacktestConfigError`；超限截断标注 |
@@ -575,7 +610,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | R15 标签准入 + 切点纪律 | `universe.py::assign_groups` + 准入校验 | 三条件准入、软标签拒绝、结果标签禁用、季度重算不回改 |
 | R16 部分池化 | `metrics.py::partial_pooling` | 组内分位 + 收缩强度；拒绝绝对收益预测 |
 | R17 事件研究 MVP | `signal.py`（事件条件）+ `metrics.py::compute_event_study` + `EventStudyResult` | 20/60 日超额分布（每基准）+ 分年度/分档；允许「无信号」 |
-| R18 校准门禁 | `calibration.py::run_calibration / assert_calibrated` + `CalibrationResult` | 校准题显著跑输 → 可信；否则抛 `CalibrationFailedError` 封锁全部研究输出 |
+| R18 校准门禁 | `calibration.py::run_calibration / assert_calibrated` + `CalibrationResult` | 校准题显著跑输 → 可信；否则**库层抛 `CalibrationFailedError`，CLI 捕获后 `sys.exit(2)`** 封锁全部研究输出（QA-F9） |
 | R19 三级门禁 | `gates.py::GateStateMachine` | 回测→影子→实盘；跳级抛 `GateSkipError` 并留痕；唯一状态可查询 |
 
 ---
@@ -637,16 +672,18 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 
 - `src/apps/backtest_cli.py`（子命令：`preregister` / `run` / `calibrate` / `ledger` / `gate`）
 - `pyproject.toml`（`[project.scripts]` 注册 `backtest` 入口，或并入既有 CLI 子命令）
+- `ledger` 导出契约（QA-F10）：`ledger --experiment <id> | --hypothesis <id> --format json` → 输出 `LedgerExportRow` 的 JSON 数组（字段见 §4.1：`experiment_id / hypothesis_id / statement / params / segments / K / metrics / verdict / burnt / prereg_commit / run_status / data_version / adjust_mode`）；`burnt is True` 即表达「样本外额度已用尽」（R4 S1）。
+- 退出码（QA-F9）：`1` = 参数/配置/数据错误；`2` = 门禁失败（校准未通过）；门禁失败由 CLI 捕获 `CalibrationFailedError` 后 `sys.exit(2)`（stderr 打印「先修台子」）。
 
 ### 6.4 配置（T3 落，本波只登记不改）
 
-- `config/app.yaml`：新增 `backtest:` 段（键形态见 K1 §12.1，**不填数值**）
+- `config/app.yaml`：新增 `backtest:` 段（键形态见 K1 §12.1，**不填数值**）；其中 `backtest.results_dir`（默认 `data/backtest/results/`）与 `backtest.registry_store_path`（默认 `data/backtest/registry.ndjson`）为**可注入落盘路径**（QA-F10）
 - `config/backtest/preregistrations/<hypothesis_id>.yaml`（预注册文件，git 跟踪）
 
-### 6.5 运行产物（gitignore，不提交）
+### 6.5 运行产物（gitignore，不提交；路径经 `BacktestConfig` 注入）
 
-- `data/backtest/registry.ndjson`（台账，append-only）
-- `data/backtest/results/<experiment_id>.json`（明账结果）
+- `<registry_store_path>`（台账 NDJSON，append-only；默认 `data/backtest/registry.ndjson`）
+- `<results_dir>/<experiment_id>.json`（明账结果；默认 `data/backtest/results/`）
 
 ### 6.6 测试：`test/`（engineer，TDD 单测）
 
@@ -756,6 +793,8 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | QA-F6（medium，注入点） | §4.1 `ExperimentRegistry.__init__` | `ExperimentRegistry(store_path: Path, *, clock: Callable[[], str], data_version: str)`；测试用 `tmp_path` 上的 registry，`clock` 注入固定时刻，`data_version` 由调用方/数据快照提供并写入每行 |
 | QA-F7（medium，封板失败→顺延表达） | §4.1 `OrderAttempt` + `Fill` | `Fill.attempts: tuple[OrderAttempt, …]`（每次目标日尝试的 `attempt_date/status/reason`）；`fill_date` = 末次 FILLED 的 `attempt_date`；`delay_days` = 首个成功 `fill_date` 与首个目标日（t+1）的交易日差，可数 |
 | QA-F8（low，三处字段） | §4.1 `ExperimentRecord` / `CalibrationResult` + `registry.next_experiment_id` | ① `experiment_id = f"{hypothesis_id}-{seq:04d}"`（seq 由 registry 单调递增）；② `K: int | None`（None 表达「未报告 K」→ `INCONCLUSIVE`）；③ `CalibrationResult.corrected_p: float | None` + `verdict: Verdict` |
+| QA-F9（low，校准失败表达二分） | §4.1 `assert_calibrated` 签名 + 「失败表达二分」小节 + §4.2 R18 + §6.3 退出码 | 库层 `assert_calibrated()` 直接 `raise CalibrationFailedError`（单测断 `pytest.raises`，不断 `SystemExit`）；CLI 捕获后 `sys.exit(2)`；退出码 `1`=参数/配置/数据错误、`2`=门禁失败 |
+| QA-F10（medium，ledger 导出 + 结果目录注入） | §4.1 `BacktestConfig`（`results_dir`/`registry_store_path`）+ `LedgerExportRow` + `ExperimentRegistry.__init__(..., results_dir)` / `write_result` / `export_ledger` + §6.3/§6.4/§6.5 | 导出字段清单 = `experiment_id / hypothesis_id / statement / params / segments / K / metrics / verdict / burnt / prereg_commit / run_status / data_version / adjust_mode`（JSON 数组）；`burnt=True` 表达「额度用尽」；结果目录可注入 tmp_path |
 
 ---
 
