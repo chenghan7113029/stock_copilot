@@ -466,7 +466,7 @@ class CommissionSpec:   rate: float; min: float                    # Q4 落值�
 @dataclass(frozen=True)
 class StampTaxSpec:     side: str; rate: float                     # Q4 落值：side="sell"、rate=0.1%（仅卖出）（§9.3）
 @dataclass(frozen=True)
-class TransferFeeSpec:  rate: float; included: bool                # Q4 落值：rate=0.001%、included=true（§9.3）
+class TransferFeeSpec:  rate: float; included: bool                # Q4 落值：rate=0.001%、included=true（并入佣金，不再单列，§9.3）
 @dataclass(frozen=True)
 class SlippageTierSpec: amount_lower: float; amount_upper: float; bps: float  # Q4 落值：<1亿20bps / 1–5亿10bps / ≥5亿5bps（§9.3）
 @dataclass(frozen=True)
@@ -499,7 +499,7 @@ class BacktestConfig:
     seal_definition: str | None = None                  # 待 Q5：一字板/日终封板/盘中触及
     suspend_source: str | None = None                   # 待 Q5：停牌数据源
     cut_basis: str | None = None                        # 待 Q6
-    tier_count: int | None = None                       # 待 Q6
+    tier_count: int | None = None                       # Q6 落值：5（Owner 二次确认「5 档」；5×5=25 组）
     recompute_freq: str | None = None                   # 待 Q6
     min_group_size: int | None = None                   # 待 Q6
     gate_criteria: GateCriteria | None = None           # 待 Q7（gates.*）
@@ -718,7 +718,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | R2 台账 append-only + K 不可改 | `registry.py::ExperimentRegistry.append / append_run` + NDJSON 哈希 | 执行行（RunRecord）+ 结果行（ExperimentRecord）均 append、无 UPDATE/DELETE；改假设 → 新实验 + `parent_experiment_id`；篡改 → `RegistryCorruptedError` |
 | R3 三段切分 | `config.py::BacktestConfig.segments` + `Segment` 枚举 | 每段独立可用状态；跨段报告显式列出各段（不合并单一数字） |
 | R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` + `export_ledger` | `mark_burnt` 追加执行行 `RunRecord(reason="样本外已烧毁")`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕；导出 `burnt` 按该执行行派生（T2-fix-4） |
-| R5 多重比较 + K | `metrics.py::multiple_testing_correction` + `registry.py::cumulative_K` | K 缺（`K=None`）→ `Verdict.INCONCLUSIVE`；校正方法预注册固定 |
+| R5 多重比较 + K | `metrics.py::multiple_testing_correction` + `registry.py::cumulative_K` | K 缺（`K=None`）→ `Verdict.INCONCLUSIVE`；校正方法预注册固定；换档（`tier_count`）计入 K（§9.3） |
 | R6 block bootstrap | `metrics.py::block_bootstrap` | 报告名义样本 + 有效样本（时间块）；禁 iid t 检验下结论 |
 | R7 成本摩擦 + 流动性上限 | `broker.py::execute_orders` + `config.py`（费率/档位/`liquidity_cap`） | 佣金/印花税/滑点/过户费四分量；缺配置 → `MissingBacktestConfigError`；上限 = `avg_amount × max_participation`，`avg_amount` 缺 → `BacktestDataGapError`，超限截断标注（T2-fix-5） |
 | R8 A 股撮合约束 | `broker.py` 状态机 + `data.py`（涨跌停/停牌字段）+ `OrderAttempt` | T+1 / 封板顺延 / 停牌跳过，逐次 attempt 留痕，`delay_days` 可数 |
@@ -728,7 +728,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | R12 生存偏差 | `universe.py::build_universe(as_of, universe_scope, *, provider: UniverseProvider)` + `data_provider/backtest/universe.py` | 含退市（退市日前计入）/当时 ST/历史成分；数据源不可得 → `BacktestDataGapError`（可得为空 → 空 tuple 合法） |
 | R13 基准 + 归因 | `metrics.py::attribution(returns: dict{"rule","market_portfolio"}, factors: dict{"size","value","momentum"})` + `AttributionResult` | 双基准（买入持有 + 市场组合）+ beta（由 market_portfolio 回归推导）/规模/价值/动量 + `unexplained` + `verdict`（缺 market_portfolio → INCONCLUSIVE） |
 | R14 稳定性分档 | `metrics.py::stability` + `StabilityResult` | 分年度/牛熊震荡/市值组；仅一段显著 → 「仅在 X 段有效」（`scope_note`） |
-| R15 标签准入 + 切点纪律 | `universe.py::assign_groups` + 准入校验 | 三条件准入、软标签拒绝、结果标签禁用、季度重算不回改 |
+| R15 标签准入 + 切点纪律 | `universe.py::assign_groups` + 准入校验 | 三条件准入、软标签拒绝、结果标签禁用、季度重算不回改；`tier_count=5`（5×5=25 组）换档计入 K（§9.3） |
 | R16 部分池化 | `metrics.py::partial_pooling` | 组内分位 + 收缩强度；拒绝绝对收益预测 |
 | R17 事件研究 MVP | `signal.py`（事件条件）+ `metrics.py::compute_event_study(observations, *, cfg)` + `EventStudyResult`（含 `verdict`） | 20/60 日超额分布（每基准）+ 分年度/分档；空观测 → `verdict=INCONCLUSIVE`；允许「无信号」 |
 | R18 校准门禁 | `calibration.py::run_calibration / assert_calibrated` + `CalibrationResult` | 校准题显著跑输 → 可信；否则**库层抛 `CalibrationFailedError`，CLI 捕获后 `sys.exit(2)`** 封锁全部研究输出（QA-F9） |
@@ -906,36 +906,36 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 
 ### 9.3 口径落值表（Owner 2026-11-15 逐条答复，**权威**）
 
-> 本节落值替代 §9.1/§9.2 的「待开关」。来源格式统一为「人工答复:Owner:2026-11-15:<主题>」（见 `config/knowledge/_design.md` §2.3）。数值由 engineer 落 `config/app.example.yaml`（tracked），**不在代码预埋**；唯一标注待确认的是 `tier_count=3`（继承默认）。
+> 本节落值替代 §9.1/§9.2 的「待开关」。来源拆**三栏**：`Owner 已答（2026-11-15）` / `继承默认（既有口径/知识条目）` / `行业惯例（待 Owner 确认）`，逐行标真实来源、不把惯例写成 Owner 答。数值由 engineer 落 `config/app.example.yaml`（tracked），**不在代码预埋**。**行业惯例待确认项当前 = 无**。
 
-| 键名 | 落值（语义 / 数值） | 来源 | 影响 Requirement |
+| 键名 | 落值（语义 / 数值） | 来源（三栏） | 影响 Requirement |
 | --- | --- | --- | --- |
-| `burn_scope` | `"hypothesis"`（样本外按「假设」计烧毁；换实现/换评价指标**不算**第二次） | 人工答复:Owner:2026-11-15:样本外烧毁粒度 | R4/R2/R19 |
-| `exception_approver` | `"Owner"`（烧毁例外批准者） | 同上 | R4 |
-| `k_components` | `("params", "cut_point", "window")`（K 按实际评估组合计；参数网格 21 组 = K 计 21） | 人工答复:Owner:2026-11-15:K 计数边界 | R5/R2 |
-| `segments` 右边界 / `roll_rule` | 右边界 = `max(trade_date)`（数据截止日）；每年 1 月滚动；旧样本外标 `expired` 留档 | 人工答复:Owner:2026-11-15:样本右边界/滚动 | R3/R4 |
-| `commission` | `{rate: 0.01254%, min: 5 元}`（按成交额、**双边**收取：买入与卖出各计一次。⚠️ Owner 更正为 0.01254%，非 0.05%） | 人工答复:Owner:2026-11-15:费率现值 | R7 |
-| `stamp_tax` | `{side: "sell", rate: 0.1%}`（仅卖出方向） | 同上 | R7 |
-| `transfer_fee` | `{rate: 0.001%, included: true}`（计入成本） | 同上 | R7 |
-| `slippage_tiers` | `[{0, 1e8, 20bps}, {1e8, 5e8, 10bps}, {5e8, +∞, 5bps}]`（<1 亿 20bps / 1–5 亿 10bps / ≥5 亿 5bps） | 同上 | R7 |
-| `liquidity_cap` | `[{adv_tier: "adv20", max_participation: 0.01}]`（单笔 ≤ 20 日均额 1%） | 同上 | R7 |
-| `limit_pct` | `{board: 10%, st: 5%, star_chinext: 20%, bj: 30%}` | 人工答复:Owner:2026-11-15:涨跌停判定与停牌源 | R8 |
-| `seal_definition` | 一字板（日终无成交）→ 不可成交；收盘封板但盘中打开 → 可成交 + **滑点加倍** | 同上 | R8 |
-| `suspend_source` | tushare 优先 / baostock 兜底 | 同上 | R8 |
-| `cut_basis` | `"all_a_cross_section"`（全 A 时点截面分位） | 人工答复:Owner:2026-11-15:三硬标签切点基准 | R15/R14/R5 |
-| `tier_count` | `3`（**⚠️ 继承默认，未经 Owner 显式确认**）；换档计入 K | 同上 | R15/R5 |
-| `recompute_freq` / `min_group_size` | 季度重算 / 30（沿用 KD-6-04/05 既有口径） | 同上 | R15/R14 |
-| `gates.shadow` | `{min_months: 3, max_months: 12, clock: "trading_day"}`（**3 个月起、12 个月封顶、按交易日**；规则改则清零） | 人工答复:Owner:2026-11-15:三级门禁判据 + 影子期计时（KQ-4） | R19 |
-| `gates.direction_agree` | 与回测同号且年化差 ≤ 回测年化波动的 50% | 同上 | R19 |
-| `gates.small_position` | 权益 10% 与单票 1% **取小** | 同上 | R19 |
-| `custom_allowed` | `true`（允许 20/60 之外窗口） | 人工答复:Owner:2026-11-15:事件研究窗口 | R17/R5 |
-| `k_cost_per_window` | `1`（每个额外窗口计入 K 一次） | 同上 | R17/R5 |
-| `calibration.min_history_days` | `60`（<60 交易日不触发、标注排除并报排除标的数） | 人工答复:Owner:2026-11-15:校准题次新股处理（KQ-1） | R18/R17 |
-| `block_length` / `n_bootstrap` | `20` / `1000`（时间块聚类重采样） | 人工答复:Owner:2026-11-15:块重采样口径（KQ-2） | R6/R5 |
-| `shrink` | `"auto_by_sample_size"`（按样本量自动收缩） | 人工答复:Owner:2026-11-15:收缩强度（KQ-3） | R16 |
-| `significance`（校准/门禁共用） | 校正后**单尾**显著 + CI 不含 0 | 人工答复:Owner:2026-11-15:「显著」判据（KQ-5） | R18/R19/R5 |
-| `calibration.rerun_triggers` | 首启 / 撮合变更 / 数据源变更 / 口径变更 / 每 12 个月；由 Owner 签署 | 人工答复:Owner:2026-11-15:校准重跑触发（KQ-6） | R18/R2 |
-| `stability.market_state` | 沪深 300 滚动 250 日收益 ±15% 判牛/熊/震荡；回撤 >20% 并入熊 | 人工答复:Owner:2026-11-15:牛熊震荡判定（KQ-7） | R14 |
+| `burn_scope` | `"hypothesis"`（样本外按「假设」计烧毁；换实现/换评价指标**不算**第二次） | Owner 已答:2026-11-15:样本外烧毁粒度 | R4/R2/R19 |
+| `exception_approver` | `"Owner"`（烧毁例外批准者，**保留**） | Owner 已答:2026-11-15:样本外烧毁粒度（二次确认：留着这个口子） | R4 |
+| `k_components` | `("params", "cut_point", "window")`（K 按实际评估组合计；参数网格 21 组 = K 计 21） | Owner 已答:2026-11-15:K 计数边界 | R5/R2 |
+| `segments` 右边界 / `roll_rule` | 右边界 = `max(trade_date)`（数据截止日）；每年 1 月滚动；旧样本外标 `expired` 留档 | Owner 已答:2026-11-15:样本右边界/滚动 | R3/R4 |
+| `commission` | `{rate: 0.01254%, min: 5 元}`（按成交额、**双边**：买卖都收。⚠️ Owner 更正为 0.01254%，非 0.05%） | Owner 已答:2026-11-15:费率现值（二次确认：双边） | R7 |
+| `stamp_tax` | `{side: "sell", rate: 0.1%}`（仅卖出方向） | Owner 已答:2026-11-15:费率现值 | R7 |
+| `transfer_fee` | `{rate: 0.001%, included: true}`（**并入佣金，不再单列**；rate 仍记录但按并入处理） | Owner 已答:2026-11-15:费率现值（二次确认：并入佣金） | R7 |
+| `slippage_tiers` | `[{0, 1e8, 20bps}, {1e8, 5e8, 10bps}, {5e8, +∞, 5bps}]`（<1 亿 20bps / 1–5 亿 10bps / ≥5 亿 5bps） | Owner 已答:2026-11-15:费率现值 | R7 |
+| `liquidity_cap` | `[{adv_tier: "adv20", max_participation: 0.01}]`（单笔 ≤ 20 日均额 1%） | Owner 已答:2026-11-15:费率现值 | R7 |
+| `limit_pct` | `{board: 10%, st: 5%, star_chinext: 20%, bj: 30%}` | Owner 已答:2026-11-15:涨跌停判定与停牌源 | R8 |
+| `seal_definition` | 一字板（日终无成交）→ 不可成交；收盘封板但盘中打开 → 可成交 + **滑点加倍** | Owner 已答:2026-11-15:涨跌停判定与停牌源 | R8 |
+| `suspend_source` | tushare 优先 / baostock 兜底 | Owner 已答:2026-11-15:涨跌停判定与停牌源 | R8 |
+| `cut_basis` | `"all_a_cross_section"`（全 A 时点截面分位） | Owner 已答:2026-11-15:三硬标签切点基准 | R15/R14/R5 |
+| `tier_count` | **`5`**（Owner 二次确认「5 档」；组数上限 5×5=25，仍在 9–27 区间）；换档计入 K | Owner 已答:2026-11-15:三硬标签切点基准（二次确认：5 档） | R15/R5 |
+| `recompute_freq` / `min_group_size` | 季度重算 / 30 | 继承默认:KD-6-04/05（飞书 §五·5.3/5.4 既有口径） | R15/R14 |
+| `gates.shadow` | `{min_months: 3, max_months: 12, clock: "trading_day"}`（**3 个月起、12 个月封顶、按交易日**；规则改则清零） | Owner 已答:2026-11-15:三级门禁判据 + KQ-4 | R19 |
+| `gates.direction_agree` | 与回测同号且年化差 ≤ 回测年化波动的 50% | Owner 已答:2026-11-15:三级门禁判据 | R19 |
+| `gates.small_position` | 权益 10% 与单票 1% **取小** | Owner 已答:2026-11-15:三级门禁判据 | R19 |
+| `custom_allowed` | `true`（允许 20/60 之外窗口） | Owner 已答:2026-11-15:事件研究窗口 | R17/R5 |
+| `k_cost_per_window` | `1`（每个额外窗口计入 K 一次） | Owner 已答:2026-11-15:事件研究窗口 | R17/R5 |
+| `calibration.min_history_days` | `60`（<60 交易日不触发、标注排除并报排除标的数） | Owner 已答:2026-11-15:校准题次新股处理（KQ-1） | R18/R17 |
+| `block_length` / `n_bootstrap` | `20` / `1000`（时间块聚类重采样） | Owner 已答:2026-11-15:块重采样口径（KQ-2） | R6/R5 |
+| `shrink` | `"auto_by_sample_size"`（按样本量自动收缩） | Owner 已答:2026-11-15:收缩强度（KQ-3） | R16 |
+| `significance`（校准/门禁共用） | 校正后**单尾**显著 + CI 不含 0 | Owner 已答:2026-11-15:「显著」判据（KQ-5） | R18/R19/R5 |
+| `calibration.rerun_triggers` | 首启 / 撮合变更 / 数据源变更 / 口径变更 / 每 12 个月；由 Owner 签署 | Owner 已答:2026-11-15:校准重跑触发（KQ-6） | R18/R2 |
+| `stability.market_state` | 沪深 300 滚动 250 日收益 ±15% 判牛/熊/震荡；回撤 >20% 并入熊 | Owner 已答:2026-11-15:牛熊震荡判定（KQ-7） | R14 |
 
 ---
 

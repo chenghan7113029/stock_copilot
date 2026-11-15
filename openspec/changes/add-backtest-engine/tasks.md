@@ -71,7 +71,7 @@ Phase 7 CLI 装配与端到端
   - 设计依据：design.md §4.1 `assign_groups`、R15/R16、KD-6-05/KD-6-07
   - 产出文件：`src/service/backtest/universe.py` + `test/service/backtest/test_universe.py`
   - 验证：`python -m pytest -q test/service/backtest/test_universe.py`
-  - 判定真伪：软标签/结果标签作为分组维度被拒；`cut_basis="all_a_cross_section"`（全 A 时点截面分位）、`tier_count=3`（继承默认、待 Owner 显式确认）、换档计入 K（§9.3，T2-fix-8）；2021Q2 重算不回改 2020 及之前分组（R15 Scenario）。
+  - 判定真伪：软标签/结果标签作为分组维度被拒；`cut_basis="all_a_cross_section"`（全 A 时点截面分位）、`tier_count=5`（Owner 二次确认「5 档」，5×5=25 组）、换档计入 K（§9.3，T2-fix-8/T2-fix-9）；2021Q2 重算不回改 2020 及之前分组（R15 Scenario）。
 
 ---
 
