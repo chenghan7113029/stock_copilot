@@ -51,6 +51,17 @@
 | `IMP-add-backtest-engine-09` | `verification.md` §11.6「未覆盖项」+ §11.10「**R3 跨段请求拒绝入口**：§4.1 未单列入口，仅断配置不变量」；现覆盖仅 `TC-R03-02`（配置不变量） | **R3**（跨段报告必须显式列出各段、不得只给合并数字）；`design.md` §4.1、`tasks.md` T2.4 面 | `add-cross-segment-request-guard` | P1 下一波 | 立即（准入 1/2/3 全满足：新增入口级拒绝 + 对应用例可独立成 change；若判定「配置不变量已足够」，须在 design 显式登记该判断后关闭，避免下一波重复讨论） | 2026-11-15 |
 | `IMP-add-backtest-engine-10` | `verification.md` §11.10「图表：`matplotlib` 未安装，本 change out of scope」+ `docs/agent-team/ENV.md`（`matplotlib` ❌ 未安装，需先登记再装） | 无 requirement（proposal 已 out of scope）；报告/图表渲染归 `service/report` 既有能力 | `add-backtest-result-charts` | P2 观察 | 观察（**准入 2 不满足**：不落到任何需求锚点，且须先登记依赖；等 Owner 明确要看图再立项） | 2026-11-15 |
 
+> **状态更新（2026-11-15，Owner 答复口径后）**：见下方「状态更新」小节。上方主表（优先级 / 分流）保留写入时的原样**不覆盖**，状态变化一律追加。
+
+#### 状态更新（2026-11-15：Owner 答复 15 条口径）
+
+> 触发：Owner 2026-11-15 答复 Q1–Q8 + KQ-1…KQ-7 → design 落值（t32，`design.md` §9.3）→ 知识库落库（t33，`config/knowledge/canon/` 22 条 canon + 1 条 hypotheses）。**「已答复 / 已落库」不等于「已实现 / 已验证」**。
+
+| ID | 更新后状态 | 依据 | 剩余动作 | 记录时间 |
+| --- | --- | --- | --- | --- |
+| `IMP-add-backtest-engine-07`（口径波） | **答复完成，波次转「实现 + 复验」段**（优先级保持 P0；不再是「等 Owner 答复」状态） | t32 `design.md` §9.3（24 键行覆盖 15 条答复，提交 `54ea511`）+ t33 `config/knowledge/canon/`（`CAN-SAMPLE-001/002`、`CAN-STATS-001…005`、`CAN-COST-001…005`、`CAN-MATCH-001…004`、`CAN-GROUP-001` + `HYP-GROUP-001`、`CAN-GATE-001…003`、`CAN-CAL-001/002`；提交 `3cd0128`，`check_knowledge_source.py` exit 0） | ① 实现落值（t34：把 §9.3 的值落进 `config/app.example.yaml` 并由消费处读取、缺值仍拒绝）；② 复验（t35：按新口径复跑并出终稿）；③ 唯一保留待确认项 = Q6 的 `tier_count=3`（`HYP-GROUP-001`，`review_at: 2027-02-15`），Owner 显式确认后转 canon | 2026-11-15 |
+| `IMP-add-backtest-engine-08`（数据波） | **P0 未变**（不因口径答复而降级） | Owner 答复只解决「口径怎么算」，不解决「数据从哪来」：后复权全 A（A1）、退市 / ST / 历史成分名单（A4）、`avg_amount` 源仍缺（`src/dao/models.py:134`；三源仅前复权 `baostock/fetcher.py:363` / `tushare/fetcher.py:295` / `akshare/fetcher.py:109`） | 按原计划起 `add-backtest-data-prerequisites`；本条与 IMP-07 的 ① 都完成后，proposal S1 才能从「机制层」走到「业务层」 | 2026-11-15 |
+
 #### 本波已闭环（留痕，不占改进点）
 
 > 上游 findings 里已在本波修完的条目，只留痕供下一波查账，**不再作为改进点排期**。
