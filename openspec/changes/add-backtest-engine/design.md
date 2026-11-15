@@ -183,7 +183,7 @@ src/service/backtest/
 
 src/data_provider/backtest/
 ├── __init__.py
-├── adjust_price.py      # 后复权价 + 除权因子（Q4/Q5 未答复前：仅契约，缺失抛 BacktestDataGapError）
+├── adjust_price.py      # 后复权价 + 除权因子（数据源缺 → BacktestDataGapError）
 ├── market_rules.py      # 成交额 / 涨跌停价 / 停牌（同上）
 ├── universe.py          # 退市 / ST / 历史成分（同上）
 └── financial_timing.py  # ann_date（公告日）对齐（同上）
@@ -205,7 +205,7 @@ apps/cli ──▶ service/backtest ──▶ data_provider/backtest + dao ─�
 
 ### 4.1 契约：dataclass 与函数签名
 
-> 约定：数值字段一律 `Optional` 且**无默认业务值**；来自 `config/app.yaml backtest:` 段，缺键即拒绝。任何「待确认」数值不在此写死（见 §8 Open Questions）。
+> 约定：数值字段一律 `Optional` 且**无默认业务值**；来自 `config/app.yaml backtest:` 段，缺键即拒绝。落值见 **§9.3（Owner 2026-11-15）**；仅 `max_delay_days` / `min_events` 仍待确认（Owner 未答复，值由配置给）。
 
 **枚举（`models.py`）**
 
@@ -326,7 +326,7 @@ class CostBreakdown:
     commission: float               # 佣金（含最低额判定）
     stamp_tax: float                # 卖出印花税（仅卖出方向）
     slippage: float                 # 滑点（按成交额分档）
-    transfer_fee: float             # 过户费（是否计入待 Q4）
+    transfer_fee: float             # 过户费（并入佣金，included=true，§9.3）
     total: float
 
 @dataclass(frozen=True)
@@ -416,7 +416,7 @@ class EventStudyResult:
     windows: dict[str, dict[str, WindowStats]]   # {window(20/60): {benchmark_kind: WindowStats}}；空观测 = {}
     n_events: int                   # 空观测 = 0
     inference_method: str           # "block_bootstrap"
-    block_length: int | None        # KQ-2 未答复：None；缺键即拒绝发生在 cfg 层
+    block_length: int | None        # KQ-2 落值：20；None=缺键即拒绝（§9.3）
     n_bootstrap: int | None
 
 @dataclass(frozen=True)
@@ -436,7 +436,7 @@ class AttributionResult:
 class StabilityResult:
     """R14 稳定性（QA-F4）：三维分档 + 范围说明。"""
     by_year: dict[str, WindowStats]
-    by_market_state: dict[str, WindowStats]     # KQ-7 未答复：该维度「口径未定」不参与判定
+    by_market_state: dict[str, WindowStats]     # KQ-7 落值：沪深300滚动250日±15%、回撤>20%并入熊（§9.3）
     by_cap_tier: dict[str, WindowStats]
     scope_note: str                 # 「仅在 X 段有效」/「样本不足」标注
 
@@ -447,7 +447,7 @@ class CalibrationResult:
     direction: str                  # 「显著跑输」/「未复现」
     ci: tuple[float, float] | None
     K: int | None                   # QA-F8：缺 K 可表达
-    corrected_p: float | None       # QA-F8：校正后 p（KQ-5 判据未答复前可为 None，但字段必须存在）
+    corrected_p: float | None       # QA-F8 + KQ-5 落值：校正后单尾显著 + CI 不含 0（§9.3）；字段仍可为 None
     verdict: Verdict                # QA-F8 + T2-fix-6：校准题所测**规则本身**的判定；「跌破 MA60 卖出」显著跑输 → INVALID（该规则有害）
     params: dict
     notes: tuple[str, ...]
@@ -486,32 +486,32 @@ class BacktestConfig:
     必须键缺失 → `MissingBacktestConfigError`；待 Q 键形状固定，**落值见 §9.3（Owner 2026-11-15）**，值经 `config/app.example.yaml` 由 engineer 落，消费处缺值即拒绝（不预埋代码默认）。"""
     results_dir: Path                # 必须：默认 Path("data/backtest/results/")，可注入 tmp_path（QA-F10）
     registry_store_path: Path        # 必须：默认 Path("data/backtest/registry.ndjson")，可注入 tmp_path（QA-F6）
-    segments: tuple[Segment, ...]    # 必须：三段年份（R3，年份 canon；边界细节 Q3 未答复按 A2 并标注）
-    windows: tuple[int, ...]         # 必须：事件窗口（R17，默认 [20, 60]）
-    max_delay_days: int | None       # 必须键：撮合顺延上限（防死循环）；None=缺 → 拒绝撮合，值不预埋
-    min_events: int | None           # 必须键：事件数下限（R17）；None=缺 → 不出结论，值不预埋
-    commission: CommissionSpec | None = None            # 待 Q4
-    stamp_tax: StampTaxSpec | None = None               # 待 Q4
-    transfer_fee: TransferFeeSpec | None = None         # 待 Q4
-    slippage_tiers: tuple[SlippageTierSpec, ...] | None = None  # 待 Q4
-    liquidity_cap: tuple[LiquidityCapSpec, ...] | None = None   # 待 Q4
-    limit_pct: dict | None = None                       # 待 Q5：{board, st, star, chinext, bj}
-    seal_definition: str | None = None                  # 待 Q5：一字板/日终封板/盘中触及
-    suspend_source: str | None = None                   # 待 Q5：停牌数据源
-    cut_basis: str | None = None                        # 待 Q6
+    segments: tuple[Segment, ...]    # 必须：三段年份；右边界=max(trade_date)、每年 1 月滚动、旧样本外 expired（§9.3 Q3）
+    windows: tuple[int, ...]         # 必须：事件窗口（默认 [20, 60]；custom_allowed=true 时允许扩展，§9.3 Q8）
+    max_delay_days: int | None       # 必须键（**待确认**：Owner 未答复，撮合顺延安全上限值未定）；None=缺 → 拒绝撮合
+    min_events: int | None           # 必须键（**待确认**：Owner 未答复，事件数下限值未定）；None=缺 → 不出结论
+    commission: CommissionSpec | None = None            # Q4 落值：rate=0.01254%（双边）、min=5 元（§9.3）
+    stamp_tax: StampTaxSpec | None = None               # Q4 落值：side="sell"、rate=0.1%（§9.3）
+    transfer_fee: TransferFeeSpec | None = None         # Q4 落值：rate=0.001%、included=true（并入佣金，§9.3）
+    slippage_tiers: tuple[SlippageTierSpec, ...] | None = None  # Q4 落值：<1亿20bps / 1–5亿10bps / ≥5亿5bps（§9.3）
+    liquidity_cap: tuple[LiquidityCapSpec, ...] | None = None   # Q4 落值：adv20、max_participation=0.01（§9.3）
+    limit_pct: dict | None = None                       # Q5 落值：{board:10%, st:5%, star_chinext:20%, bj:30%}（§9.3）
+    seal_definition: str | None = None                  # Q5 落值：一字板不可成交；盘中打开可成交+滑点加倍（§9.3）
+    suspend_source: str | None = None                   # Q5 落值：tushare 优先 / baostock 兜底（§9.3）
+    cut_basis: str | None = None                        # Q6 落值："all_a_cross_section"（全 A 时点截面分位，§9.3）
     tier_count: int | None = None                       # Q6 落值：5（Owner 二次确认「5 档」；5×5=25 组）
-    recompute_freq: str | None = None                   # 待 Q6
-    min_group_size: int | None = None                   # 待 Q6
-    gate_criteria: GateCriteria | None = None           # 待 Q7（gates.*）
-    block_length: int | None = None                     # 待 KQ-2
-    n_bootstrap: int | None = None                      # 待 KQ-2
-    shrink: float | None = None                         # 待 KQ-3
-    burn_scope: str | None = None                       # 待 Q1
-    burn_counts_as_second: tuple[str, ...] | None = None  # 待 Q1
-    exception_approver: str | None = None               # 待 Q1
-    k_components: tuple[str, ...] | None = None         # 待 Q2
-    custom_allowed: bool | None = None                  # 待 Q8
-    k_cost_per_window: int | None = None                # 待 Q8
+    recompute_freq: str | None = None                   # 继承默认：季度重算（KD-6-05，§9.3）
+    min_group_size: int | None = None                   # 继承默认：30（KD-6-04，§9.3）
+    gate_criteria: GateCriteria | None = None           # Q7/KQ-4 落值：shadow{3,12,trading_day} 等（§9.3）
+    block_length: int | None = None                     # KQ-2 落值：20（§9.3）
+    n_bootstrap: int | None = None                      # KQ-2 落值：1000（§9.3）
+    shrink: float | None = None                         # KQ-3 落值："auto_by_sample_size"（§9.3）
+    burn_scope: str | None = None                       # Q1 落值："hypothesis"（§9.3）
+    burn_counts_as_second: tuple[str, ...] | None = None  # Q1 落值：[]（换实现/换指标不算第二次）
+    exception_approver: str | None = None               # Q1 落值："Owner"（保留，§9.3）
+    k_components: tuple[str, ...] | None = None         # Q2 落值：("params","cut_point","window")（§9.3）
+    custom_allowed: bool | None = None                  # Q8 落值：true（§9.3）
+    k_cost_per_window: int | None = None                # Q8 落值：1（§9.3）
 
 @dataclass(frozen=True)
 class LedgerExportRow:
@@ -685,13 +685,13 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | 校准要素 | 口径（spec 固定） |
 | --- | --- |
 | 校准题 | 「跌破 MA60 卖出」跑全 A（R18 Scenario） |
-| 样本区间 | R3 三段年份（边界细节 Q3 未答复按 A2「右边界=数据截止日」并标注） |
+| 样本区间 | R3 三段年份；右边界=`max(trade_date)`、每年 1 月滚动、旧样本外 `expired`（§9.3 Q3） |
 | 窗口 | `max(cfg.windows)`（= 60，spec R17 固定 [20, 60]） |
 | K | 每次校准执行计 1 次 K（spec R5/R18「报告 K 与校正后判定」） |
-| 「显著」判据 | 95% CI 不含 0（spec R18「置信区间不含 0」；KQ-5 未答复，不预埋 p 阈值） |
+| 「显著」判据 | 校正后**单尾**显著 + CI 不含 0（§9.3 KQ-5） |
 | 成本 | 走 `broker.execute_orders` 的**真实四分量**（R7）；Q4 成本键缺失 → `MissingBacktestConfigError`（**不采用比例成本近似**、不按 0） |
 | 撮合 | T+1 / 封板顺延 / 停牌跳过 / 流动性上限（R8/R7，同正式回测路径） |
-| 次新股 MA60 | 沿用 tech 口径「不足 60 日用 MA20 替代」并标注（KD-10-03；KQ-1 未答复） |
+| 次新股 MA60 | <60 交易日**不触发**、标注排除并报排除标的数（§9.3 KQ-1；不再沿用 MA20 替代） |
 
 **台账存储机制（R2 append-only + QA-F2 双行模型的机械保证）**
 
@@ -747,7 +747,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 ### 否-2：把「费率/阈值/块长/收缩强度」写死成代码默认值
 
 - **方案**：为赶进度，在 `broker.py`/`metrics.py` 里给佣金率、印花税率、滑点分档、block 块长、部分池化收缩强度、门禁阈值预埋「合理默认值」。
-- **理由**：① 违反 R7 Scenario「费率配置缺失时拒绝执行」；② 违反 K1 `_design.md` §4.1「禁止预埋默认数值」硬规则；③ 这些参数 Owner 未答复（Q4/Q6/Q7、KQ-2/KQ-3/KQ-5），写过期值比没写更危险（`_design.md` §4.2）。
+- **理由**：① 违反 R7 Scenario「费率配置缺失时拒绝执行」；② 违反 K1 `_design.md` §4.1「禁止预埋默认数值」硬规则；③ 这些参数已由 Owner 2026-11-15 答复并落 §9.3，但**仍不预埋代码默认**（值经 `config/app.example.yaml` 由 engineer 落），写过期值比没写更危险（`_design.md` §4.2）。
 - **结论**：否决。这些参数只落 `config/app.yaml backtest:` 段（`hypotheses` 类），缺键即 `MissingBacktestConfigError`；代码里只能有「开关 + 缺失即拒绝」，不能有默认业务值。
 
 ### 否-3：把三级门禁状态机塞进 `registry.py` 单文件
@@ -856,7 +856,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | 6 | **台账被篡改**（事后改 K / 改结果） | 有人改 NDJSON | append-only 无 UPDATE/DELETE + 逐行哈希校验 | 哈希不匹配 → 报「台账损坏」并拒绝审计结论 |
 | 7 | **样本外烧毁语义被绕过**（换参数重跑） | 换参数/换实现/换数据版本请求样本外 | R4 `assert_not_burnt`；烧毁粒度 Q1 待 Owner 定 | 二次请求抛错留痕；例外须人工批准者字段（`_design.md` §4.2#5） |
 | 8 | **校准题被「重跑到过」** | 结论不对就重跑校准 | R18 校准重跑触发条件（KQ-6 待定）+ 校准结果写台账 | 校准未过 → 封锁全部研究输出 |
-| 9 | **MA60 口径污染校准题**（次新股用 MA20 替代） | 沿用 tech 口径「不足 60 日用 MA20 替代」 | KQ-1 待 Owner 定；未答复前该开关必须存在且不静默 | 按答复回填开关；未答复 → 校准题标注「口径未定」不判可信 |
+| 9 | **MA60 口径污染校准题**（次新股 <60 交易日） | 校准题不足 60 日标的的处置 | KQ-1 已落值（<60 交易日不触发、标注排除报数，§9.3） | 按 §9.3 排除并标注，避免污染方向性结论 |
 
 **关键 trade-off**：为「可复算、可审计」牺牲便利——所有「待确认」参数一律缺省即拒绝，导致台子在 Owner 答复 Q4–Q8 前**无法跑出任何带成本的结论**。这是**有意为之**：宁可不跑，不可按拍脑袋的参数跑出假结论（`config/knowledge/_design.md` §4.1「禁止预埋默认数值」）。
 
