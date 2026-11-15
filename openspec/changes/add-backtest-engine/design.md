@@ -271,7 +271,7 @@ class FinancialRecord:
     ann_date: str | None            # 实际公告日；缺 → 保守回退并标注（R11）
     end_date: str | None
     # 财务字段按需（净资产/营收/ROE…）；本波只定义「对齐」语义，字段集由事件研究条件决定
-    visible_from: str               # = max(ann_date, conservative_cutoff)，t 时刻可见的判定日
+    visible_from: str               # 有 ann_date 时 = ann_date；缺 ann_date → conservative_cutoff（4/8/10 月底，回退并标注）。spec R11 优先，不是 max()
 
 @dataclass(frozen=True)
 class GroupAssignment:
@@ -294,6 +294,23 @@ class EventSignal:
     condition_id: str               # 预注册里固定的条件标识（如 "ma60_breakdown"）
     event_date: str                 # t（条件成立日）
     # MVP 事件研究只输出「事件是否成立」；全策略回测再扩展 action/target_weight（不在 MVP）
+
+@dataclass(frozen=True)
+class EventObservation:
+    """事件研究的收益载体（T2-fix-4）：EventSignal 只判「条件成立」，本结构载入事件日后的逐日超额，
+    由 data 层 `load_event_observations` 从 EventSignal 派生；metrics 只消费它，不直接读价格。"""
+    code: str
+    event_date: str                 # t（与 EventSignal.event_date 一致）
+    condition_id: str               # 与 EventSignal.condition_id 一致
+    benchmark_kind: str             # "buy_and_hold" | "market_portfolio"（R13 双基准）
+    excess_returns: tuple[float, ...]  # 事件日后 1..max(window) 的逐日相对基准超额（长度 = max(window)），确定性计算
+
+@dataclass(frozen=True)
+class ConditionSpec:
+    """信号条件定义（T2-fix-4 补：`evaluate_condition` 的 condition 入参契约）。"""
+    condition_id: str               # 条件标识（如 "ma60_breakdown"）
+    kind: str                       # 条件类型（MVP 至少 "ma60_breakdown"）
+    params: dict                    # 条件参数（如 {window: 60}；数值待 Q/KQ 时留空或由预注册提供）
 
 @dataclass(frozen=True)
 class Order:
@@ -349,6 +366,7 @@ class RunRecord:
     row_type: str = "run"           # 判别符：reader 用它区分 执行行/结果行
     run_id: str                     # 执行 ID（唯一；生成规则同 experiment_id，见 registry.next_experiment_id）
     experiment_id: str | None       # 结果行生成后回填；拒绝发生在结果行之前则为 None
+    hypothesis_id: str | None       # T2-fix-4 补：拒绝/烧毁发生在结果行之前时，仍按 hypothesis_id 可查询（assert_not_burnt 依赖）
     status: RunStatus               # RUNNING / PASSED / REJECTED / FAILED
     reason: str | None              # 失败/拒绝原因（留痕，R2/R4/R10/R19）
     at: str                         # clock() 注入的确定性时间戳（QA-F6）
@@ -438,11 +456,56 @@ class GateRecord:
     direction_agree: bool | None
 
 @dataclass(frozen=True)
+class CommissionSpec:   rate: float; min: float                    # Q4：佣金费率 + 单笔最低额
+@dataclass(frozen=True)
+class StampTaxSpec:     side: str; rate: float                     # Q4：卖出印花税（side="sell"）+ 税率
+@dataclass(frozen=True)
+class TransferFeeSpec:  rate: float; included: bool                # Q4：过户费 + 是否计入
+@dataclass(frozen=True)
+class SlippageTierSpec: amount_lower: float; amount_upper: float; bps: float  # Q4：滑点分档
+@dataclass(frozen=True)
+class LiquidityCapSpec: adv_tier: str; max_participation: float    # Q4：流动性上限（日均成交额分档 + 最大参与比例）
+
+@dataclass(frozen=True)
+class GateCriteria:
+    """三级门禁判据（Q7 待答复；shape 固定，数值留空，缺即不允许 transition）。"""
+    backtest_pass: dict    # {metric, comparator, threshold, tail, require_significance}
+    shadow: dict           # {min_months, max_months, clock}
+    direction_agree: dict  # {metric, tolerance}
+    small_position: dict   # {max_pct}
+
+@dataclass(frozen=True)
 class BacktestConfig:
-    """回测运行配置（QA-F10：落盘路径可注入，测试不污染工作区）。"""
-    results_dir: Path                # 默认 Path("data/backtest/results/")，测试注入 tmp_path（QA-F10）
-    registry_store_path: Path        # 默认 Path("data/backtest/registry.ndjson")，测试注入 tmp_path（QA-F6）
-    # 其余口径参数（费率/税率/档位/切点/门禁阈值/块长等）来自 config/app.yaml backtest: 段，缺键即拒绝，不在此预置数值
+    """回测运行配置（T2-fix-4 补全 schema）：`config/app.yaml` `backtest:` 段的类型化视图。
+    必须键缺失 → `MissingBacktestConfigError`；待 Q 键形状固定、数值留空，消费处缺值即拒绝（不预埋默认）。"""
+    results_dir: Path                # 必须：默认 Path("data/backtest/results/")，可注入 tmp_path（QA-F10）
+    registry_store_path: Path        # 必须：默认 Path("data/backtest/registry.ndjson")，可注入 tmp_path（QA-F6）
+    segments: tuple[Segment, ...]    # 必须：三段年份（R3，年份 canon；边界细节 Q3 未答复按 A2 并标注）
+    windows: tuple[int, ...]         # 必须：事件窗口（R17，默认 [20, 60]）
+    max_delay_days: int | None       # 必须键：撮合顺延上限（防死循环）；None=缺 → 拒绝撮合，值不预埋
+    min_events: int | None           # 必须键：事件数下限（R17）；None=缺 → 不出结论，值不预埋
+    commission: CommissionSpec | None = None            # 待 Q4
+    stamp_tax: StampTaxSpec | None = None               # 待 Q4
+    transfer_fee: TransferFeeSpec | None = None         # 待 Q4
+    slippage_tiers: tuple[SlippageTierSpec, ...] | None = None  # 待 Q4
+    liquidity_cap: tuple[LiquidityCapSpec, ...] | None = None   # 待 Q4
+    limit_pct: dict | None = None                       # 待 Q5：{board, st, star, chinext, bj}
+    seal_definition: str | None = None                  # 待 Q5：一字板/日终封板/盘中触及
+    suspend_source: str | None = None                   # 待 Q5：停牌数据源
+    cut_basis: str | None = None                        # 待 Q6
+    tier_count: int | None = None                       # 待 Q6
+    recompute_freq: str | None = None                   # 待 Q6
+    min_group_size: int | None = None                   # 待 Q6
+    gate_criteria: GateCriteria | None = None           # 待 Q7（gates.*）
+    block_length: int | None = None                     # 待 KQ-2
+    n_bootstrap: int | None = None                      # 待 KQ-2
+    shrink: float | None = None                         # 待 KQ-3
+    burn_scope: str | None = None                       # 待 Q1
+    burn_counts_as_second: tuple[str, ...] | None = None  # 待 Q1
+    exception_approver: str | None = None               # 待 Q1
+    k_components: tuple[str, ...] | None = None         # 待 Q2
+    custom_allowed: bool | None = None                  # 待 Q8
+    k_cost_per_window: int | None = None                # 待 Q8
 
 @dataclass(frozen=True)
 class LedgerExportRow:
@@ -493,9 +556,13 @@ def execute_orders(orders, prices, *, cfg) -> tuple[Fill, ...]:
 def next_tradable_day(date, *, calendar, prices) -> str:
     """顺延目标日 = 下一个可成交交易日；停牌/封板递归顺延，设最大顺延上限。"""
 
-# metrics.py —— 纯函数（入 Fill/事件 + 基准，出结构化结果）
-def compute_event_study(events, benchmarks: Sequence[Benchmark], *, cfg) -> EventStudyResult:
-    """20/60 日相对基准超额分布：每基准 n/mean/median/std/CI/分年度/分档（R17；R13 双基准）。"""
+# data.py（信号之后、metrics 之前）：事件收益装载（T2-fix-4）
+def load_event_observations(signals: Sequence[EventSignal], benchmarks: Sequence[Benchmark], *, loader, cfg) -> tuple[EventObservation, ...]:
+    """为每个 EventSignal 载入事件日后 1..max(window) 的标的收益与基准收益，产出双基准逐日超额（确定性计算，禁止 LLM）。"""
+
+# metrics.py —— 纯函数（入 EventObservation，出结构化结果）
+def compute_event_study(observations: Sequence[EventObservation], *, cfg) -> EventStudyResult:
+    """按 benchmark_kind × window 聚合超额分布：每基准 n/mean/median/std/CI/分年度/分档（R17；R13 双基准）。"""
 
 def block_bootstrap(excess, *, block_length, n_bootstrap, seed) -> tuple[tuple[float,float], int]:
     """有效样本（时间块）重采样，返回 CI 与有效样本量（R6）。"""
@@ -503,8 +570,9 @@ def block_bootstrap(excess, *, block_length, n_bootstrap, seed) -> tuple[tuple[f
 def multiple_testing_correction(p_values, K, method, *, cfg) -> tuple[float, ...]:
     """Bonferroni / Deflated Sharpe 择一（预注册固定），输出校正后判定（R5）。"""
 
-def attribution(returns, factors, benchmarks: Sequence[Benchmark]) -> AttributionResult:
-    """beta/规模/价值/动量 四项暴露与贡献；双基准（买入持有 + 市场组合）各算一套（R13）。"""
+def attribution(returns, factors: dict[str, Sequence[float]], benchmarks: Sequence[Benchmark]) -> AttributionResult:
+    """四项归因（R13，T2-fix-4）：beta 由 returns 对 market_portfolio 基准收益回归推导（不入参）；
+    factors 键集固定 {"size","value","momentum"}；缺任一因子键 → MissingBacktestConfigError；缺 market_portfolio → 归因 INCONCLUSIVE。"""
 
 def partial_pooling(estimates, group_mean, *, shrink) -> tuple[float, ...]:
     """个股估计向组均值收缩，输出组内分位（R16）。"""
@@ -525,7 +593,7 @@ class ExperimentRegistry:
     def next_experiment_id(self, hypothesis_id) -> str: ...           # f"{hypothesis_id}-{seq:04d}"（QA-F8）
     def validate_preregistration(self, spec: PreregistrationSpec) -> None: ...  # 缺键报错含字段名（QA-F3/R1）
     def assert_not_burnt(self, hypothesis_id, segment) -> None: ...   # R4：二次请求样本外抛 RegistryImmutableError 留痕
-    def mark_burnt(self, hypothesis_id, experiment_id) -> None: ...   # 不可撤销
+    def mark_burnt(self, hypothesis_id, experiment_id) -> None: ...   # 追加执行行 RunRecord(reason="样本外已烧毁")，不可撤销（T2-fix-4）
     def cumulative_K(self, study_scope) -> int: ...                   # R5：K 累计
     def write_result(self, experiment_id, payload: dict) -> Path: ...  # 写 <results_dir>/<experiment_id>.json（QA-F10）
     def export_ledger(self, *, experiment_id: str | None = None, hypothesis_id: str | None = None) -> list[LedgerExportRow]:
@@ -536,11 +604,14 @@ def run_calibration(*, cfg, loader, registry) -> CalibrationResult: ...  # R18 �
 def assert_calibrated(registry) -> None: ...                           # 库层：最近校准未过/缺失 → raise CalibrationFailedError（QA-F9）；CLI 捕获后 sys.exit(2)
 def write_calibration_result(result, results_dir: Path, *, run_id, at) -> Path: ...  # 原子写 <results_dir>/calibration.json（QA-F11）
 
-# gates.py —— 三级门禁状态机（R19）
+# gates.py —— 三级门禁状态机（R19）；判据注入（T2-fix-4）
 class GateStateMachine:
+    def __init__(self, registry: ExperimentRegistry, *, cfg: BacktestConfig | None = None) -> None:
+        """判据来自 cfg.gate_criteria（config/app.yaml backtest.gates，Q7）；None/缺键 → transition 抛 MissingBacktestConfigError。
+        时间戳经 registry 的 clock 注入。"""
     def current(self, rule_id) -> GateRecord: ...
     def transition(self, rule_id, to: GateStage, evidence) -> GateRecord:
-        """只允许 上一级→下一级 的合法边；跳级抛 GateSkipError 并留痕。"""
+        """只允许 上一级→下一级 的合法边；判据缺 → MissingBacktestConfigError；跳级 → GateSkipError 并留痕。"""
 ```
 
 **异常清单（QA-F5：每类拒绝可由异常类型二分，口径非法 ≠ 数据缺失）**
@@ -587,6 +658,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 - 运行台账（append-only，不入 git）：`data/backtest/registry.ndjson`。**每行** = `RunRecord`（执行行）或 `ExperimentRecord`（结果行），均带 `row_type` 判别符 + `record_sha256`（该行内容哈希）。写入只允许 `append`（追加一字节不覆盖），**不提供 UPDATE/DELETE 接口**；读取时逐行校验哈希，发现被篡改即抛 `RegistryCorruptedError`（R2 Scenario「修改已写入的台账行被拒绝」）。
   - **执行行（`RunRecord`）**：每次执行尝试一行——`RUNNING/PASSED/REJECTED/FAILED`；**拒绝与失败必须落执行行留痕**（R2 改假设被拒、R4 样本外二次被拒、R10 未来函数失败、R19 门禁跳级被拒）。
   - **结果行（`ExperimentRecord`）**：仅 `PASSED` 执行追加一行（含 verdict + metrics + K）；`REJECTED/FAILED` **不落结果行**（与 R1「缺失预注册不产生结果记录」一致）。
+  - **烧毁标记（`mark_burnt`，T2-fix-4）**：追加一条**执行行** `RunRecord(status=RUNNING, reason="样本外已烧毁", hypothesis_id, experiment_id, at)`，append-only、不可撤销（含时间戳 + 实验 ID，满足 R4）。`ExperimentRecord.burnt` 是结果行在 `append()` 时固化的**冗余快照**（写后不可改）；`export_ledger` 的 `burnt` 取值 = 「该 experiment 是否存在 `reason="样本外已烧毁"` 的执行行」，与结果行字段一致。
 - 结果 JSON（明账）：`<results_dir>/<experiment_id>.json`；校准结果 `<results_dir>/calibration.json`。`results_dir` 来自 `BacktestConfig.results_dir`（默认 `data/backtest/results/`），**可注入 tmp_path（QA-F10）**；台账 `store_path` 与结果 `results_dir` 是唯一落盘入口，测试不得写真实 `data/backtest/`。
 
 **撮合顺延与未来函数的具体机制（R8/R10 的防作弊）**
@@ -610,7 +682,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | R8 A 股撮合约束 | `broker.py` 状态机 + `data.py`（涨跌停/停牌字段）+ `OrderAttempt` | T+1 / 封板顺延 / 停牌跳过，逐次 attempt 留痕，`delay_days` 可数 |
 | R9 后复权 | `data.py::load_price_series(adjust=HFQ/SEGMENTED_HFQ)` | 前复权请求抛 `InvalidAdjustModeError`；数据缺失抛 `BacktestDataGapError`；结果带 `adjust_mode + data_version + snapshot_time` |
 | R10 信号纯函数 + t→t+1 | `signal.py::evaluate_condition` + `models.PointInTimeSnapshot` | 入参被硬裁到 t；越界抛 `FutureDataError`，失败落执行行留痕；成交在 t+1 及之后 |
-| R11 公告日对齐 | `data.py::load_financials_point_in_time` | `visible_from = max(ann_date, conservative_cutoff)`；回退标注 |
+| R11 公告日对齐 | `data.py::load_financials_point_in_time` | 有 `ann_date` 时 `visible_from = ann_date`；缺 `ann_date` → `conservative_cutoff`（4/8/10 月底）并回退标注（spec R11 优先，非 max） |
 | R12 生存偏差 | `universe.py::build_universe` + `data_provider/backtest/universe.py` | 含退市（退市日前计入）/当时 ST/历史成分；名单缺 → `BacktestDataGapError` |
 | R13 基准 + 归因 | `metrics.py::attribution(…, benchmarks: Sequence[Benchmark])` | 双基准（买入持有 + 市场组合）+ beta/规模/价值/动量 + `unexplained` |
 | R14 稳定性分档 | `metrics.py::stability` + `StabilityResult` | 分年度/牛熊震荡/市值组；仅一段显著 → 「仅在 X 段有效」（`scope_note`） |
@@ -690,7 +762,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 
 ### 6.4 配置（T3 落，本波只登记不改）
 
-- `config/app.yaml`：新增 `backtest:` 段（键形态见 K1 §12.1，**不填数值**）；其中 `backtest.results_dir`（默认 `data/backtest/results/`）与 `backtest.registry_store_path`（默认 `data/backtest/registry.ndjson`）为**可注入落盘路径**（QA-F10）
+- **config 键清单的契约源（T2-fix-4，captain 已核实）**：`config/app.yaml` 被 `.gitignore` 忽略（`.gitignore:61`），仓库 tracked 的是 **`config/app.example.yaml`**。故 `backtest:` 段的**键清单与形状**以本 design §4.1 的 `BacktestConfig` + `GateCriteria` + 成本 spec（`CommissionSpec/StampTaxSpec/TransferFeeSpec/SlippageTierSpec/LiquidityCapSpec`）为契约，并由 **T3 写入 `config/app.example.yaml`** 的示例段（`app.yaml` 只是本机运行副本，不是契约源）。
 - `config/backtest/preregistrations/<hypothesis_id>.yaml`（预注册文件，git 跟踪）
 
 ### 6.5 运行产物（gitignore，不提交；路径经 `BacktestConfig` 注入）
@@ -801,7 +873,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | QA-F1（medium，目录命名） | §6.7（**不改**） | captain 已裁定：design §6.7 保持 `test/qa/backtest/test_*.py`（与 `src/service/backtest/` 镜像）；`test/qa/test_backtest_<topic>.py` 的落位名由 **T4 改自己的 test-design.md**，本表只登记不改动 |
 | QA-F2（high，失败留痕） | §3D + §4.1 枚举 + §4.1 数据结构 + §4.1 台账存储机制 + §4.2 | 新增 `RunStatus`（RUNNING/PASSED/REJECTED/FAILED）与 `RunRecord`（执行行）；`ExperimentRecord` 保留为「结果行」（仅 PASSED 产生）；两行同文件 append、均逐行哈希、带 `row_type` 判别符。`Verdict` 保持结论三值（VALID/INVALID/INCONCLUSIVE），「失败/被拒」由 `RunStatus.FAILED/REJECTED` 表达——满足 R2/R4/R10/R19 拒绝与失败留痕，且不与 R1「失败不落结果行」冲突 |
 | QA-F3（medium，预注册字段） | §4.1 `PreregistrationSpec` + `registry.validate_preregistration` | 必填字段：`hypothesis_id / statement / params / metrics / segments / benchmarks / correction_method / k_definition / created_at`；缺键报错文案含字段名（R1 Scenario2），`correction_method` 与 `k_definition` 预注册固定（R5） |
-| QA-F4（high，结果字段 + 双基准） | §4.1 `Benchmark`/`WindowStats`/`EventStudyResult`/`AttributionResult`/`StabilityResult` + 函数签名 | `compute_event_study(events, benchmarks: Sequence[Benchmark], …)`、`attribution(returns, factors, benchmarks: Sequence[Benchmark])`；`EventStudyResult.windows[window][benchmark_kind]`、`AttributionResult`（四项 + `unexplained`）、`StabilityResult`（by_year/by_market_state/by_cap_tier + `scope_note`） |
+| QA-F4（high，结果字段 + 双基准） | §4.1 `Benchmark`/`WindowStats`/`EventStudyResult`/`AttributionResult`/`StabilityResult` + 函数签名 | `compute_event_study`（T2-fix-4 后：`observations: Sequence[EventObservation]`）与 `attribution`（`factors: dict[str, Sequence[float]]`）双基准；`EventStudyResult.windows[window][benchmark_kind]`、`AttributionResult`（四项 + `unexplained`）、`StabilityResult`（by_year/by_market_state/by_cap_tier + `scope_note`） |
 | QA-F5（medium，异常族） | §4.1「异常清单」+ 否-1 结论 + §4.2 | `InvalidAdjustModeError`（口径非法）与 `BacktestDataGapError`（数据缺失）**分开**；另 `MissingBacktestConfigError` / `FutureDataError` / `RegistryCorruptedError` / `RegistryImmutableError` / `CalibrationFailedError` / `GateSkipError`；每类拒绝可由异常类型二分 |
 | QA-F6（medium，注入点） | §4.1 `ExperimentRegistry.__init__` | `ExperimentRegistry(store_path: Path, *, clock: Callable[[], str], data_version: str)`；测试用 `tmp_path` 上的 registry，`clock` 注入固定时刻，`data_version` 由调用方/数据快照提供并写入每行 |
 | QA-F7（medium，封板失败→顺延表达） | §4.1 `OrderAttempt` + `Fill` | `Fill.attempts: tuple[OrderAttempt, …]`（每次目标日尝试的 `attempt_date/status/reason`）；`fill_date` = 末次 FILLED 的 `attempt_date`；`delay_days` = 首个成功 `fill_date` 与首个目标日（t+1）的交易日差，可数 |
@@ -809,6 +881,7 @@ class GateSkipError(BacktestError): ...                # R19 门禁跳级请求�
 | QA-F9（low，校准失败表达二分） | §4.1 `assert_calibrated` 签名 + 「失败表达二分」小节 + §4.2 R18 + §6.3 退出码 | 库层 `assert_calibrated()` 直接 `raise CalibrationFailedError`（单测断 `pytest.raises`，不断 `SystemExit`）；CLI 捕获后 `sys.exit(2)`；退出码 `1`=参数/配置/数据错误、`2`=门禁失败 |
 | QA-F10（medium，ledger 导出 + 结果目录注入） | §4.1 `BacktestConfig`（`results_dir`/`registry_store_path`）+ `LedgerExportRow` + `ExperimentRegistry.__init__(..., results_dir)` / `write_result` / `export_ledger` + §6.3/§6.4/§6.5 | 导出字段清单 = `experiment_id / hypothesis_id / statement / params / segments / K / metrics / verdict / burnt / prereg_commit / run_status / data_version / adjust_mode`（JSON 数组）；`burnt=True` 表达「额度用尽」；结果目录可注入 tmp_path |
 | QA-F11（low，CLI 配置/数据注入面） | §4.0/§4.1/§6.3（入口 = 既有 `src/apps/cli.py`，不另建入口）+ `run_calibration`/`write_calibration_result` | `main(argv) -> int`；子命令 `backtest preregister/run/calibrate/ledger/gate` + 参数（`--file/--hypothesis/--experiment/--format/--config/--rule/--to`）；配置解析 `--config <path>`（相对路径按 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 1）；`calibration.json` 由 `run_calibration` 无论成败原子写 `<results_dir>/calibration.json`（字段 = `CalibrationResult` + `run_id` + `at`，失败写 `passed=False`+`reason`，重跑覆盖带新 `run_id`） |
+| T2-fix-4（config schema + 4 处歧义裁决） | §4.1 `BacktestConfig`/`GateCriteria`/成本 spec + `EventObservation`/`ConditionSpec` + `RunRecord.hypothesis_id` + `load_event_observations`/`compute_event_study`/`attribution`/`GateStateMachine`/`mark_burnt` + §4.2 R11 + §6.4 | ①config 键清单落在 `config/app.example.yaml`（tracked）+ design §4.1（app.yaml 是本地副本）；②事件载体 = `EventObservation`（`EventSignal` 只判条件成立）；③`GateStateMachine(registry, *, cfg)` 判据来自 `cfg.gate_criteria`（缺 → `MissingBacktestConfigError`）；④`mark_burnt` 追加执行行 `reason="样本外已烧毁"`，导出 `burnt` 按此派生；⑤`attribution` beta 由 `market_portfolio` 基准回归推导、`factors` 键集固定 `{size,value,momentum}`；⑥R11 `visible_from = ann_date`（缺才回退），spec 优先 |
 
 ---
 
