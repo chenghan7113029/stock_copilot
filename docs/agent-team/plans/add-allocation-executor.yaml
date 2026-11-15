@@ -1,0 +1,293 @@
+# 波次计划（plan.yaml）：机检真值源。见 scripts/agent_team_plan.py。
+# 本波：配置执行器（飞书《投资Agent》v2 §三 P0 第二项）
+wave:
+  change: add-allocation-executor
+  branch: feature/add-allocation-executor
+  case: case-20261115-allocation-executor
+  mrd: docs/mrd/mrd-v1.md
+  baseline_commit: 984070a
+  engineer_test_root: test/
+  qa_test_root: test/qa/
+  allow_custom_dag: false
+  note: '按标准 11 任务编制；知识线 K1/K2/K3 保留，本波预计无新增知识缺口时如实写「无新增」。'
+
+members:
+- name: product-manager
+- name: knowledge-architect
+- name: architect
+- name: knowledge-engineer
+- name: engineer
+- name: qa
+- name: reviewer
+- name: integrator
+
+tasks:
+- id: T1
+  kind: requirements
+  assignee: product-manager
+  subject: 'T1 需求：配置执行器（提案 + specs delta）'
+  description: |
+    依据 `docs/cases/case-20261115-allocation-executor/annotations.md`（含飞书 v2 §三/§四/§五 与 Owner 2026-11-15 四条答复）与 `config/ips.yaml`，建立 change `add-allocation-executor`，产出 `proposal.md` 与 `specs/allocation-executor/spec.md`（ADDED Requirements）。
+    范围只含「每月指令计算」：缺口、剩余月数、当月金额、类别分配、顺延、再平衡提示、快照时效；**不含**自动下单、个股选择、账本重建、持仓体检、LLM 叙事。
+    每条 Requirement 必须标来源锚点（飞书章节或 `config/ips.yaml` 行）；`docs/mrd/mrd-v1.md` 仍是骨架 → 在假设/开放问题显式声明「MRD 未定稿」，不得假装有 MRD 锚点。
+  dependencies: []
+  inScope:
+  - openspec/changes/add-allocation-executor/proposal.md
+  - openspec/changes/add-allocation-executor/specs/allocation-executor/spec.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+  acceptance:
+  - '`openspec.cmd validate add-allocation-executor --strict` 通过（命令与输出贴进产物）'
+  - 'proposal 含 Why / What Changes / Capabilities / 成功标准 / 失败标准·反目标 / Impact + out of scope / 外部参考 / 假设·开放问题'
+  - '每条 Requirement 标来源锚点（飞书 v2 章节或 config/ips.yaml 行号），并显式记录 MRD 未定稿'
+  - 'specs delta 每条 Requirement 用 SHALL + 至少一个 Scenario（WHEN/THEN），覆盖：可复算金额、权益超限顺延、快照过期拒绝、再平衡提示、现金不足、期末归零'
+  - 'out of scope 明列：自动下单、选股、账本重建、持仓体检、LLM'
+  verify:
+  - 'openspec.cmd validate add-allocation-executor --strict'
+
+- id: K1
+  kind: work
+  assignee: knowledge-architect
+  subject: 'K1 知识缺口：执行器口径是否已有 canon'
+  description: |
+    逐条判断执行器依赖的口径是否已在 `config/knowledge/canon/`：目标配置三桶与容许带、执行日（每月最后一个周四）、权益超限顺延、再平衡带、快照时效、固收迁移试水比例、金额取整规则。
+    产出 `knowledge-delta.md`：每条含 知识条目 / 已有 vs 新 / 证据（文件:行 或 canon id）/ 归属层；并给「本波是否需要新增 canon」的明确结论（无新增也要写结论，不许留空）。
+    完成定义：每条判断有证据；结论明确；需要问人的口径列成表单式清单报 captain；不填数值。
+    失败定义：凭印象判断 / 把已有当新缺口 / 需要人确认的静默拍板 / 越界写知识条目本身。
+  dependencies:
+  - T1
+  inScope:
+  - openspec/changes/add-allocation-executor/knowledge-delta.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+  - config/knowledge/
+
+- id: T2
+  kind: work
+  assignee: architect
+  subject: 'T2 技术方案 + 任务拆解'
+  description: |
+    产出 `design.md` + `tasks.md`：
+    - CLI 契约：`ips plan --as-of <date>`（在既有 `src/apps/cli.py` 内扩展，不另建入口）；退出码语义（0 成功 / 1 配置或数据错误 / 2 不可执行——如快照过期）。
+    - 输入：`config/ips.yaml`（政策）+ `config/ips.local.yaml`（私人快照，含 `as_of`）。
+    - 输出：缺口、剩余月数、当月金额、类别分配（权益宽基 ETF / 固收 / 现金）、顺延判定、再平衡提示、时效判定、理由文本。
+    - 金额公式与取整规则写死到「可手算到元」；同输入同输出（幂等）。
+    - A–H 清单逐项作答（本波零 LLM、纯确定性）；≥1 被否方案；影响面到文件路径；风险表含回滚。
+    完成定义：每条 Requirement 能指到落地模块/函数；公式与取整无歧义；tasks 可勾选且每条带验证命令。
+    失败定义：A–H 留白 / 公式含糊 / 把未验证阈值（40/5/25 上限、止损）当硬门禁 / 写代码。
+  dependencies:
+  - T1
+  - K1
+  inScope:
+  - openspec/changes/add-allocation-executor/design.md
+  - openspec/changes/add-allocation-executor/tasks.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+
+- id: K2
+  kind: work
+  assignee: knowledge-engineer
+  subject: 'K2 知识采集：按 K1 结论落库'
+  description: |
+    按 K1 的缺口结论执行：需要新增 canon 的，按 `config/knowledge/_design.md` schema 落 `config/knowledge/canon/`（来源=人工答复:Owner:2026-11-15:<主题> 或仓库一手材料 文件:行）；已有条目只需补引用。
+    若 K1 判定无新增 → 写「本波无新增知识条目」的结论并列出被引用的既有 canon id，不虚构条目。
+    完成定义：`python scripts/check_knowledge_source.py` 退出码 0；每条新条目有来源/置信度/owner/复核期；无新增时结论明确。
+    失败定义：自造数值 / 无来源入库 / 把假设标确定 / 越界改其他产物。
+  dependencies:
+  - K1
+  inScope:
+  - config/knowledge/canon/allocation-executor.yaml (待新建)
+  - config/knowledge/known_unknowns.yaml
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+
+- id: T3
+  kind: implementation
+  assignee: engineer
+  subject: 'T3 实现：ips plan 子命令（纯算术）'
+  description: |
+    按 `design.md` 实现：`ips plan` 子命令、输入加载、金额计算、类别分配、顺延与再平衡提示、时效拒绝。
+    零 LLM、无网络依赖；不新增未登记依赖；配置缺键 → `MissingBacktestConfigError` 同类语义（按 design 命名）；快照 `as_of` 超过 `R8_stale_days` → 拒绝执行并给明确 stderr。
+    同步 `test/service/allocation/` 单测与 `tasks.md` 勾选。
+    完成定义：design 契约逐条落地；单测覆盖正常/顺延/过期/现金不足；全量绿。
+    失败定义：把阈值当硬门禁 / 用 LLM 算数 / 留未实现假开关 / 改测试迁就实现。
+  dependencies:
+  - T2
+  inScope:
+  - src/apps/cli.py
+  - src/service/allocation/models.py (待新建)
+  - src/service/allocation/loader.py (待新建)
+  - src/service/allocation/executor.py (待新建)
+  - config/app.example.yaml
+  - test/service/allocation/test_executor.py (待新建)
+  - test/apps/test_cli_ips_plan.py (待新建)
+  - openspec/changes/add-allocation-executor/tasks.md
+  outOfScope:
+  - openspec/specs/
+  - test/qa/
+  - src/service/backtest/
+  acceptance:
+  - 'design 契约逐条落地（函数级），报告给「Requirement → 文件:行」映射'
+  - '金额可手算到元：单测用固定输入对照手算结果'
+  - '权益占比超过目标上限 → 顺延且给理由，有单测'
+  - '快照过期 → 拒绝执行（非零退出码 + 明确 stderr），有单测'
+  - '零 LLM：`grep -rn "openai\|llm" src/service/allocation/` 无命中'
+  - '全量 `python -m pytest -q` 退出码 0；本 change 路径 ruff 新增 0'
+  - '`openspec.cmd validate add-allocation-executor --strict` 通过'
+  verify:
+  - 'python -m pytest -q'
+  - 'python -m compileall -q src test'
+  - 'python -m ruff check .'
+  - 'openspec.cmd validate add-allocation-executor --strict'
+
+- id: T4
+  kind: work
+  assignee: qa
+  subject: 'T4 QA 测试设计（盲测）'
+  description: |
+    从 spec + proposal 成功/失败标准独立设计测试（**不读** engineer 实现与 `test/service/`）：落到 `test/qa/allocation/`，每条可溯源到 Scenario。
+    覆盖：金额可复算到元、取整边界（.5 进位方向）、权益超限顺延、快照过期拒绝、再平衡提示、现金不足、期末归零、配置缺键。
+    完成定义：每条 Scenario 有对应用例；断言可机检；56→本波按 Scenario 数如实计（不写死数字）。
+    失败定义：从实现派生 / 只做 happy path / 用例不可收集 / 断言空转。
+  dependencies:
+  - T2
+  inScope:
+  - test/qa/allocation/conftest.py (待新建)
+  - test/qa/allocation/test_plan_output.py (待新建)
+  - openspec/changes/add-allocation-executor/test-design.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/service/
+
+- id: K3
+  kind: work
+  assignee: qa
+  subject: 'K3 知识盲验（case 回归）'
+  description: |
+    对本波 K2 落库/引用的知识做**盲验**（不读 K2 采集过程）：放回 case（`docs/cases/case-20261115-allocation-executor/annotations.md` 的 Owner 答复与仓库一手材料）能否复现结论。
+    产出 `knowledge-verification.md`：每条知识给 通过 / 降置信度 / 退回 三选一结论；无新增知识时写明「本波无新增，验证既有 canon 引用一致」。
+    完成定义：每条有结论；盲验声明写明读过哪些文件、未读哪些。
+    失败定义：自验自答（读 K2 过程）/ 无结论 / 把假设当确定。
+  dependencies:
+  - K2
+  - T1
+  inScope:
+  - openspec/changes/add-allocation-executor/knowledge-verification.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+
+- id: T5
+  kind: verification
+  assignee: qa
+  subject: 'T5 验证执行 + 报告'
+  description: |
+    全量跑 `test/` 与 `test/qa/allocation/`，逐条核对 T1 验收与 proposal 成功/失败标准，按模板产出 8 章 `verification.md`；失败项给结构化 finding（id/severity/problem/requiredFix/file:line）。
+    完成定义：报告 8 章齐全、命令+退出码+输出可复核、负向用例真实执行、ruff 基线偏差如实记录。
+    失败定义：只写 happy path / 复述设计当验证 / findings 无 requiredFix / 隐瞒失败。
+  dependencies:
+  - T3
+  - T4
+  inScope:
+  - openspec/changes/add-allocation-executor/verification.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+  acceptance:
+  - 'verification.md 按模板 8 章齐全，结论三选一明确'
+  - '全量 `python -m pytest -q` 与 `python -m pytest -q test/qa` 结果分列并粘贴'
+  - 'T1 验收与 proposal 成功/失败标准逐条核对（命令/退出码/关键输出/结论）'
+  - '负向与边界用例表：过期快照、权益超限、现金不足、缺键，均为真实执行'
+  - 'ruff 基线偏差与新增错误分开记录'
+  - '`openspec.cmd validate add-allocation-executor --strict` 通过'
+  verify:
+  - 'python -m pytest -q'
+  - 'python -m pytest -q test/qa'
+  - 'openspec.cmd validate add-allocation-executor --strict'
+
+- id: T6
+  kind: review
+  assignee: reviewer
+  subject: 'T6 交付评审（白盒 + 准出）'
+  description: |
+    白盒评审本波实现（读关联代码，不只看 diff）：correct / safe / load / tested / fast / lean + Agent 专项（确定性边界、注入面、可重入/可拒绝）。
+    重点核查：金额公式与取整、幂等、过期拒绝、顺延逻辑、提示与硬门禁的边界（不得把未验证阈值当门禁）、零 LLM。
+    产出 `review.md`：verdict（pass / needs_revision / reject）+ findings（id/severity/problem 带具体 case/requiredFix/file:line）；必须含 A1–A6 / B1–B9 / D1–D3 清单标记。
+    完成定义：verdict 与 findings 一致；每条 finding 有 case 与最小修复；评审结论落文件。
+    失败定义：只读报告不读代码 / finding 无 case / 把 QA 行为验证当自己评审 / 改动被评审产物。
+  dependencies:
+  - T3
+  - T5
+  - K3
+  inScope:
+  - openspec/changes/add-allocation-executor/review.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+  acceptance:
+  - '`review.md` 含 verdict 与结构化 findings，且含 A1–A6 / B1–B9 / D1–D3 共 18 个标记'
+  - '通读本波全部实现 diff（不是只看报告），每个 finding 有具体 case 与 requiredFix（含文件:行）'
+  - '金额公式/取整/幂等/过期拒绝/顺延/提示边界逐项核查'
+  - '`openspec.cmd validate add-allocation-executor --strict` 通过'
+  verify:
+  - 'openspec.cmd validate add-allocation-executor --strict'
+  reviewed_task: T3
+
+- id: T7
+  kind: work
+  assignee: product-manager
+  subject: 'T7 改进点回流 + MRD 演进'
+  description: |
+    把 T5 未覆盖项与 T6 非阻塞 findings 按准入三条回流进 `docs/improvements/IMPROVEMENTS.md`（append-only），并更新 `docs/mrd/mrd-v2.md` 的 diff 建议稿（**待 Owner 确认，不定稿**）。
+    完成定义：每条有 ID/来源证据/影响面/建议变更名/优先级/分流；建议名不与既有 change 重名；MRD 未定稿。
+    失败定义：无证据的改进点 / 发明需求 / 自行定稿 MRD。
+  dependencies:
+  - T5
+  - T6
+  - K3
+  inScope:
+  - docs/improvements/IMPROVEMENTS.md
+  - docs/mrd/mrd-v2.md
+  outOfScope:
+  - openspec/specs/
+  - src/
+  - test/
+
+- id: T8
+  kind: integration
+  assignee: integrator
+  subject: 'T8 归档 + 合并回 main'
+  description: |
+    三闸门（tasks 全勾 / verification 通过 / review verdict pass）后归档本 change、修新 capability 的 Purpose、确认 `validate --specs --strict` 不新增失败，再 `git merge --no-ff` 回 main。
+    完成定义：归档目录生成、Purpose 合规、规格 Totals 无新增失败、main 合并成功且工作树干净。
+    失败定义：闸门缺一即归档 / 手改主规格 Purpose 之外内容 / 自行解冲突 / push 或删分支（除非 Owner 明确要求）。
+  dependencies:
+  - T5
+  - T6
+  - T7
+  - K3
+  inScope:
+  - openspec/specs/allocation-executor/spec.md (归档生成)
+  outOfScope:
+  - openspec/specs/（除 allocation-executor 的 Purpose）
+  - src/
+  - test/
+  acceptance:
+  - '三闸门留证（tasks 无未勾选 / verification 结论通过 / review verdict pass）'
+  - '归档目录出现在 openspec/changes/archive/<date>-add-allocation-executor/，verification 与 review 随行'
+  - '新 capability Purpose 非占位且达到主规格文档下限；validate --specs --strict 前后对比不新增失败'
+  - 'main 合并后 git branch 显示 main、工作树干净、日志含 merge commit'
+  verify:
+  - 'openspec.cmd validate add-allocation-executor --strict'
