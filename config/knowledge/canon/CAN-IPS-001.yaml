@@ -9,7 +9,7 @@ layer: canon
 statement: >-
   组合的目标函数为：名义目标收益 5%（理想值，非硬指标）、最大回撤硬线 20%、禁止杠杆、禁止集中。
   任何「该不该加仓 / 该不该减仓」的结论，都必须先满足这四条硬约束，再谈收益。
-source: "config/ips.local.yaml:12-19｜引文「target_nominal_return: 0.05 / max_drawdown: 0.20 / leverage: forbidden / concentration: forbidden」"
+source: "config/ips.yaml:15-22｜引文「target_nominal_return: 0.05 / max_drawdown: 0.20 / leverage: forbidden / concentration: forbidden」"
 confidence: 确定
 owner: Owner
 strength: 硬规则

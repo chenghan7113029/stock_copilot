@@ -1,0 +1,82 @@
+# 投资政策声明（IPS）— 政策 / 知识（**入库，tracked**）
+#
+# 本文件只放「政策与口径」：目标函数、目标配置、固收迁移政策、R1–R8 规则、节奏、
+# 投放政策、待确认问题。私人状态（家庭资产总额、当前配置、持仓与成本、投放金额）
+# 在 ignored 的 `config/ips.local.yaml`，二者不得冲突：口径只在本文件定义，
+# local 只记录「现在是多少」，不复制政策。
+# 结构说明见 docs/design/portfolio-plan-v0.1.md；修改后同步 updated_at 与 assumptions_version。
+# 知识条目 CAN-IPS-001 的 source 指向本文件的 objective 段。
+
+schema_version: "0.1"
+updated_at: "2026-11-14"            # 政策版本日期（私人状态快照日期见 ips.local.yaml）
+assumptions_version: "A-v0.6"
+
+# ── 目标函数（A §0.8 硬约束，本文件不得自行放宽）──────────────────────────────
+objective:
+  target_nominal_return: 0.05       # 名义 5%（实际约 2.5%），理想值，非硬指标
+  target_return_status: accepted    # 2026-11-14：维持 A 的目标函数，接受现实收益
+  expected_nominal_return: 0.033    # 按 1 年定存 1.6% 测算（文档第 3 节）
+  expected_if_fixed_migrated: 0.038 # 固收端迁到 2.8% 后
+  max_drawdown: 0.20                # 硬线
+  leverage: forbidden
+  concentration: forbidden
+
+# ── 配置目标（区间是政策；当前实测见 ips.local.yaml）─────────────────────────
+allocation:
+  target:
+    equity: 0.35                    # 区间 0.30–0.40
+    fixed_income: 0.45              # 定存 / 理财 / 中短债
+    cash: 0.20                      # 应急金 50 万 + 2–3 年支出缓冲
+  equity_band: [0.30, 0.40]
+
+# ── 固收端迁移政策（第 3 节结论 5：先迁固收，再定投）─────────────────────────
+fixed_income_detail:
+  instrument: term_deposit_1y
+  rate_band: [0.0145, 0.017]        # 1 年定存实际利率区间
+  maturity_months: 12
+  migration:
+    enabled: true
+    target_instrument: "中短债基金 / 银行理财"
+    target_rate: 0.028
+    trial_ratio: 0.30               # 先迁 30% 额度试水一个月，再决定是否加满
+    duration_risk_note: "久期约 3 年，利率上行 100bp 净值约 -3%，组合层面约 -1.3pp"
+
+# ── 投放政策（金额字段 gap_to_target / monthly_amount 在 ips.local.yaml）────────
+deployment:
+  mode: monthly_dca
+  start_month: 2                    # 第 1 个月做固收迁移，第 2 个月起定投
+  horizon_months: 24                # 候选 12 / 24 / 36；金额见 ips.local.yaml
+  target_date: "2028-11-30"
+  execution_day: last_thursday      # 固定日，不择时
+  skip_if_equity_above: 0.35        # 超配则顺延当月买入，不追高
+  new_money_vehicle: broad_etf      # 新增资金只进宽基 ETF（A500 / 沪深 300 等）
+  existing_positions: review        # 存量先做体检，弱票按 R6 处理，不无限期等待回本
+
+# ── 规则（文档第 5 节，确定性判定）───────────────────────────────────────────
+rules:
+  R1_equity_cap: 0.40
+  R2_single_stock_cap: 0.05         # 占总池，约 35 万
+  R2_transition_months: 6
+  R3_industry_cap: 0.25             # 占权益
+  R4_rebalance_band: 0.05           # 任一桶偏离目标 5pp
+  R5_drawdown_alert: 0.15
+  R5_drawdown_freeze: 0.20
+  R6_stop_loss_pct: -0.15           # 单票跌破成本 15% 触发（历史最大问题：未执行）
+  R6_trend_exit: below_ma60_5d      # 或连续 5 个交易日收于 MA60 下方
+  R7_cash_floor: 0.20
+  R8_stale_days: 7
+
+# ── 节奏（每周可投入约 2 小时）────────────────────────────────────────────────
+cadence:
+  weekly: plan_check
+  monthly: dca_execute + attribution
+  quarterly: rebalance
+  annual: baseline_recalc
+
+# ── 待补充 ───────────────────────────────────────────────────────────────────
+pending:
+  - 固收端迁移额度：45% 里拿多少从 1 年定存换到中短债/理财（默认先试 30%）
+  - 当前持仓明细（个股与沪指 ETF 各自市值、成本、行业）→ 校验 R2/R3 是否已越线
+  - 沪指 ETF 是否长期保留，或替换为 A500/沪深 300
+  - 个股收益归因：`report trade-review` 跑 FIFO，区分 alpha 与 beta
+  - A §0.9 未勾选的四项（30 万支出含否教育、支取期是否按 85 岁、残值口径、储蓄可持续年限）
