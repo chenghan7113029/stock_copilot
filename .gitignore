@@ -59,6 +59,7 @@ log/*
 
 # 配置（保留 example，忽略本地覆盖）
 config/app.yaml
+# 私人状态（含金额/持仓）忽略；投资政策/知识在 tracked 的 config/ips.yaml
 config/*.local.yaml
 
 # 本地 SQLite（保留 fixtures seed 供 Cloud Agent）
@@ -66,3 +67,23 @@ data/*
 !data/.gitkeep
 !data/fixtures/
 !data/fixtures/**
+
+# 第三方 skill 包（体积大，由 skills-lock.json + 安装器复现，不进仓库）
+# 只跟踪 openspec-* 与本项目自有的 skill
+.agents/skills/lark-*/
+
+# 工具接入：本项目只跟踪 .cursor 与 .dsh 的 openspec 接入
+.claude/
+.codex/
+
+# 临时目录与测试残留（pytest / 调试脚本会重新生成）
+/tmp*/
+/.tmp/
+/pytestbasetemp/
+/.pytest-tmp/
+
+# AgentTeams 运行时状态（含 mailbox / attempt，属运行态不属源码）
+.agent-teams/
+
+# 沙箱 ACL 诊断脚本的一次性报告（排查工具产物，不入库）
+.acl-recovery/

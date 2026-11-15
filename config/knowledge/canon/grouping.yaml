@@ -1,0 +1,50 @@
+# 分组口径（三硬标签的分位基准 + 分档档数）
+#
+# 来源：Owner 2026-11-15 对 proposal Q6「三硬标签切点基准」的答复 + 同日二次确认的档数（经 captain 转交）。
+# 判别：Q3 业务口径 → canon。
+# 档数演进（append-only，不删历史）：原「档数 3」曾作为继承默认落 `hypotheses/grouping.yaml`（HYP-GROUP-001），
+#   Owner 2026-11-15 二次确认「5 档」→ 新建 CAN-GROUP-002（canon）并 supersede 该假设；HYP 条目保留并标 `deprecated`。
+layer: canon
+domain: grouping
+entries:
+  - id: CAN-GROUP-001
+    statement: >-
+      三硬标签（市值 / 股息率 / 波动率分位）的切点按全 A 时点截面分位计算，不按组内分位。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:分组切点基准（Q6）｜原话要点「切点 = 全 A 时点截面分位」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R15, R14]
+    as_of: "2026-11-15"
+    scope_note: 仅约束分组切点的计算基准；分档档数见 CAN-GROUP-002（Owner 2026-11-15 二次确认为 5 档）。
+    notes: >-
+      「时点」= 不得用今天的截面回看历史；历史成分与历史分位须按对应时点重算。
+      档数不属本条：原假设档数（HYP-GROUP-001）已由 CAN-GROUP-002（5 档，Owner 二次确认）取代，
+      故本条不得被引用为「档数」依据。
+      补充说明非语义变更：本条 statement（切点 = 全 A 时点截面分位）未变，仅更新档数指针
+      （HYP-GROUP-001 → CAN-GROUP-002），不触发新建条目（_design.md §4.4）。
+  - id: CAN-GROUP-002
+    statement: >-
+      三硬标签（市值 / 股息率 / 波动率分位）按 5 档分位分组，即 5×5 = 25 个组合。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:Q6 分组档数｜原话要点「5 档」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R15, R14, R5]
+    as_of: "2026-11-15"
+    supersedes: HYP-GROUP-001
+    scope_note: >-
+      分档数量口径；切点基准仍按 CAN-GROUP-001（全 A 时点截面分位）。
+      实现侧只允许「配置取值 + 缺值即拒绝」，不得把 5 写成不可改的代码默认。
+    notes: >-
+      Owner 2026-11-15 二次确认档数为 5（原 HYP-GROUP-001 的继承默认档数作废，条目保留不删除）。
+      5×5 = 25 组落在既有「组数 9–27」区间内；换档计入 K（见 CAN-STATS-001 的「实际评估组合」口径）。
+      档数变更本身也是 K 的分量之一，重跑须按 K 累计。

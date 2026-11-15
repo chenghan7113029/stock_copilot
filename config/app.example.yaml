@@ -141,3 +141,67 @@ ref:
   daily_stock_analysis: ref/daily_stock_analysis
   valueinvest: ref/valueinvest
   financetoolkit: ref/FinanceToolkit
+# 回测台子（change: add-backtest-engine / design §4.1 BacktestConfig + §9.3 口径落值表）
+# 契约源：config/app.example.yaml（tracked）；config/app.yaml 是本机副本（.gitignore）。
+# 单位约定：**比率一律用小数**（0.01254% = 0.0001254；0.1% = 0.001）；**bps 用整数**（20 = 20bps = 0.20%）；金额单位=元。
+# 下列值来自 Owner 2026-11-15 逐条答复（design §9.3），不在代码预埋；缺键即拒绝（MissingBacktestConfigError）。
+backtest:
+  results_dir: data/backtest/results
+  registry_store_path: data/backtest/registry.ndjson
+  # 样本三段（R3）：右边界=max(trade_date) 数据截止日、每年 1 月滚动、旧样本外标 expired 留档（§9.3，无独立配置键）
+  segments: [train, validation, out_of_sample]
+  windows: [20, 60]                  # R17 固定窗口；额外窗口受 custom_allowed/k_cost_per_window 约束
+  custom_allowed: true               # Q8：允许 20/60 之外的窗口
+  k_cost_per_window: 1               # Q8：每个额外窗口计 K 一次
+  max_delay_days: null               # 撮合最大顺延上限（§9.3 未列 → 保持未答复，撮合拒绝）
+  min_events: null                   # R17 事件数下限（§9.3 未列 → 保持未答复，不出结论）
+  # Q4 成本（§9.3）
+  commission:
+    rate: 0.0001254                  # 0.01254%（= 0.01254/100；Owner 更正，非 0.05%）；买卖双边、最低 5 元
+    min: 5                           # 单笔最低佣金 5 元
+  stamp_tax:
+    side: sell                       # 仅卖出方向
+    rate: 0.001                      # 0.1%
+  transfer_fee:
+    rate: 0.00001                    # 0.001%（仍记录）
+    included: true                   # 并入佣金、不单列（§9.3 Owner 二次确认；broker 只在佣金行计一次）
+  slippage_tiers:                    # bps：20 = 0.20%
+    - {amount_lower: 0, amount_upper: 100000000, bps: 20}          # 成交额 < 1 亿
+    - {amount_lower: 100000000, amount_upper: 500000000, bps: 10}  # 1–5 亿
+    - {amount_lower: 500000000, amount_upper: null, bps: 5}        # ≥ 5 亿（null = +∞）
+  liquidity_cap:                     # 单笔 ≤ 20 日均额 1%
+    - {adv_tier: adv20, max_participation: 0.01}
+  # Q5 撮合口径（§9.3）
+  limit_pct: {board: 0.10, st: 0.05, star_chinext: 0.20, bj: 0.30}  # 10% / 5% / 20% / 30%
+  seal_definition: "一字板（日终无成交）不可成交；收盘封板但盘中打开可成交且滑点加倍"
+  suspend_source: "tushare 优先 / baostock 兜底"
+  # Q6 分组 / 标签（§9.3）
+  cut_basis: all_a_cross_section     # 全 A 时点截面分位
+  tier_count: 5                      # Owner 二次确认「5 档」（5×5=25 组，仍在 9–27 区间）；换档计入 K
+  recompute_freq: quarterly
+  min_group_size: 30
+  # Q7 / KQ-4 三级门禁（§9.3）
+  gates:
+    backtest_pass: {metric: annualized_excess_return, comparator: not_worse_than_benchmark, tail: one_sided, require_significance: true}
+    shadow: {min_months: 3, max_months: 12, clock: trading_day, reset_on_rule_change: true}
+    direction_agree: {metric: annualized_return, tolerance: 0.5 * backtest_annualized_volatility}
+    small_position: {max_pct_of_equity: 0.10, max_pct_per_stock: 0.01, rule: min}
+  # KQ-2 统计推断（§9.3）
+  block_length: 20
+  n_bootstrap: 1000
+  # shrink: auto_by_sample_size     # TODO 未实现：partial_pooling 缺逐票样本量入参 → 当前显式拒绝；见 docs/improvements/IMPROVEMENTS.md（KQ-3）
+  # Q1 样本外烧毁（§9.3）
+  burn_scope: hypothesis             # 按「假设」计烧毁；换实现 / 换评价指标不算第二次
+  burn_counts_as_second: []          # 对应上述口径：无任何项计为第二次
+  exception_approver: Owner
+  # Q2 K 计数分量（§9.3）：参数网格 21 组 → K 计 21（网格规模由预注册提供）
+  k_components: [params, cut_point, window]
+  # KQ-5 显著性判据（§9.3；§4.1 BacktestConfig 尚未纳入该字段，当前无消费路径）
+  # significance: {...}             # TODO 未实现：§4.1 BacktestConfig 无该字段、无消费路径；见 docs/improvements/IMPROVEMENTS.md（KQ-5）
+  # KQ-1 / KQ-6 校准（§9.3；§4.1 BacktestConfig 尚未纳入 calibration.* 字段，当前无消费路径）
+  # calibration:                     # TODO 未实现：§4.1 BacktestConfig 无 calibration.* 字段、无消费路径；见 docs/improvements/IMPROVEMENTS.md（KQ-1/KQ-6）
+  #   min_history_days: 60           # <60 交易日不触发、标注排除并报排除标的数
+  #   rerun_triggers: [first_enable, matching_change, data_source_change, caliber_change, every_12_months]
+  # KQ-7 稳定性（§9.3；§4.1 BacktestConfig 尚未纳入 stability.* 字段，当前无消费路径）
+  # stability:                       # TODO 未实现：§4.1 BacktestConfig 无 stability.* 字段、无消费路径；见 docs/improvements/IMPROVEMENTS.md（KQ-7）
+  #   market_state: {index: csi300, window_days: 250, bull_bear_threshold: 0.15, drawdown_bear_threshold: 0.20}

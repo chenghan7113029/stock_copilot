@@ -1,0 +1,41 @@
+# 校准题口径（次新股处理 / 重跑触发与签署）
+#
+# 来源：Owner 2026-11-15 对 knowledge-delta KQ-1/KQ-6 的答复（经 captain 转交）。
+# 判别：Q3 业务口径（校准题什么算可信、什么时候必须重跑）→ canon。
+layer: canon
+domain: calibration
+entries:
+  - id: CAN-CAL-001
+    statement: >-
+      校准题中上市不满 60 个交易日的标的不算作触发；须标注并排除，同时报告因样本不足损失的数量。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:校准题次新股处理（KQ-1）｜原话要点「<60 交易日不触发、标注排除并报损失数」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R18, R17]
+    as_of: "2026-11-15"
+    notes: >-
+      来源形态：Owner 对 KQ-1 的答复为「采纳推荐」，本条即所采纳的推荐口径。
+      与既有技术面「不足 60 日用较短均线替代」不同：校准题内**不得**用替代均线制造触发，
+      只能标注排除并显式报告损失的事件数。
+  - id: CAN-CAL-002
+    statement: >-
+      校准题必须重跑的情形：首次启用、撮合逻辑变更、数据源变更、口径变更、每满 12 个月；
+      重跑由 Owner 签署批准。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:校准重跑触发（KQ-6）｜原话要点「首启/撮合变更/数据源变更/口径变更/每 12 个月，Owner 签署」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R18, R2]
+    as_of: "2026-11-15"
+    notes: >-
+      来源形态：Owner 对 KQ-6 的答复为「采纳推荐」，本条即所采纳的推荐口径。
+      「结论不好看就重跑」不在触发条件内 —— 重跑必须命中上述四类之一并由 Owner 签署。

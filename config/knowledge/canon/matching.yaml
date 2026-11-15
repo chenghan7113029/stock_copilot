@@ -1,0 +1,68 @@
+# A 股撮合口径（封板可成交性 / 停牌源 / 涨跌停幅度）
+#
+# 来源：Owner 2026-11-15 对 proposal Q5「涨跌停判定口径与停牌数据源」的答复（经 captain 转交）。
+# 判别：Q3 业务口径（撮合什么算对）→ canon；涨跌停幅度属「外部会变口径」→ 强制 review_at。
+layer: canon
+domain: matching
+entries:
+  - id: CAN-MATCH-001
+    statement: >-
+      出现一字板（全天封死涨/跌停、盘中未打开）的标的，当日不可成交。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:撮合与停牌口径（Q5）｜原话要点「一字板不可成交」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R8]
+    as_of: "2026-11-15"
+    scope_note: 仅约束回测撮合；不适用于技术面/情绪面的实时判定。
+  - id: CAN-MATCH-002
+    statement: >-
+      当日收盘封板、但盘中曾打开的标的可成交，且该笔滑点按对应档位加倍计算。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:撮合与停牌口径（Q5）｜原话要点「收盘封板但盘中打开 → 可成交 + 滑点加倍」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R8]
+    as_of: "2026-11-15"
+    notes: >-
+      「滑点加倍」= 在该笔按成交额所属档位（见 CAN-COST-004）算出的滑点上翻倍；
+      不得改成固定 bps，也不得与「一字板不可成交」（CAN-MATCH-001）混用。
+  - id: CAN-MATCH-003
+    statement: >-
+      停牌判定优先取 tushare 数据源；tushare 不可得时由 baostock 兜底。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:撮合与停牌口径（Q5）｜原话要点「停牌 tushare 优先 / baostock 兜底」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R8]
+    as_of: "2026-11-15"
+    notes: 两个数据源都取不到停牌信息时按数据缺口处理（不得默认「未停牌」放行）。
+  - id: CAN-MATCH-004
+    statement: >-
+      涨跌停幅度：主板 10%、ST 5%、科创板与创业板 20%、北交所 30%。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:撮合与停牌口径（Q5）｜原话要点「limit_pct 主板 10% / ST 5% / 科创创业 20% / 北交所 30%」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R8]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: 涨跌停幅度是外部监管口径，须按 review_at 复核；过期未复核降为「假设」。
+    notes: ST 判定须按时点（历史 ST 状态），不得用当前 ST 状态回看历史。

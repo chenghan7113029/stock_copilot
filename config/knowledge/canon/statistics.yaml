@@ -1,0 +1,85 @@
+# 统计口径（K 计数 / 事件研究窗口 / 重采样 / 收缩力度 / 市场状态分档）
+#
+# 来源：Owner 2026-11-15 对 proposal Q2/Q8 与 knowledge-delta KQ-2/KQ-3/KQ-7 的答复（经 captain 转交）。
+# 判别：Q3 业务口径（多次比较的 K 怎么算、显著性与分档怎么判）→ canon。
+layer: canon
+domain: statistics
+entries:
+  - id: CAN-STATS-001
+    statement: >-
+      K（累计评估次数）按实际评估的组合数计：一次 21 组参数网格的实验，K 计 21。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:K 计数边界（Q2）｜原话要点「K 按实际评估组合计：21 组参数网格 = 21」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R5, R2]
+    as_of: "2026-11-15"
+    notes: >-
+      参数网格不再按「一次实验 = K 1」计；K 是多重比较校正的输入，少记即低估、多记即高估。
+  - id: CAN-STATS-002
+    statement: >-
+      事件研究允许使用 20 日 / 60 日之外的窗口；每增加一个窗口均计入 K。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:事件研究窗口（Q8）｜原话要点「允许 20/60 外窗口，每窗口计入 K」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R17, R5]
+    as_of: "2026-11-15"
+    notes: 窗口的 K 计数与参数网格同属 CAN-STATS-001 的「实际评估组合」口径。
+  - id: CAN-STATS-003
+    statement: >-
+      显著性用的重采样按「时间块」聚类为单位：块长 20 个交易日，重采 1000 次。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:统计重采样口径（KQ-2）｜原话要点「时间块聚类、块长 20、重采 1000」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R6, R5]
+    as_of: "2026-11-15"
+    notes: >-
+      来源形态：Owner 对 KQ-2 的答复为「采纳推荐」，本条即所采纳的推荐口径（经 captain 转交的推荐值）。
+      按「组」为单位重采样不成立——同涨同跌导致的样本相关必须由时间块吸收。
+  - id: CAN-STATS-004
+    statement: >-
+      个股样本少时「向组均值收缩」的力度按样本量自动确定（不取固定力度）。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:组内收缩力度（KQ-3）｜原话要点「按样本量自动收缩」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R16]
+    as_of: "2026-11-15"
+    notes: >-
+      来源形态：Owner 对 KQ-3 的答复为「采纳推荐」，本条即所采纳的推荐口径。
+      收缩后的排序仍须输出组内分位，不得把收缩值当个股独立证据。
+  - id: CAN-STATS-005
+    statement: >-
+      市场状态按沪深 300 的 250 个交易日滚动收益分档：>+15% 为牛、<−15% 为熊、±15% 以内为震荡；
+      区间最大回撤 >20% 时并入熊市。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:市场状态分档（KQ-7）｜原话要点「沪深 300 滚动 250 日收益 ±15%；回撤 >20% 并入熊」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R14]
+    as_of: "2026-11-15"
+    notes: >-
+      来源形态：Owner 对 KQ-7 的答复为「采纳推荐」，本条即所采纳的推荐口径。
+      分档只服务「稳定性分牛/熊/震荡三段报告」（R14），不得用于选股或择时结论。

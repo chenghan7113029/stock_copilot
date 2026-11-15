@@ -1,0 +1,130 @@
+# 成本口径（回测撮合的成本分量 + 流动性上限）
+#
+# 分量现状（2026-11-15 二次确认后）：佣金（含过户费，见 CAN-COST-001 / CAN-COST-006）/ 卖出印花税 /
+#   滑点（按成交额分档）；CAN-COST-003 为过户费「单列」旧形态，已 deprecated，仅留档。
+# 来源：Owner 2026-11-15 对 proposal Q4「费率表现值」的逐条答复 + 同日二次确认（经 captain 转交）。
+# 判别（_design.md §0.0 四问）：Q3「业务上什么算对」+ 不发版就能改 + Owner 为结论负责 → 知识（canon）。
+# 时效：费率/税率/过户费属「外部会变的口径」，按 _design.md §3.4 自然日时钟强制带 review_at。
+layer: canon
+domain: cost
+entries:
+  - id: CAN-COST-001
+    statement: >-
+      佣金按成交额以费率 0.01254% 计收，单笔佣金最低 5 元。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:回测成本口径（Q4）｜原话要点「佣金率 0.01254%（Owner 明确更正，非 0.05%）；最低佣金 5 元」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R7, R8]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: >-
+      适用于回测撮合的成本计算；外部费率/监管口径变化后须按 review_at 复核，
+      复核过期未处理按 _design.md §3.4 降为「假设」，消费方不得按旧值继续算。
+    notes: >-
+      Owner 明确更正过数值：佣金率 **0.01254%**，不是 0.05%。任何产物出现 0.05% 即与 Owner 答复冲突。
+      Owner 2026-11-15 明确：佣金**双边**收取 —— 买入与卖出各按成交额计一次（费率与最低额不变）。
+      本条 statement 未声明方向，以本 notes 的方向口径为准；消费方不得改按单边计。
+      补充说明非语义变更：statement 与费率数值均未变，本条仅补方向口径（_design.md §4.4 不触发新建条目）。
+  - id: CAN-COST-002
+    statement: >-
+      印花税按卖出方向以 0.1% 计收（仅卖出方向适用）。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:回测成本口径（Q4）｜原话要点「卖出印花税 0.1%」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R7, R8]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: 适用于回测撮合的成本计算；税率属外部会变口径，须按 review_at 复核。
+  - id: CAN-COST-003
+    statement: >-
+      过户费按 0.001% 计收。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:回测成本口径（Q4）｜原话要点「过户费 0.001%」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: deprecated
+    requirement_refs: [R7, R8]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    superseded_by: CAN-COST-006
+    scope_note: >-
+      已退役口径：原义为「过户费按 0.001% 单列为一笔独立费用」（2026-11-15 首次答复时的形态），
+      不得再作为实现依据；现行口径见 CAN-COST-006（并入佣金计收）。
+    notes: >-
+      退役原因：2026-11-15 Owner 二次确认改为「并入佣金」计收，本条目退役，见 CAN-COST-006。
+      原文与首次答复的 source 保留不删除（_design.md §4.4 就地改禁令：语义变更 = 新建条目 + 旧条 deprecated
+      + 双向 supersedes）。
+  - id: CAN-COST-004
+    statement: >-
+      滑点按成交额分档：成交额 ≥5 亿元 5bps；1–5 亿元 10bps；<1 亿元 20bps。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:回测成本口径（Q4）｜原话要点「滑点 ≥5 亿 5bps / 1–5 亿 10bps / <1 亿 20bps」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R7, R8]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: 适用于回测撮合的成本计算；档位分界随市场流动性变化，须按 review_at 复核。
+    notes: >-
+      区间端点按 Owner 原文的不等号执行：≥5 亿元入首档（5bps），<1 亿元入末档（20bps），
+      中间档为 1–5 亿元（10bps）。三档之外的档位不得自行新增。
+  - id: CAN-COST-005
+    statement: >-
+      单笔成交金额不得超过该标的 20 日平均成交额的 1%。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:回测成本口径（Q4）｜原话要点「单笔 ≤20 日均额 1%」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R7, R8]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: 适用于回测撮合的流动性上限；缺少日均成交额数据时按数据缺口处理，不得静默放行。
+  - id: CAN-COST-006
+    statement: >-
+      过户费按 0.001% 并入佣金一并计收（included=true），不单列。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:费率现值（二次确认：过户费并入佣金）
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R7]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    supersedes: CAN-COST-003
+    scope_note: >-
+      适用于回测撮合的成本计算：过户费不再作为独立成本分量计入，而是并入佣金（included=true）；
+      费率数值 0.001% 仍记录，用于成本明细与核对，但不得重复计收。
+    notes: >-
+      本条取代 CAN-COST-003（原「单列为一笔独立费用」）：2026-11-15 Owner 二次确认「过户费并入佣金」。
+      数值未变（0.001%），变的是收取形态（独立分量 → 佣金的一部分）；
+      消费方不得同时按"佣金含过户费"与"过户费另计"两处扣费。
