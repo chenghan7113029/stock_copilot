@@ -1,0 +1,139 @@
+# 配置执行器口径（目标三桶 / 执行日 / 再平衡带 / 快照时效 / 固收迁移试水比例）
+#
+# 来源：Owner 2026-11-15 对配置执行器四项口径的书面答复（经 captain 转交，
+#       原话存于 docs/cases/case-20261115-allocation-executor/annotations.md:19-26）
+#       + tracked 政策文件 config/ips.yaml（生效载体）。
+# 判别（_design.md §0.0 四问）：Q1 不是一次性入参 / Q2 不是通用算法 /
+#       Q3 是「业务上什么算对」且 Owner 不发版就能改、改完为结论负责 → 知识（canon 口径层）。
+# 准入（_design.md §1.2）：能写成一个配置 key + 有权威来源 + 被执行器的多条 Requirement 消费。
+# 归属判断依据：openspec/changes/add-allocation-executor/knowledge-delta.md §1、§4（K1 结论：新增 5 条）。
+# 护栏（_design.md §2.4、§4.2）：本条只写「口径措辞 + source 指向文件行号」，
+#       **不复制 config/ips.local.yaml 的私人数值**（金额 / 持仓 / 池总额）；
+#       config/ips.yaml 仍是政策唯一生效载体，本文件不是第二配置源。
+# 时效：配置比例 / 阈值属「会随政策变」的口径，按 _design.md §3.4 自然日时钟带 review_at。
+layer: canon
+domain: allocation
+entries:
+  - id: CAN-ALLOC-001
+    statement: >-
+      目标配置为权益 0.35、固收 0.45、现金 0.20（三桶合计 1），权益容许带为 [0.30, 0.40]；
+      权益占比高于 0.35 时当月买入顺延置 0 并给出理由，不追高。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:权益目标与投放期限｜原话「沿用 ips 现值：权益 35%、期限 24 个月」；
+      config/ips.yaml:25-30｜引文「equity: 0.35 / fixed_income: 0.45 / cash: 0.20；equity_band: [0.30, 0.40]」；
+      config/ips.yaml:51｜引文「skip_if_equity_above: 0.35」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R1, R3, R5, R6, R8, R9]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: >-
+      三桶目标与容许带只定义「应该是什么」；当前占比属于快照入参（allocation.current），
+      不得写进本条。顺延阈值与目标权益同为 0.35，`config/ips.yaml` 是唯一生效载体：
+      改目标权益时须同时确认 `skip_if_equity_above`，两处不一致即与 Owner #1 答复冲突。
+    notes: >-
+      上位约束见 CAN-IPS-001（本条只覆盖配置结构与顺延阈值，不重复目标收益 / 回撤硬线）。
+      40% 权益上限、单票 5%、行业 25% 已在飞书 v2 §三 修订中移出验收标准、只能作提示
+      （docs/cases/case-20261115-allocation-executor/annotations.md:16），不属本条硬规则。
+
+  - id: CAN-ALLOC-002
+    statement: >-
+      执行日固定为每月最后一个周四（last_thursday）；固定日、不择时，
+      金额不因当日价格或任何行情信息改变。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:执行日｜原话「每月最后一个周四」；
+      config/ips.yaml:50｜引文「execution_day: last_thursday｜固定日，不择时」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R2]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: >-
+      只定义「每月最后一个周四」这个日历日。该日恰逢休市日 / 法定节假日时如何处置尚未确认
+      （见 config/knowledge/known_unknowns.yaml:KU-2026-11-alloc-holiday-01），本条不含交易日顺延规则。
+    notes: >-
+      信源冲突裁决：docs/design/portfolio-plan-v0.1.md:89 的「建议月末最后一个工作日前的周四」
+      是待确认草案措辞（该文件 :4 自述「草案，待 Owner 确认」），已被 Owner 2026-11-15 答复覆盖。
+      差异是实质的：2026-12 按本条为 12-31，按草案字面会取 12-24。
+
+  - id: CAN-ALLOC-003
+    statement: >-
+      再平衡带为任一桶「当前占比相对目标占比」的偏离绝对值大于 5pp（0.05）；
+      执行器只据此输出再平衡提示，不自动调仓、不产出调仓金额，也不改变当月权益买入额。
+    layer: canon
+    source: >-
+      config/ips.yaml:61｜引文「R4_rebalance_band: 0.05｜任一桶偏离目标 5pp」；
+      docs/design/portfolio-plan-v0.1.md:110｜引文「任一桶偏离目标 > 5pp｜季度调整回目标带」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R8]
+    as_of: "2026-11-14"
+    review_at: "2027-11-14"
+    stale_after_days: 365
+    scope_note: >-
+      5pp 是触发「提示」的带，不是调仓指令：草案 :110 的「季度调整回目标带」是人工季度动作，
+      本波执行器不执行（spec R8 已禁止自动调仓与调仓金额）。偏离不超过 5pp（含恰好 5pp 的带内）不提示。
+    notes: >-
+      本条是「B 已有·未入 canon」类：口径本体在 tracked `config/ips.yaml`，本条只补知识层治理
+      （来源 / owner / 复核期），不改 `config/ips.yaml` 的取值。
+
+  - id: CAN-ALLOC-004
+    statement: >-
+      快照时效以 as_of 距计算日的天数差判定：超过 7 天拒绝产出指令，恰好 7 天允许；
+      as_of 缺失或晚于计算日同样拒绝。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:数据来源与时效｜原话「快照 as_of 超 R8_stale_days=7 天 → 拒绝给指令」；
+      config/ips.yaml:67｜引文「R8_stale_days: 7」；
+      openspec/changes/add-allocation-executor/specs/allocation-executor/spec.md:139｜引文「超过 7 天 MUST 拒绝；缺失或晚于计算日 MUST 同样拒绝；恰好 7 天 SHALL 允许」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R7]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: >-
+      时效判定取快照的 `holdings.as_of`（spec R1:13 指定的输入列），不是 `updated_at`；
+      过期只能拒绝，不得降到「提示」后继续出金额。
+    notes: >-
+      Owner 原话只给「超 7 天拒绝」；边界（恰好 7 天 / 缺失 / 未来日期）由 spec R7 写死，
+      本条照录，不改阈值。
+
+  - id: CAN-ALLOC-005
+    statement: >-
+      固收端迁移的试水比例为目标固收额度的 30%（trial_ratio = 0.30）。
+    layer: canon
+    source: >-
+      人工答复:Owner:2026-11-15:买什么类别｜原话「固收端先按 30% 试水迁移」；
+      config/ips.yaml:41｜引文「trial_ratio: 0.30｜先迁 30% 额度试水一个月，再决定是否加满」
+    confidence: 确定
+    owner: Owner
+    strength: 硬规则
+    frequency: 低
+    lifecycle: active
+    requirement_refs: [R5]
+    as_of: "2026-11-15"
+    review_at: "2027-11-15"
+    stale_after_days: 365
+    scope_note: >-
+      本条只规定比例。「基数」（以哪一档固收额度为基数）与「次数」（一次还是每月）未确认
+      （见 KU-2026-11-alloc-migration-base-01），任何消费方都不得据本条自行推导迁移金额。
+    notes: >-
+      信源冲突：docs/design/portfolio-plan-v0.1.md:80、:171 的「20%–30%」区间下限不成立，
+      Owner 已明确取 30%（区间下限不得作为实现依据）。

@@ -44,3 +44,114 @@ known_unknowns:
       代偿方式 = 沿用现有默认值继续运行，不改代码。注意 src/service/tech/scorer.py:305-318 的
       LegacyRefScorer 里另有一组字面量，那是「与 ref/daily_stock_analysis 对齐」的兼容契约，
       属固有逻辑（由测试锁定），不属于本负债
+
+  # ── 2026-11-15 配置执行器（add-allocation-executor）待 Owner 确认的口径 ──
+  # 依据：openspec/changes/add-allocation-executor/knowledge-delta.md §5（Q1–Q5 + KQ-1）；
+  #       proposal.md:146-154 已按表单式经 captain 转交 Owner，本波未获答复。
+  # 处置：本波按 proposal A2–A5 的假设执行并在输出标「待确认」，不得升格为确定口径；
+  #       按 config/knowledge/known_unknowns.yaml:19-20 与 knowledge-engineer.md:53 的到期处置执行。
+  - id: KU-2026-11-alloc-rounding-01
+    kind: unanswered
+    topic: >-
+      金额取整到元时 `.5` 的进位方向（向上 / 向下 / 银行家舍入）
+    assignee: Owner（程晗）经 captain 转交
+    due: "2026-11-15"
+    impact: >-
+      R4 当月金额与目标月补齐额：同一输入在不同方向下会差 1 元，「金额可被人工按公式复算到元」
+      这一验收判据（case 判据 1）就会有两套答案
+    remedy: >-
+      本波按 proposal A2「四舍五入、.5 向上」执行，输出写明取整规则并标「待确认」；
+      到期未答复 → 记 docs/improvements/IMPROVEMENTS.md 下波回采，答复前不得作为确定口径引用
+    status: waiting
+    blocking_case: case-20261115-allocation-executor 判据 1「金额可复算到元」
+    asked_at: "2026-11-15"
+    note: >-
+      问题已随 proposal Q1（proposal.md:150）经 captain 转交；按 knowledge-engineer.md:53，
+      captain 发出后 1 小时无答复即判「未解决」，由 T7 记 IMPROVEMENTS、下波回采
+  - id: KU-2026-11-alloc-migration-base-01
+    kind: unanswered
+    topic: >-
+      固收 30% 试水迁移的「基数」（以哪一档固收额度为基数）与「次数」（一次还是每月）
+    assignee: Owner（程晗）经 captain 转交
+    due: "2026-11-15"
+    impact: >-
+      R5 迁移月金额：`0.45 × pool.total × 0.30` 只在基数与次数确认后成立；
+      若实际是「每月 30%」，迁移月金额与后续月份类别都会变（口径变更，非实现细节）
+    remedy: >-
+      本波按 proposal A3「一次性、目标固收额度（0.45）的 30%」执行并标「待确认」；
+      比例本身已入 canon（CAN-ALLOC-005），基数 / 次数不得据该条目推导
+    status: waiting
+    blocking_case: case-20261115-allocation-executor 判据 1「金额可复算到元」的固收端
+    asked_at: "2026-11-15"
+    note: >-
+      问题已随 proposal Q2（proposal.md:151）经 captain 转交；按 knowledge-engineer.md:53 的 1 小时口径判未解决
+  - id: KU-2026-11-alloc-cash-gate-01
+    kind: unanswered
+    topic: >-
+      现金占比低于 20%（R7_cash_floor）时，权益买入是置 0（硬门禁，暂停买入），还是只提示、
+      由人工决定
+    assignee: Owner（程晗）经 captain 转交
+    due: "2026-11-15"
+    impact: >-
+      R9：若为硬门禁，当月权益买入额与「只提示、不改数」实现直接冲突；
+      现行 `docs/design/portfolio-plan-v0.1.md:113` 的 R7 动作是「暂停权益买入」，
+      而飞书 v2 §三 修订把未验证阈值降为提示，两处口径不一致
+    remedy: >-
+      本波按 proposal A5「只提示、不改数」执行并在说明里写「权益买入需人工确认」；
+      到期未答复 → 记 IMPROVEMENTS 下波回采，不得把 20% 升格为硬门禁
+    status: waiting
+    blocking_case: case-20261115-allocation-executor 判据 4「提示不越界」
+    asked_at: "2026-11-15"
+    note: >-
+      问题已随 proposal Q3（proposal.md:152）经 captain 转交；按 knowledge-engineer.md:53 的 1 小时口径判未解决
+  - id: KU-2026-11-alloc-carryover-01
+    kind: unanswered
+    topic: >-
+      顺延月未买入的额度是否需要独立记账 / 结转到后续月份
+    assignee: Owner（程晗）经 captain 转交
+    due: "2026-11-15"
+    impact: >-
+      R6：若需独立记账或结转「待补额度」，会触及账本（P2 边界），本波「不重建记账」的前提失效；
+      现行 spec R6 已按「不独立记账、由剩余月数递减重摊」写死
+    remedy: >-
+      本波按 proposal A4「不独立记账、自然重摊」执行；若 Owner 要求独立记账 → 另立 change，不在本波扩范围
+    status: waiting
+    blocking_case: case-20261115-allocation-executor 判据 2「顺延且不给金额」
+    asked_at: "2026-11-15"
+    note: >-
+      问题已随 proposal Q4（proposal.md:153）经 captain 转交；按 knowledge-engineer.md:53 的 1 小时口径判未解决
+  - id: KU-2026-11-alloc-etf-pool-01
+    kind: unanswered
+    topic: >-
+      宽基 ETF 是否指定候选标的池（如 A500 / 沪深 300 等）
+    assignee: Owner（程晗）经 captain 转交
+    due: "2026-11-15"
+    impact: >-
+      R5 类别输出的落地粒度：不影响金额计算，但决定「买什么类别」之后能否给出候选标的；
+      本波 out of scope（不选代码）不受阻塞
+    remedy: >-
+      本波按 proposal Q5「只给类别、不选代码」执行；答复到达后再评估是否新增「标的池」条目
+    status: waiting
+    blocking_case: 无（不阻塞本波金额与类别输出）
+    asked_at: "2026-11-15"
+    note: >-
+      问题已随 proposal Q5（proposal.md:154）经 captain 转交；按 knowledge-engineer.md:53 的 1 小时口径判未解决
+  - id: KU-2026-11-alloc-holiday-01
+    kind: unanswered
+    topic: >-
+      每月的执行日（最后一个周四）若恰逢休市日 / 法定节假日，是仍按该日历日给指令、
+      顺延到之后第一个交易日、还是提前到前一交易日
+    assignee: Owner（程晗）经 captain 转交
+    due: "2026-11-15"
+    impact: >-
+      R2 指令日期标注与人工执行时点；不影响金额公式（INSTRUCTION 不是成交）。
+      现行材料只有日期口径（Owner #2、`config/ips.yaml:50`），无节假日规则
+    remedy: >-
+      本波按「仍按该日历周四给出指令」执行并标「待确认」；到期未答复 → 记 IMPROVEMENTS 下波回采，
+      实现不得自行加入交易日顺延（会让指令日与政策日不一致）
+    status: waiting
+    blocking_case: case-20261115-allocation-executor 判据 1 的执行日标注
+    asked_at: "2026-11-15"
+    note: >-
+      K1 本波新识别（knowledge-delta.md §5 KQ-1、KD-7-01），尚未经 captain 转交 Owner；
+      转交后按 knowledge-engineer.md:53 的 1 小时超时口径判未解决
