@@ -208,5 +208,5 @@ Phase 7 CLI 装配与端到端
 ### 闸门状态（如实）
 
 - `python -m pytest -q -m "not network and not akshare_legacy" --ignore=test/qa` → **955 passed / exit 0**（**过程证据，不替代全量闸门**）。
-- 含未跟踪的 `test/qa/backtest/` 全量跑 → **977 passed / 31 failed / 3 errors / exit 1**：红点全部来自 QA 盲测草稿与冻结 design 的夹具形状差异（详见 `verification.md` §3），**engineer 未改 `test/qa/`、未为过闸门放宽断言**。
+- 含 QA（commit `0cc6f85`）的 `test/qa/backtest/` 全量跑 → **977 passed / 31 failed / 3 errors / exit 1**：红点全部来自 QA 盲测草稿与冻结 design 的夹具形状差异（详见 `verification.md` §3），**engineer 未改 `test/qa/`、未为过闸门放宽断言**。
 - 结论：T3 实现与 engineer 单测完成；**全量闸门未通过**，待 t15（architect 补 config schema + 裁决契约歧义）后由 t17 对齐，再由 T5 复核。

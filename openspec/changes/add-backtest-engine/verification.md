@@ -55,14 +55,14 @@ $ grep -rn "import ref\.\|from ref\." src
 
 **台账 append-only 有测试**：`test_registry.py::test_tampered_row_rejected`（篡改 K → `RegistryCorruptedError`）、`test_run_record_rejected_and_failed_are_persisted`（失败也落 `RunRecord(FAILED)`）、`test_out_of_sample_burn_once_and_rejection_traced`（二次样本外 → 拒绝留痕）。
 
-## 3. 与 QA 盲测草稿的差异（未跟踪目录 `test/qa/backtest/`，T5 所有）
+## 3. 与 QA 盲测套件的差异（`test/qa/backtest/`，QA 于 commit `0cc6f85` 提交，T5 所有）
 
 ```text
 $ python -m pytest -q -m "not network and not akshare_legacy"
 31 failed, 977 passed, 35 deselected, 3 errors                       # exit=1
 ```
 
-全部红点集中在 **未跟踪** 的 `test/qa/backtest/`（T4-exec 盲测草稿，本波 engineer 不得修改 `test/qa/`）。根因是**夹具与冻结版 design 不一致**，非实现偏离契约：
+全部红点集中在 QA 在 commit `0cc6f85` 提交的 `test/qa/backtest/`（T4-exec 盲测，本波 engineer 不得修改 `test/qa/`）。根因是**夹具与冻结版 design 不一致**，非实现偏离契约：
 
 1. 共享 `cfg` 夹具形状：`liquidity_cap={max_pct_of_avg_amount}`（design/knowledge-delta = 档位列表 `{amount_lower, amount_upper, max_participation}`）、`slippage_tiers={max_amount, rate}`（design = `{amount_lower, amount_upper, bps}`）、缺 `max_delay_days`（design §3H 明写「必须存在」）/`min_events`/`k_components`/`gates.*`。
 2. `compute_event_study` 收到 `Sequence[EventSignal]`：design §4.1 的 `EventSignal` 只有 `condition_id/event_date`，**不含收益**，无法计算超额；实现另增 `EventObservation` 承载「事件×窗口×基准的超额」（见 §4 契约补充）。
