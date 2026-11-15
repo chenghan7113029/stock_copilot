@@ -195,6 +195,7 @@ git log --format=%H --grep=add-backtest-engine | while read c; do git show --nam
 - 复验时间：2026-11-15 18:19
 - 复验基线：`8c7f855a398b101217f87b24330447c35944b9aa`（`git rev-parse HEAD`；开始时记录、结束时复核一致；`git status --porcelain` 为空）
 - 复验对象：t19（QA 夹具修复 8c7f855）+ t21（实现对齐 a6db784）；F7/F8 的 architect 裁决（t22）**尚未落盘**
+- 测量窗口：本条记录写入时 `git status` 为空；**提交后**工作区出现 `M openspec/changes/add-backtest-engine/design.md`（t22 正在编辑，未提交）——本报告全部数字绑定 `8c7f855`，未混入 t22 变更（F12 纪律：不混两个基线）
 
 ### 10.1 终稿结论
 
