@@ -3,7 +3,8 @@
 # 判别：Q1 不是一次性入参 / Q2 不是通用算法 / Q3 是「业务上什么算对」的硬标准，
 #       且 Owner 不发版就能改、改完为结论负责 → 知识（口径层）
 # 治理：2026-11-15 Owner 裁决「进 git，暂与固有逻辑一样用 git 管理」——
-#       本条目即知识的权威表述；生效实例仍在 config/ips.local.yaml（含家庭资产明细，不入库）。
+#       知识（政策 / 口径）本体在 tracked `config/ips.yaml`（本条 source 即指向该文件）；
+#       私人持仓与金额在 ignored `config/ips.local.yaml`（不入库），二者不得冲突。
 id: CAN-IPS-001
 layer: canon
 statement: >-
