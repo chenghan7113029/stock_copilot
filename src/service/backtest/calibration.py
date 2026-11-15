@@ -16,8 +16,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from common.exceptions import BacktestError, CalibrationFailedError, MissingBacktestConfigError
-from service.backtest.broker import execute_orders
+from common.exceptions import (
+    BacktestDataGapError,
+    BacktestError,
+    CalibrationFailedError,
+    MissingBacktestConfigError,
+)
+from service.backtest.broker import CostCalculator, execute_orders
 from service.backtest.data import load_price_series
 from service.backtest.metrics import (
     block_bootstrap,
@@ -90,6 +95,8 @@ def run_calibration(*, cfg: BacktestConfig, loader: Any, registry: Any) -> Calib
     if cfg.n_bootstrap is None:
         raise MissingBacktestConfigError("回测配置缺值: n_bootstrap（KQ-2）")
     horizon = max(cfg.windows)
+    # Q4 成本键必须在扫描前可用：零事件也不得绕过「缺键即拒绝」
+    CostCalculator.from_config(cfg)
     codes = _calibration_codes(loader, CALIBRATION_END)
     prices = load_price_series(
         codes, CALIBRATION_START, CALIBRATION_END, AdjustMode.HFQ, loader=loader
@@ -204,7 +211,8 @@ def _calibration_codes(loader: Any, as_of: str) -> tuple[str, ...]:
         )
     codes = tuple(str(code) for code in method(as_of))
     if not codes:
-        raise BacktestError("校准题样本为空：不得判定台子可信（R18）")
+        # 全 A 名单为空 = 数据不可得（不是「无信号」）
+        raise BacktestDataGapError("校准题样本为空：全 A 名单不可得（R18/T3-repair）")
     return codes
 
 

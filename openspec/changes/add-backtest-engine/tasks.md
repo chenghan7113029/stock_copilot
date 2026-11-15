@@ -333,3 +333,37 @@ Phase 7 CLI 装配与端到端
 
 - 5 条验收命令全部 exit 0（engineer 174 passed / `--ignore=test/qa` 1003 passed / compileall 0 / ruff 0 / openspec 0）。
 - 全量含 QA：**8 failed / 1051 passed / exit 1**（t21 时 24 failed → 本次消除 16 条）。余下 8 条为 QA 侧尚未按 t22 更新的旧夹具（`EventStudyResult` 未传 `verdict`、旧 provider 形状、断言「结果不得带 verdict」等），归 T5 更新用例，engineer 未改 `test/qa/`。
+
+---
+
+## T3-repair 记录（engineer，t29；R2-01：零触发 ≠ 数据缺口）
+
+> 触发：T6 白盒评审 R2-01（medium）——`load_event_observations` 把规则零触发当成数据缺口，导致 F7 的「空观测 → INCONCLUSIVE」在 CLI `run` 路径不可达（违反 spec R17「允许无信号」）。本波只改实现与 engineer 单测。
+
+### 两种语义（拆分后）
+
+| 情形 | 语义 | 行为 |
+| --- | --- | --- |
+| 事件数为 0（规则零触发） | **合法结果**（无信号） | `load_event_observations([], ...)` → **空序列**（不访问 loader）；`compute_event_study(())` → `verdict=INCONCLUSIVE, windows={}, n_events=0`；CLI 退出码 **0**，写结果行 + 结果 JSON |
+| 数据不可得（价格/基准序列/财务快照取不到、Loader 缺取数方法、事件后收益不足） | **错误**（不可算） | 仍抛 `BacktestDataGapError`（CLI 记 FAILED 执行行、退出码 1） |
+
+### 调用链修正
+
+- `data.py::load_event_observations`：`signals` 为空 → `return ()`（在基准/loader 校验**之前**，零事件不取数）；非空时保持原缺口语义。
+- `apps/cli.py::_run_backtest_experiment`：`result.windows` 为空时 `corrected_p=None`（不调用 `_primary_sample`，避免空窗口取值）；`verdict` 直接用 `result.verdict`（INCONCLUSIVE），仍写 `RunRecord(PASSED)` + 结果行 + `write_result`；退出码 0。
+- `apps/cli.py::_primary_corrected_p`：空 `windows` 早退 `None`（防御）。
+- `calibration.py`：全 A 名单为空 → `BacktestDataGapError`（数据不可得，不是「无信号」）；扫描事件**之前**先 `CostCalculator.from_config(cfg)`，使零事件也不能绕过 Q4「缺键即拒绝」。
+
+### 单测（两条路径各有覆盖）
+
+- `test_data.py`：`test_load_event_observations_zero_signals_is_empty_not_gap`（loader 为 `object()` 也不报错）、`..._zero_signals_without_benchmarks_is_empty`。
+- `test_cli_backtest.py::test_run_zero_trigger_reaches_inconclusive_exit_0`：横盘价格 → 零事件 → **exit 0**，结果行 `verdict=inconclusive`，`metrics.event_study.windows=={} / n_events==0 / verdict=="inconclusive"`、`n_observations==0`、`corrected_p is None`，结果 JSON 落盘，stderr 无「预注册缺失/数据缺口」。
+- `test_calibration.py`：`test_calibration_empty_universe_is_data_gap`（空名单 → 缺口）、`test_calibration_requires_q4_costs_even_with_zero_events`（零事件 + Q4 缺键 → `MissingBacktestConfigError`）。
+
+### 闸门（本波实测）
+
+- trio：`pytest test/service/backtest test/data_provider/backtest test/apps/test_cli_backtest.py` → **179 passed**（exit 0）。
+- 全量：`pytest -m "not network and not akshare_legacy"` → **1064 passed / 35 deselected**（exit 0）；`pytest test/qa/backtest` → **56 passed**。
+- `ruff`（本 change 路径）All checks passed；`compileall` 0；`openspec validate --strict` 0。
+
+> R2-02（HFQ 硬编码）与 R2-03（gates.ndjson 未走 registry）不在本任务，留 T7。

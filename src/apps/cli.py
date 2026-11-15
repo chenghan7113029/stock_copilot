@@ -1896,14 +1896,17 @@ def _run_backtest_experiment(
     result = compute_event_study(observations, cfg=cfg)
     insufficient = insufficient_sample(result, cfg=cfg)
     K = int(params["K"])
+    corrected_p = None
+    if result.windows:  # 零触发（空观测）→ 无窗口可校正，verdict 仍为 INCONCLUSIVE
+        corrected_p = _primary_corrected_p(
+            cfg, observations, result, K=K, method=str(spec.correction_method)
+        )
     metrics: dict[str, Any] = {
         "event_study": asdict(result),
         "insufficient_sample": list(insufficient),
         "n_observations": len(observations),
         "adjust_mode": AdjustMode.HFQ.value,
-        "corrected_p": _primary_corrected_p(
-            cfg, observations, result, K=K, method=str(spec.correction_method)
-        ),
+        "corrected_p": corrected_p,
     }
     verdict = result.verdict  # T2-fix-6：判定随 EventStudyResult 返回
     at = registry.clock()
@@ -1952,6 +1955,8 @@ def _primary_corrected_p(
     K: int,
     method: str,
 ) -> float | None:
+    if not result.windows:
+        return None  # 零触发：无可校正窗口，结论只能是 INCONCLUSIVE
     _window, _kind, values = _primary_sample(cfg, observations, result)
     if len(values) < 2:
         return None

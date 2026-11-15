@@ -243,3 +243,50 @@ def test_gate_query_returns_pending(monkeypatch, tmp_path, capsys):
     assert code == 0
     payload = json.loads(captured.out)
     assert payload["stage"] == "backtest_pending"
+
+
+class FlatLoader:
+    """零触发夹具：价格横盘 → 「跌破 MA60」永不成立（合法「无信号」）。"""
+
+    def __init__(self, closes):
+        self.closes = closes
+
+    def load_price_rows(self, codes, start, end, adjust):
+        return {code: rows_for(code, self.closes) for code in codes}
+
+
+def test_run_zero_trigger_reaches_inconclusive_exit_0(monkeypatch, tmp_path, capsys):
+    """R2-01/T3-repair：规则零触发不是数据缺口 → CLI 退出码 0 + INCONCLUSIVE 结果行。"""
+    import apps.cli as cli
+
+    monkeypatch.chdir(tmp_path)
+    write_config(tmp_path)
+    prereg_dir = tmp_path / "config" / "backtest" / "preregistrations"
+    prereg_dir.mkdir(parents=True, exist_ok=True)
+    (prereg_dir / "hid.yaml").write_text(
+        yaml.safe_dump(PREREG, allow_unicode=True), encoding="utf-8"
+    )
+    monkeypatch.setattr(cli, "_prereg_commit", lambda path: "deadbeef")
+    monkeypatch.setattr(cli, "build_backtest_loader", lambda cfg: FlatLoader([10.0] * 200))
+
+    code = cli.main(["backtest", "run", "--hypothesis", "hid"])
+
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "inconclusive" in captured.out
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "registry.ndjson").read_text(encoding="utf-8").splitlines()
+    ]
+    results = [row for row in rows if row["row_type"] == "result"]
+    assert len(results) == 1
+    assert results[0]["verdict"] == "inconclusive"
+    metrics = results[0]["metrics"]
+    assert metrics["event_study"]["verdict"] == "inconclusive"
+    assert metrics["event_study"]["windows"] == {}
+    assert metrics["event_study"]["n_events"] == 0
+    assert metrics["n_observations"] == 0
+    assert metrics["corrected_p"] is None
+    assert (tmp_path / "results" / "hid-0001.json").exists()
+    assert "预注册缺失" not in captured.err
+    assert "数据缺口" not in captured.err

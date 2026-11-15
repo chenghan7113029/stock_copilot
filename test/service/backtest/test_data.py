@@ -170,3 +170,23 @@ def test_load_event_observations_short_history_reports_gap(cfg):
             loader=EventLoader(days=5),
             cfg=cfg,
         )
+
+
+def test_load_event_observations_zero_signals_is_empty_not_gap(cfg):
+    """R2-01/T3-repair：零触发合法 → 空序列（连 loader 都不访问）。"""
+    from service.backtest.data import load_event_observations
+    from service.backtest.models import Benchmark
+
+    observations = load_event_observations(
+        [],
+        [Benchmark("buy_and_hold", "买入持有")],
+        loader=object(),  # 没有取数方法也不应报错：零事件不需要取数
+        cfg=cfg,
+    )
+    assert observations == ()
+
+
+def test_load_event_observations_zero_signals_without_benchmarks_is_empty(cfg):
+    from service.backtest.data import load_event_observations
+
+    assert load_event_observations([], [], loader=object(), cfg=cfg) == ()

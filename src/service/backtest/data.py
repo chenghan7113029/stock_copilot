@@ -168,7 +168,9 @@ def load_event_observations(
     `horizon = max(cfg.windows)`；逐日相减得到 `EventObservation.excess_returns`。
     """
     if not signals:
-        raise BacktestDataGapError("事件研究无事件信号：不得产出结论（R17）")
+        # R2-01/T3-repair：零触发是**合法结果（无信号）**，不是数据缺口；
+        # 空序列交给 compute_event_study 产出 INCONCLUSIVE/windows={}/n_events=0（F7）。
+        return ()
     if not benchmarks:
         raise BacktestDataGapError("基准缺失：不得给出有效判定（R13）")
     horizon = max(cfg.windows)

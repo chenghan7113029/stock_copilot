@@ -170,3 +170,28 @@ def test_passed_and_verdict_are_separate_fields(cfg, registry):
         passed=True, direction="显著跑输", params={}, verdict=Verdict.INCONCLUSIVE
     )
     assert manual.passed is True and manual.verdict is Verdict.INCONCLUSIVE
+
+
+def test_calibration_empty_universe_is_data_gap(cfg, registry):
+    """全 A 名单为空 = 数据不可得（不是「无信号」）。"""
+    from common.exceptions import BacktestDataGapError
+
+    class EmptyUniverseLoader(CalibrationLoader):
+        def load_universe_codes(self, as_of):
+            return ()
+
+    with pytest.raises(BacktestDataGapError):
+        run_calibration(cfg=cfg, loader=EmptyUniverseLoader(BREAKDOWN_THEN_RALLY), registry=registry)
+
+
+def test_calibration_requires_q4_costs_even_with_zero_events(cfg, registry, tmp_path, config_factory):
+    """零事件也不得绕过 Q4 缺键即拒绝（扫描前先校验成本配置）。"""
+    from common.exceptions import MissingBacktestConfigError
+    from service.backtest.models import BacktestConfig
+
+    flat = [10.0] * 200
+    cfg_missing = BacktestConfig.from_config(
+        config_factory(**{"commission": {"rate": None, "min": None}}), base_dir=tmp_path
+    )
+    with pytest.raises(MissingBacktestConfigError):
+        run_calibration(cfg=cfg_missing, loader=CalibrationLoader(flat), registry=registry)
