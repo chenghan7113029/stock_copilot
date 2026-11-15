@@ -83,3 +83,7 @@ entries:
     notes: >-
       来源形态：Owner 对 KQ-7 的答复为「采纳推荐」，本条即所采纳的推荐口径。
       分档只服务「稳定性分牛/熊/震荡三段报告」（R14），不得用于选股或择时结论。
+      观察名单（无 Scenario 断言）：消费点 = ⓐ Requirement R14
+      （openspec/specs/backtest-engine/spec.md:322-326）；R14 下 Scenario（同文件 :328-339）只断言
+      「仅在 X 段有效」与分档样本不足，未断言市场状态 ±15% / 250 日的分档定义。连续 2 波无新增消费点 →
+      降 hypotheses；观察名单期间不得被实现当作强口径引用（须先补 spec Scenario）。

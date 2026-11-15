@@ -77,7 +77,7 @@
 8. 复现说明：命令可重放
 9. **Case 复现核对 + 记 trace**：对照 proposal「Case 复现锚点」，核对本波声明的 case 结论/环节是否真的 X→Y（结合 K3 知识盲验 + 功能验证）；未达锚点如实标「未达」并写清卡点（功能 / 知识 / 数据源），结论**追加**到 `docs/cases/<case>/traces.yaml`。**不回写「复现进度」表**——它由 traces.yaml 派生。
 
-**`docs/cases/<case>/traces.yaml`**（溯源区，append-only，QA 唯一写者）：`run_id`（取证唯一标识，取真实存在的证据文件/报告路径，**不得建空目录凑命名**）/ `kind`（`reproduction` / `exploration`）/ `conclusion`（`C0`..`C4`；一条 trace 覆盖多个结论时填**主要挂靠**项，其余在报告写明）/ `layer`（`function` / `number` / `knowledge`）/ `verdict`（`pass` / `partial` / `fail`）/ `anchor` / `artifact` / `ts`（ISO8601）。
+**`docs/cases/<case>/traces.yaml`**（溯源区，append-only，QA 唯一写者）：字段 **9 个，顺序固定**——`id`/`date`/`kind`/`conclusion`/`layer`/`verdict`/`run_id`/`evidence`/`note`；`conclusion` 用 `C0`（case 级）或 `C1`..`C5`（一条覆盖多结论填主要挂靠）；`run_id` 须指向仓库内真实存在的报告，**不得建空目录凑命名**；定义与纪律以 `docs/cases/_template-traces.yaml` 为准。
 **铁律：能引用的一律不转述**——数字、verdict 必须取自 trace / 报告原文，不得凭记忆重写或从旧记录复制。
 
 **knowledge-verification.md**：每条知识三档结论（通过 / 降置信度 / 退回）+ case 证据；退回清单交 T7。

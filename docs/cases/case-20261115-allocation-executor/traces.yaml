@@ -1,0 +1,122 @@
+# Case 溯源区（traces.yaml）— append-only，QA（K3 / T5）唯一写者
+#
+# 位置：docs/cases/case-20261115-allocation-executor/traces.yaml
+# 字段：按 `docs/cases/_template-traces.yaml` 的 8 字段（id / date / kind / conclusion / layer /
+#       verdict / evidence / note）；本波任务契约（t13）另要求「run_id 指向真实证据文件」，
+#       故本文件增列 run_id（模板注释称本仓库无独立产物目录；差异已在 K3b 回执报 captain/K1 统一）。
+#
+# 铁律：能引用的一律不转述——evidence 写命令 + 退出码 + 关键输出，或 `文件:行`；
+#       verdict / 数字照抄实际输出，不凭记忆重写、不从旧记录复制。
+# 追加：只在列表末尾继续 `- `；不改、不删既有记录；结论变了就追加新记录。
+
+- id: 20261115-add-allocation-executor-01
+  date: 2026-11-15T21:38:18+08:00
+  kind: reproduction
+  conclusion: C0
+  layer: knowledge
+  verdict: partial
+  run_id: openspec/changes/add-allocation-executor/knowledge-verification.md
+  evidence: >-
+    python scripts/check_knowledge_source.py -> exit 0 -> 「扫描 11 个文件，识别 31 个知识条目」
+    「结论: 0 error，1 warning —— 通过（无来源知识=0）」；
+    canon source 行号回解 -> 「citations: 12 bad: []」，逐条引文命中 16/16、0 MISS（run_id §6.3）；
+    grep -rn "休市|节假日|holiday|交易日顺延" docs/cases/case-20261115-allocation-executor/annotations.md
+    config/ips.yaml docs/design/portfolio-plan-v0.1.md openspec/changes/add-allocation-executor/proposal.md
+    -> 无输出，grep_exit=1（KU-holiday 缺口真实）；
+    K3 结论（run_id §1 总表）：5 条 canon 4 通过 / 1 退回（CAN-ALLOC-005 = F1），6 条 KU 全部通过；
+    F1 修复 git show a3fe7c4 -> config/knowledge/canon/allocation-executor.yaml:133「固收端迁移的试水比例为
+    30%（trial_ratio = 0.30）；基数（以哪一档固收额度为基数）与次数未确认，见
+    KU-2026-11-alloc-migration-base-01」；grep -rn "为目标固收额度的" config/knowledge/ -> 0 命中（exit 1）
+  note: >-
+    知识层：有条件通过 —— 4 通过 / 1 退回（F1 = CAN-ALLOC-005 把未确认基数写成确定口径）；
+    F1 已由 K2-repair（t12，提交 a3fe7c4）处理：statement 去掉「为目标固收额度的」断言、改为「基数与次数
+    未确认，见 KU-2026-11-alloc-migration-base-01」，数值 0.30 未改；F2–F6 同提交处理
+    （准入③例外登记 / 期限冲突留痕 / KU-holiday due 改转交+1h / 003 补判据 4 / 001 scope_note 降为推断）。
+    取证时 HEAD：K3 判定 635a89a、修复 a3fe7c4。conclusion 记 C0 的理由：本波 annotations.md 结论尚未编号
+    为 C1–C5（只有 §5 判据 1–5），知识层不挂靠单条判据，按 qa.md 的 C0..C4 记 C0（跨判据前置）；
+    T5 若把判据编号落进 annotations.md，另行追加对齐记录。
+
+- id: 20261115-add-allocation-executor-02
+  date: 2026-11-15T21:59:35+08:00
+  kind: reproduction
+  conclusion: C1
+  layer: number
+  verdict: pass
+  run_id: openspec/changes/add-allocation-executor/verification.md
+  evidence: >-
+    python -m pytest -q test/qa/allocation -> exit 0 -> 37 passed；节点 test_tc_r3_01（gap 100,000 /
+    remaining 24 / echo 含 0.35、1,000,000、250,000、24）、test_tc_r4_01（100,000÷24 = 4,166.67 → 4,167，
+    回显取整规则）、test_tc_r3_02（幂等：两次输出逐字节一致）、test_tc_r1_01（equity 0.40 → gap 150,000 /
+    当月 6,250）；人工手算 0.35 × 1,000,000 − 250,000 = 100,000，与输出一致。
+    anchor: C1 → annotations.md:56（§7 ground-truth 采纳）/ spec.md:54-58（R3 Scenario「缺口与月数手算一致」）、
+    spec.md:75-78（R4 Scenario「常规月按缺口均摊到元」）；报告位置 verification.md §9 C1 行。
+  note: >-
+    环：计算。功能层「金额可复算到元且与 ips 一致」= pass；卡点无（spec R3-S1「公式字符串回显」的字面差异
+    见 verification.md F1，不影响本条判据）。
+
+- id: 20261115-add-allocation-executor-03
+  date: 2026-11-15T21:59:35+08:00
+  kind: reproduction
+  conclusion: C2
+  layer: function
+  verdict: pass
+  run_id: openspec/changes/add-allocation-executor/verification.md
+  evidence: >-
+    python -m pytest -q test/qa/allocation -> exit 0 -> 37 passed；节点 test_tc_r6_01（权益 0.36 →
+    deferred=true、当月 0、理由含「顺延」）、test_tc_r6_02（0.42 → 顺延 + 40% 提示、无减仓/调仓金额）、
+    test_tc_r6_04（恰好 0.35 → 不顺延、当月 4,167）。
+    anchor: C2 → annotations.md:57（§7 ground-truth 采纳）/ spec.md:122-126（R6 Scenario「权益超 35% 时顺延」）、
+    spec.md:127-131（R6 Scenario「权益超 40% 只加提示」）；报告位置 verification.md §9 C2 行。
+  note: >-
+    环：计算。功能层「权益超限只顺延不追高」= pass；卡点无。
+
+- id: 20261115-add-allocation-executor-04
+  date: 2026-11-15T21:59:35+08:00
+  kind: reproduction
+  conclusion: C3
+  layer: function
+  verdict: pass
+  run_id: openspec/changes/add-allocation-executor/verification.md
+  evidence: >-
+    python -m pytest -q test/qa/allocation -> exit 0 -> 37 passed；节点 test_tc_r7_01（as_of 2026-11-01 vs
+    计算日 2026-11-15 = 14 天 → 非零退出、文案含「数据过期」、无 JSON）、test_tc_r7_02（恰好 7 天 → 成功、
+    stale.days=7）、test_tc_r7_03（缺 as_of → 拒绝）、test_tc_r7_04（未来快照 → 拒绝）。
+    anchor: C3 → annotations.md:58（§7 ground-truth 采纳）/ spec.md:143-147（R7 Scenario「快照过期拒绝」）、
+    spec.md:148-152（R7 Scenario「恰好 7 天允许执行」）；报告位置 verification.md §9 C3 行。
+  note: >-
+    环：计算。功能层「快照过期拒绝、不拿旧数出指令」= pass；卡点无。
+
+- id: 20261115-add-allocation-executor-05
+  date: 2026-11-15T21:59:35+08:00
+  kind: reproduction
+  conclusion: C4
+  layer: function
+  verdict: pass
+  run_id: openspec/changes/add-allocation-executor/verification.md
+  evidence: >-
+    python -m pytest -q test/qa/allocation -> exit 0 -> 37 passed；节点 test_tc_r8_01（固收 0.30 vs 目标 0.45
+    = −15pp 提示，当月买入额与无提示基线相同）、test_tc_r8_02（三桶均在带内 → 提示列表为空）、
+    test_tc_r8_03（类别只有三桶、无调仓/减仓金额文案）、test_tc_r9_01（现金 15% → 补足 50,000 且当月权益额不变）。
+    anchor: C4 → annotations.md:59（§7 ground-truth **存疑**：缺 Owner 对「提示 vs 调仓」的表态）/
+    spec.md:164-168（R8 Scenario「偏离超 5pp 触发提示」）、spec.md:169-173（R8 Scenario「偏离在带内不提示」）；
+    报告位置 verification.md §9 C4 行。
+  note: >-
+    环：计算。功能层「再平衡只提示、不自动调仓」= pass（verdict 取 T5 报告原文）；**ground-truth 存疑**
+    （annotations.md:59；草案 portfolio-plan-v0.1.md:110 的动作是「季度调整回目标带」）——能力已按 spec R8 实现，
+    待 Owner 对「提示 vs 调仓」表态后回填 ground-truth；卡点归属：口径（非功能）。
+
+- id: 20261115-add-allocation-executor-06
+  date: 2026-11-15T21:59:35+08:00
+  kind: reproduction
+  conclusion: C5
+  layer: function
+  verdict: pass
+  run_id: openspec/changes/add-allocation-executor/verification.md
+  evidence: >-
+    grep -rniE "openai|llm|gpt|anthropic" src/service/allocation/ -> 无输出、exit 1（0 命中）；
+    python -m pytest -q test/qa/allocation -> exit 0；节点 test_tc_r10_01（禁用 socket.socket 后仍 exit 0、
+    输出无 LLM 痕迹）、test_tc_r10_02（无下单/买入指令/6 位代码）、test_tc_r10_03（无账本/持仓成本/体检文案）。
+    anchor: C5 → annotations.md:60（§7 ground-truth 采纳）/ spec.md:196-200（R10 Scenario「零 LLM 与离线」）、
+    spec.md:201-205（R10 Scenario「不越界到下单与选股」）；报告位置 verification.md §9 C5 行。
+  note: >-
+    环：呈现 / 计算。功能层「零 LLM、无网络、输出只含类别与金额」= pass；卡点无。

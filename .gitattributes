@@ -1,0 +1,4 @@
+# 行尾策略：角色 instruction 有 8000 字节预算（P1 断言），必须在任何平台签出后都是 LF，
+# 否则 Windows(core.autocrlf=true) 会多出「每行 1 字节」把预算撑爆。
+docs/agent-team/roles/*.md text eol=lf
+docs/agent-team/plans/*.yaml text eol=lf

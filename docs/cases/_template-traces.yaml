@@ -8,17 +8,28 @@
 #       不得凭记忆重写、不得从旧记录复制。annotations.md 里不抄这些，
 #       只写「结论编号 + 见 traces.yaml」。
 #
-# 字段（只有这 8 个；本仓库没有独立运行产物目录，也没有查询 id 这类东西）：
+# 字段（**9 个，顺序固定**；本文件注释是字段口径的唯一真源，README 只引用不重写）：
 #   id          必填，唯一，形如 20261114-add-foo-01（日期 + change 名 + 两位序号）
 #   date        必填，ISO8601 带时区，如 2026-11-14T13:33:03+08:00
 #   kind        必填，reproduction（case 回归）| exploration（机制探索，如判异实验、参数扫描）
-#   conclusion  必填，结论编号，与 annotations.md 对齐（C1、C2…）
+#   conclusion  必填，结论编号，与 annotations.md 对齐（C0 跨判据前置；C1、C2… 按判据）
 #   layer       必填，function（能力层能否做）| number（数字是否对上）| knowledge（知识是否对）
 #   verdict     必填，pass | partial | fail；未达锚点时 verdict=partial|fail，
 #               并在 note 写清卡点（功能 / 知识 / 数据源）
-#   evidence    必填，命令 + 退出码 + 关键输出，或 `文件:行` / 测试节点 id；
+#   run_id      必填，**取证唯一标识**：本次结论所依据的、仓库内**真实存在**的证据文件路径
+#               （相对仓库根，如 openspec/changes/<change>/verification.md、
+#               .../knowledge-verification.md、.../review.md，或 docs/ 下的报告）。
+#               不得指向不存在的文件；不得为凑命名新建空目录；一条记录一个 run_id
+#               （同一结论跨多份文件时填主报告，其余在 evidence 里写 `文件:行`）。
+#   evidence    必填，**可重放的证明**：命令 + 退出码 + 关键输出，或 `文件:行` / 测试节点 id；
 #               「查出 0 条」与「真实为 0」必须能区分（写清命令与输出）
 #   note        可选，一句话导读，不替代 evidence
+#
+# run_id 与 evidence 的分工（两者不可互相替代）：
+#   - run_id 回答「**去哪份文件复现**」——定位取证载体，便于报告与 trace 双向追溯；
+#   - evidence 回答「**凭什么这么判**」——命令/退出码/输出或 `文件:行`，可当场重放；
+#   - 只写 run_id 不写 evidence = 无法复核；只写 evidence 不写 run_id = 找不到取证报告，
+#     不能判断该结论是否被正式评审过。
 #
 # 空表形态（追加时把下面的 [] 换成列表，或在列表末尾继续 - 追加）：
 
@@ -30,5 +41,6 @@
 #   conclusion: C1
 #   layer: function
 #   verdict: pass
+#   run_id: openspec/changes/add-foo/verification.md
 #   evidence: python -m pytest -q test/qa/test_foo.py::test_bar -> exit 0 -> "1 passed"；断言 src/service/foo.py:88
 #   note: 功能层能复现 C1 的口径；数字未核对，见 layer: number 的另一条记录

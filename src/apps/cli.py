@@ -40,6 +40,7 @@ from common.exceptions import (
     CalibrationFailedError,
     KlineUnavailableError,
     MissingBacktestConfigError,
+    StockCopilotError,
     UnsupportedMarketError,
 )
 from common.watchlist import (
@@ -108,6 +109,9 @@ from data_provider.kline_provider import KlineProvider
 from data_provider.provider import StockDataProvider
 from data_provider.sentiment.provider import MarketSentimentProvider
 from data_provider.toplist.provider import TopListProvider, TopListRepos
+from service.allocation.executor import compute_plan, render_plan, render_plan_json
+from service.allocation.loader import load_plan_input
+from service.allocation.models import AllocationConfigError, AllocationStaleError
 from service.backtest.calibration import assert_calibrated, calibration_payload, run_calibration
 from service.backtest.config import resolve_backtest_config
 from service.backtest.data import load_event_observations, load_price_series
@@ -2044,6 +2048,33 @@ def run_backtest_command(args: argparse.Namespace) -> int:
         return 1
 
 
+def run_ips_plan(args: argparse.Namespace) -> int:
+    """`ips plan`：纯算术配置指令；返回码 0 成功 / 1 配置·数据错误 / 2 时效门禁失败。"""
+    raw_as_of = getattr(args, "as_of", None)
+    try:
+        as_of_calc = date.fromisoformat(raw_as_of) if raw_as_of else date.today()
+    except (TypeError, ValueError):
+        print(f"[error] --as-of 格式错误：{raw_as_of!r}（应为 YYYY-MM-DD）", file=sys.stderr)
+        return 1
+    try:
+        plan_input = load_plan_input()
+        plan = compute_plan(plan_input.policy, plan_input.snapshot, as_of_calc)
+    except AllocationStaleError as exc:
+        print(f"[error] 数据过期：{exc}", file=sys.stderr)
+        return 2
+    except AllocationConfigError as exc:
+        print(f"[error] 配置错误：{exc}", file=sys.stderr)
+        return 1
+    except (StockCopilotError, ValueError, OSError) as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+    if getattr(args, "json", False):
+        print(json.dumps(render_plan_json(plan), ensure_ascii=False, indent=2))
+    else:
+        print(render_plan(plan))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="apps.cli", description="stock_copilot CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2285,6 +2316,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bt_gate.add_argument("--config", help="回测配置（默认 cwd/config/app.yaml）")
 
+    ips_parser = sub.add_parser("ips", help="配置执行器：产出当月配置指令（纯算术，零 LLM）")
+    ips_sub = ips_parser.add_subparsers(dest="ips_command", required=True)
+    ips_plan = ips_sub.add_parser("plan", help="计算当月「买多少、买什么类别」")
+    ips_plan.add_argument("--as-of", dest="as_of", help="计算日 YYYY-MM-DD（省略=本机当日）")
+    ips_plan.add_argument("--json", action="store_true", help="输出结构化 JSON")
+
     return parser
 
 
@@ -2424,6 +2461,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "backtest":
         return run_backtest_command(args)
+
+    if args.command == "ips":
+        return run_ips_plan(args)
 
     config_override: dict[str, Any] | None = None
     if getattr(args, "quiet", False):

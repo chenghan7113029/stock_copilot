@@ -35,6 +35,10 @@ entries:
     notes: >-
       「滑点加倍」= 在该笔按成交额所属档位（见 CAN-COST-004）算出的滑点上翻倍；
       不得改成固定 bps，也不得与「一字板不可成交」（CAN-MATCH-001）混用。
+      观察名单（无 Scenario 断言）：消费点 = ⓐ Requirement R8
+      （openspec/specs/backtest-engine/spec.md:175-179）；R8 下 Scenario（同文件 :181-201）覆盖一字板顺延 /
+      跌停 / T+1 / 停牌，未断言「收盘封板但盘中打开 → 可成交 + 滑点加倍」分支。连续 2 波无新增消费点 →
+      降 hypotheses；观察名单期间不得被实现当作强口径引用（须先补 spec Scenario）。
   - id: CAN-MATCH-003
     statement: >-
       停牌判定优先取 tushare 数据源；tushare 不可得时由 baostock 兜底。
@@ -48,7 +52,12 @@ entries:
     lifecycle: active
     requirement_refs: [R8]
     as_of: "2026-11-15"
-    notes: 两个数据源都取不到停牌信息时按数据缺口处理（不得默认「未停牌」放行）。
+    notes: >-
+      两个数据源都取不到停牌信息时按数据缺口处理（不得默认「未停牌」放行）。
+      观察名单（无 Scenario 断言）：消费点 = ⓐ Requirement R8
+      （openspec/specs/backtest-engine/spec.md:175-179）；R8 下 Scenario「停牌日跳过」（同文件 :196-199）
+      只断言「停牌日跳过并顺延」，未断言 tushare 优先 / baostock 兜底的数据源优先级。连续 2 波无新增消费点 →
+      降 hypotheses；观察名单期间不得被实现当作强口径引用（须先补 spec Scenario，或改由 facts / rules 承载数据源事实）。
   - id: CAN-MATCH-004
     statement: >-
       涨跌停幅度：主板 10%、ST 5%、科创板与创业板 20%、北交所 30%。
@@ -65,4 +74,8 @@ entries:
     review_at: "2027-11-15"
     stale_after_days: 365
     scope_note: 涨跌停幅度是外部监管口径，须按 review_at 复核；过期未复核降为「假设」。
-    notes: ST 判定须按时点（历史 ST 状态），不得用当前 ST 状态回看历史。
+    notes: >-
+      ST 判定须按时点（历史 ST 状态），不得用当前 ST 状态回看历史。
+      观察名单（无 Scenario 断言）：消费点 = ⓐ Requirement R8（openspec/specs/backtest-engine/spec.md:175-179）；
+      R8 下 Scenario（同文件 :181-201）未断言各板涨跌停幅度档位。连续 2 波无新增消费点 → 降 hypotheses；
+      观察名单期间不得被实现当作强口径引用（须先补 spec Scenario）。
