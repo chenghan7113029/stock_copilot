@@ -1,0 +1,37 @@
+# Case 溯源区（traces.yaml）— append-only，QA（K3 / T5）唯一写者
+#
+# 位置：docs/cases/case-20261115-allocation-executor/traces.yaml
+# 字段：按 `docs/cases/_template-traces.yaml` 的 8 字段（id / date / kind / conclusion / layer /
+#       verdict / evidence / note）；本波任务契约（t13）另要求「run_id 指向真实证据文件」，
+#       故本文件增列 run_id（模板注释称本仓库无独立产物目录；差异已在 K3b 回执报 captain/K1 统一）。
+#
+# 铁律：能引用的一律不转述——evidence 写命令 + 退出码 + 关键输出，或 `文件:行`；
+#       verdict / 数字照抄实际输出，不凭记忆重写、不从旧记录复制。
+# 追加：只在列表末尾继续 `- `；不改、不删既有记录；结论变了就追加新记录。
+
+- id: 20261115-add-allocation-executor-01
+  date: 2026-11-15T21:38:18+08:00
+  kind: reproduction
+  conclusion: C0
+  layer: knowledge
+  verdict: partial
+  run_id: openspec/changes/add-allocation-executor/knowledge-verification.md
+  evidence: >-
+    python scripts/check_knowledge_source.py -> exit 0 -> 「扫描 11 个文件，识别 31 个知识条目」
+    「结论: 0 error，1 warning —— 通过（无来源知识=0）」；
+    canon source 行号回解 -> 「citations: 12 bad: []」，逐条引文命中 16/16、0 MISS（run_id §6.3）；
+    grep -rn "休市|节假日|holiday|交易日顺延" docs/cases/case-20261115-allocation-executor/annotations.md
+    config/ips.yaml docs/design/portfolio-plan-v0.1.md openspec/changes/add-allocation-executor/proposal.md
+    -> 无输出，grep_exit=1（KU-holiday 缺口真实）；
+    K3 结论（run_id §1 总表）：5 条 canon 4 通过 / 1 退回（CAN-ALLOC-005 = F1），6 条 KU 全部通过；
+    F1 修复 git show a3fe7c4 -> config/knowledge/canon/allocation-executor.yaml:133「固收端迁移的试水比例为
+    30%（trial_ratio = 0.30）；基数（以哪一档固收额度为基数）与次数未确认，见
+    KU-2026-11-alloc-migration-base-01」；grep -rn "为目标固收额度的" config/knowledge/ -> 0 命中（exit 1）
+  note: >-
+    知识层：有条件通过 —— 4 通过 / 1 退回（F1 = CAN-ALLOC-005 把未确认基数写成确定口径）；
+    F1 已由 K2-repair（t12，提交 a3fe7c4）处理：statement 去掉「为目标固收额度的」断言、改为「基数与次数
+    未确认，见 KU-2026-11-alloc-migration-base-01」，数值 0.30 未改；F2–F6 同提交处理
+    （准入③例外登记 / 期限冲突留痕 / KU-holiday due 改转交+1h / 003 补判据 4 / 001 scope_note 降为推断）。
+    取证时 HEAD：K3 判定 635a89a、修复 a3fe7c4。conclusion 记 C0 的理由：本波 annotations.md 结论尚未编号
+    为 C1–C5（只有 §5 判据 1–5），知识层不挂靠单条判据，按 qa.md 的 C0..C4 记 C0（跨判据前置）；
+    T5 若把判据编号落进 annotations.md，另行追加对齐记录。
