@@ -1,0 +1,25 @@
+# CAN-IPS-001 投资目标函数（风险预算的硬线）
+#
+# 判别：Q1 不是一次性入参 / Q2 不是通用算法 / Q3 是「业务上什么算对」的硬标准，
+#       且 Owner 不发版就能改、改完为结论负责 → 知识（口径层）
+# 治理：2026-11-15 Owner 裁决「进 git，暂与固有逻辑一样用 git 管理」——
+#       本条目即知识的权威表述；生效实例仍在 config/ips.local.yaml（含家庭资产明细，不入库）。
+id: CAN-IPS-001
+layer: canon
+statement: >-
+  组合的目标函数为：名义目标收益 5%（理想值，非硬指标）、最大回撤硬线 20%、禁止杠杆、禁止集中。
+  任何「该不该加仓 / 该不该减仓」的结论，都必须先满足这四条硬约束，再谈收益。
+source: "config/ips.local.yaml:12-19｜引文「target_nominal_return: 0.05 / max_drawdown: 0.20 / leverage: forbidden / concentration: forbidden」"
+confidence: 确定
+owner: Owner
+strength: 硬规则
+frequency: 低
+lifecycle: active
+as_of: "2026-11-14"
+review_at: "2027-11-14"
+scope_note: >-
+  仅约束「投资组合层面的风险预算」。不适用于单只标的的技术面评分，也不构成对某个行业/个券的判断。
+notes: >-
+  2026-11-15 人工答复:Owner 裁决本条的归类与治理方式（知识、进 git）。数值本身沿用 A-v0.6 假设集；
+  A 假设集变更时本条须复盘。与 R1–R8 的关系：R1–R8 是这套目标函数在组合体检上的可测判据，
+  本条是它们共同的上位约束（例如 R5 的 20% 回撤线即本条的 max_drawdown）。

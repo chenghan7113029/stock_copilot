@@ -1,0 +1,46 @@
+# 负债台账（debts）— append-only，knowledge-engineer（K2）唯一写者；Owner 裁决可先由 captain 登记
+#
+# 用途：**说不清归属、或不具权威来源的东西，一律登记在这里，不假装是知识。**
+# 按判别四问（见 config/knowledge/_design.md §0.0），负债有两种，处置方式不同：
+#   unanswered   等业务方答复的「什么算对」——处置 = 问人（经 captain 转交）
+#   unowned_value 有生效值、系统在跑，但没人认领这个值是「业务标准」——
+#                处置 = 指派认领；到期仍无人认领 → 整组降为「假设」，不得作为确定口径引用
+#
+# 采集纪律（本项目）：知识只能来自 ① 人工答复（经 captain 转交）② 仓库内一手材料；
+# 没有飞书机器人 / 飞书号可蒸馏，禁止自动抓取。
+#
+# 字段：
+#   id          必填，`KU-<YYYY-MM>-<主题>-<NN>`
+#   kind        必填，`unanswered` | `unowned_value`
+#   topic       必填，一句话说清缺什么 / 什么东西没人认领
+#   assignee    必填，谁必须把它了结（具体到人；unanswered 写业务方 + 转交人）
+#   due         必填，到期日 ISO8601；到期未了结按 remedy 处置
+#   impact      必填，不确认会影响什么（哪个能力 / 哪份产物 / 哪条结论）
+#   remedy      必填，到期未了结的处置（降为假设 / 阻塞相关结论 / 记入 IMPROVEMENTS 下波补）
+#   status      必填，`waiting`（等答复）| `unowned`（等认领）| `resolved`（已了结，note 写结论与原话）
+#   blocking_case 可选，卡住哪个 case 的哪一环
+#   asked_at    必填，登记 / 发出问题的日期
+#   note        可选，一句话补充（代偿方案、为何先这样）
+known_unknowns:
+  # ── 2026-11-15 Owner 裁决：技术面评分参数「不能」被指派负责人 → 按负债登记，后续再还 ──
+  # 依据：Owner 原话「选择不能，先当做负债，后面来还」（2026-11-15）
+  - id: KU-2026-11-tech-scoring-01
+    kind: unowned_value
+    topic: >-
+      技术面评分的 7 个权重（trend 30 / bias 20 / volume 15 / support 10 / macd 15 / rsi 6 / kdj 4）
+      与 4 个档位阈值（bias_threshold 5.0 / strong_buy 75 / buy 60 / hold 45）——目前没有任何人
+      认领「这样算对」，实质是「默认值恰好能跑」
+    assignee: Owner（程晗）
+    due: "2027-02-15"
+    impact: >-
+      src/service/tech/scorer.py 的强买/买入/持有判定；任何「某股当前是强买」类结论都建立在这组
+      未认领的数值上。若某项被改动，历史报告的可比性无人能担保
+    remedy: >-
+      到期仍未认领 → 整组从「默默生效」降为「假设」：报告与结论须标注「评分参数未经业务确认」，
+      且不得据此单独给出买卖结论（须有价值面/其他证据交叉）
+    status: unowned
+    asked_at: "2026-11-15"
+    note: >-
+      代偿方式 = 沿用现有默认值继续运行，不改代码。注意 src/service/tech/scorer.py:305-318 的
+      LegacyRefScorer 里另有一组字面量，那是「与 ref/daily_stock_analysis 对齐」的兼容契约，
+      属固有逻辑（由测试锁定），不属于本负债

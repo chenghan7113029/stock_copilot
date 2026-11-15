@@ -67,7 +67,7 @@ stock_copilot/                    # 本 git 仓库根
 ├── log/                          # 运行日志（gitignore 内容，保留 .gitkeep）
 ├── reports/                      # 分析报告产出（gitignore 内容，保留 .gitkeep）
 ├── openspec/                     # 变更提案（非长期真源）
-├── ref/                          # 外部参考 clone，整个目录不进 git
+├── ref/                          # 外部参考资料（clone 快照 + research 调研区），整个目录不进 git
 │   ├── FinanceToolkit/
 │   ├── valueinvest/
 │   └── daily_stock_analysis/
@@ -95,7 +95,7 @@ stock_copilot/                    # 本 git 仓库根
 
 | 模块 | 职责 | 依赖方向 |
 |------|------|----------|
-| `apps` | CLI、用户交互（`sync` / `report tech|value|dual`） | → controller（可选）、service |
+| `apps` | CLI、用户交互（`sync` / `report tech\|value\|dual`） | → controller（可选）、service |
 | `controller` | REST/API 路由、请求校验、响应封装 | → service |
 | `service` | 业务编排、领域逻辑 | → data_provider, dao, common |
 | `data_provider` | 行情/财报/新闻等外部 API 适配 | → common |
@@ -210,28 +210,31 @@ flowchart TB
 
 ---
 
-## 5. 外部参考仓库（ref/）
+## 5. 外部参考资料（ref/）
 
-`ref/` 下三仓库为**设计参考 + 算法参考**，不是 runtime 依赖。
+`ref/` 下为**设计参考 + 算法参考**，不是 runtime 依赖；整个 `ref/` 不进 git。
 
 | 目录 | 用途 |
 |------|------|
-| `ref/daily_stock_analysis/` | 技术面、LLM 报告、YAML 策略参考 |
-| `ref/valueinvest/` | 估值引擎（DCF/Graham/EPV 等）参考 |
-| `ref/FinanceToolkit/` | 财务比率与模型参考 |
+| `ref/<repo>/` | 第三方 clone 快照（**只读**）。常见：`daily_stock_analysis/`（技术面、LLM 报告、YAML 策略）、`valueinvest/`（估值引擎 DCF/Graham/EPV）、`FinanceToolkit/`（财务比率与模型）。**当前清单以 `ref/` 实际目录为准**，不在本文逐项维护 |
+| `ref/research/<topic>/<slug>/` | 调研资料区（**只增不改**）：按波次从外网 / GitHub 收集的文档、论文、关键代码片段；每个子目录含一份 `README.md`（来源 URL、commit SHA 或抓取日期、许可证、为什么收它） |
+
+**索引必须进 git**：`ref/` 被 gitignore，所以调研要在 `docs/design/references/<topic>-research.md` 留可追溯索引（模板 `docs/agent-team/templates/reference-research.md`），并在 change 的 `proposal.md` `## 外部参考` 与 specs 的 `参考依据：REF-xxx` 中闭环引用。**索引里没有的参考，视为没调研过。**
 
 **允许：**
 
 - 阅读源码、跑其 CLI 做对比验证
+- 在 `ref/research/` 新增调研资料（不改动 `ref/<repo>/` 下的第三方源码）
 - 将必要算法/数据结构 **COPY** 到 `src/` 对应层
-- 在 [docs/design/references/](../design/references/) 保留分析报告
+- 在 [docs/design/references/](../design/references/) 保留分析报告与调研索引
 
 **禁止：**
 
 - `pip install -e ref/valueinvest` 或 `sys.path` 指向 `ref/`
 - 任何 `import` 外部 clone 包
-- 修改 `ref/` 下源码（视为只读快照）
+- 修改 `ref/<repo>/` 下第三方源码（视为只读快照）
 - 将 `ref/` 内容提交进 stock_copilot git
+- 把调研资料只放在 `ref/` 而不写索引（clone 后不可追溯）
 
 **拷贝规范：**
 

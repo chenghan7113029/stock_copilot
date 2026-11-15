@@ -1,0 +1,67 @@
+# Agent Teams 成员模型配置（唯一机器可读真值源）
+#
+# 用途：把 wave-tasks.md 成员表里的「角色 → 模型 → effort」抽成机器可读，
+# 由 scripts/agent_team_models.py 解析成当前环境 registry 里的真实 model id。
+# 起队前跑一次 `python scripts/agent_team_models.py --json`，用其输出建成员，
+# 不要凭记忆、不要用 list_subagent_models（那是 subagent 委托用的，不是
+# AgentTeams 成员模型的权威来源——本机实测它只列出 coding_plan 子集的
+# deepseek-flash，漏掉 deepseek-v4-pro）。
+#
+# model 字段 = 模型在 registry 里的 `name`（大小写不敏感匹配），不是 id。
+#   解析顺序（scripts/agent_team_models.py）：
+#     1. $DSH_HOME/settings.yaml.imported 的 llm-pi-ai.providers.<provider>.models
+#     2. $DSH_PROFILE_DIR/cordis.patch.yml 里的 provider/model 覆盖
+#     3. 脚本内置的本机实测映射（见 ENV.md「模型段」；当前 app 内置 catalog 实测含
+#        deepseek-flash 与 deepseek-v4-pro 两个 id）
+#   name 稳定，id 随环境变，所以这里只写 name。
+# effort 字段 = 该模型的 reasoningEfforts 键。本机 deepseek-flash 支持
+#   off / low / high / max（无 medium）；deepseek-v4-pro 同族，按同名字符串传。
+#
+# 分级理由（2026-11-14 收敛，两档）：
+#   pro（贵，2 个）：architect（技术方案/边界判断，方案错则整波返工）、
+#                    reviewer（白盒评审/准出，漏拦则缺陷进主干）
+#   flash（其余 6 个）：PM、K1、K2、engineer、qa、integrator
+#   effort high：判断与写作质量敏感（PM、K1、architect、engineer、reviewer）
+#   effort low ：模式化、步骤确定（K2 采集/落库、qa 设计与执行、integrator 归档）
+# 调优纪律：单点升降，不整体回退；降级只认实测证据。
+roles:
+  - name: product-manager
+    role: product manager
+    provider: deepseek-official
+    model: DeepSeek-V4.1-Flash
+    effort: high
+  - name: knowledge-architect
+    role: knowledge architect
+    provider: deepseek-official
+    model: DeepSeek-V4.1-Flash
+    effort: high
+  - name: architect
+    role: solution architect
+    provider: deepseek-official
+    model: DeepSeek-V4-Pro
+    effort: high
+  - name: knowledge-engineer
+    role: knowledge engineer
+    provider: deepseek-official
+    model: DeepSeek-V4.1-Flash
+    effort: low
+  - name: engineer
+    role: implementer
+    provider: deepseek-official
+    model: DeepSeek-V4.1-Flash
+    effort: high
+  - name: qa
+    role: qa engineer
+    provider: deepseek-official
+    model: DeepSeek-V4.1-Flash
+    effort: low
+  - name: reviewer
+    role: reviewer
+    provider: deepseek-official
+    model: DeepSeek-V4-Pro
+    effort: high
+  - name: integrator
+    role: integrator
+    provider: deepseek-official
+    model: DeepSeek-V4.1-Flash
+    effort: low
