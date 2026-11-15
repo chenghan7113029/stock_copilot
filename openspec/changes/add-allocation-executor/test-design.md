@@ -141,7 +141,7 @@ python -m apps.cli ips plan --as-of YYYY-MM-DD [--json]
 ```text
 # 1) 正常实现：37 条全绿
 $ python -m pytest -q test/qa/allocation
-37 passed in 49.25s          （exit 0）
+37 passed in 48.88s          （exit 0；首轮为 49.25s，均为本机实测）
 
 # 2) 变异：把 src 副本里的 ROUND_HALF_UP 改成 ROUND_HALF_DOWN（只改临时副本，
 #    经 IPS_QA_SRC 指向该副本），期望「取整边界」用例变红
@@ -162,7 +162,11 @@ FAILED ...::test_tc_r4_05_round_half_up      # 期望 3、实际 2
 3. **未定义行为不测**：迁移月恰逢权益超限（状态机顺序只在 design 出现、spec 未规定）、交易日/节假日顺延（KQ-1 未答复）、
    顺延额度结转（Q4 未答复）——按「不发明范围」跳过，不写会误判实现的用例。
 4. **不做**：性能/并发、`--json` 之外的格式化细节、真实 `config/ips.local.yaml` 的读取（隐私边界，见 §1.3）。
-5. **T5 必跑**：`python -m pytest -q`、`python -m pytest -q test/qa`、`python -m ruff check .`、`python -m compileall -q src test`；
+5. **R3-S1 的「回显公式」口径待 T5 判定**：scenario 字面写「并回显 `0.35 × 1,000,000 − 250,000 = 100,000`」；
+   当前套件断言「echo 含四项输入（0.35 / 1,000,000 / 250,000 / 24）+ 输出整体含缺口结果 100,000」。
+   若按 scenario 字面要求**公式字符串**回显，则现实现（echo 只有输入、公式信息分散在 `reasons`）可能不满足——
+   T5 需判定「可手算到元」的满足层级，必要时提 finding，不得由本设计默认放行。
+6. **T5 必跑**：`python -m pytest -q`、`python -m pytest -q test/qa`、`python -m ruff check .`、`python -m compileall -q src test`；
    本文件 §5 的实测只是 T3 工作树当时的快照，T5 以最终字节重跑为准。
 
 ## 7. 复现命令
