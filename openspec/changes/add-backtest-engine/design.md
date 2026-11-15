@@ -112,9 +112,9 @@ preregister ─▶ load(data/universe) ─▶ signal ─▶ broker ─▶ metric
 **决策：**
 
 - **trace（决策链路落盘字段）**：台账每行 = `experiment_id / hypothesis_id / params / segment / K / verdict / metrics / prereg_commit / timestamps / data_version / adjust_mode`（完整字段见 §4.1 `ExperimentRecord`）。逐笔成交另落 `Fill` 明细（订单状态、顺延天数、成本四分量），可从台账行回溯到每一笔钱。
-- **明账/暗账分离**：明账 = 台账 + 结果 JSON（给人看，`data/backtest/results/<experiment_id>.json`）；暗账 = **拒绝记录 + K 累计 + 样本外烧毁标记**（稽核用，不进入「结论」输出，但写入同一台账的 `audit` 字段或独立拒绝行）。「改假设必须新开实验」「样本外二次请求被拒」这些拒绝动作本身必须留痕（R2/R4 的 Scenario）。
+- **明账/暗账分离**：明账 = 结果行（`ExperimentRecord`）+ 结果 JSON（给人看，`data/backtest/results/<experiment_id>.json`）；暗账 = **执行行（`RunRecord` 的 REJECTED/FAILED 留痕）+ K 累计 + 样本外烧毁标记**（稽核用，不进入「结论」输出）。「改假设必须新开实验」「样本外二次请求被拒」「门禁跳级」这些拒绝动作本身必须落执行行留痕（R2/R4/R19 的 Scenario）。
 - **数字与上游核对**：所有数值由确定性代码算（A 项）；`metrics.py` 输出带 `data_version / adjust_mode / snapshot_time` 元数据，可与数据快照核对（R9/R13）。
-- **可重入（checkpoint）**：一次实验 = 一次进程运行，输入快照（预注册 commit + 参数 + 数据版本）可复现；失败不落结果行（R1「缺失预注册不产生结果记录」）。
+- **可重入（checkpoint）**：一次实验 = 一次进程运行，输入快照（预注册 commit + 参数 + 数据版本）可复现；**失败/拒绝不落「结果行」（`ExperimentRecord`），但必须落「执行行」（`RunRecord`）留痕**——R1「缺失预注册不产生结果记录」指结果行；R2/R4/R10/R19 的「拒绝/失败留痕」由 `RunRecord` 承担（见 §4.1 台账存储机制）。
 - **可拒绝**：三处硬拒绝——① 预注册缺失/未提交（R1）；② 配置缺键（R7）；③ 数据缺口（R9/R12）。都是确定性代码抛出、`exit != 0`，不静默降级。
 
 ### E. LLM 非功能需求
@@ -231,7 +231,15 @@ class Segment(str, Enum):
     OUT_OF_SAMPLE = "out_of_sample" # 2024–2026
 
 class Verdict(str, Enum):
+    """结论三值（只出现在结果行 ExperimentRecord）；「执行失败/被拒」不进 Verdict，而是 RunStatus.FAILED/REJECTED（执行行 RunRecord）。"""
     VALID = "valid"; INVALID = "invalid"; INCONCLUSIVE = "inconclusive"
+
+class RunStatus(str, Enum):
+    """执行行状态（QA-F2）：每次执行尝试一行，含拒绝与失败，满足 R2/R4/R10/R19 留痕。"""
+    RUNNING = "running"      # 已启动
+    PASSED = "passed"        # 执行成功（对应结果行 ExperimentRecord）
+    REJECTED = "rejected"    # 预注册缺失/未提交、样本外二次、配置缺键、门禁跳级、改假设等被拒
+    FAILED = "failed"        # 未来函数越界、数据缺口、校准未通过、台账损坏等失败
 
 class GateStage(str, Enum):
     BACKTEST_PENDING = "backtest_pending"   # 回测未通过
@@ -304,40 +312,120 @@ class CostBreakdown:
     total: float
 
 @dataclass(frozen=True)
+class OrderAttempt:
+    """一次目标日的撮合尝试（QA-F7）：每次封板/停牌/顺延都留一次 attempt，失败可数。"""
+    attempt_date: str               # 本次尝试的目标日（首个目标日 = t+1）
+    status: OrderStatus             # FILLED / FAILED_LIMIT_SEAL / SKIPPED_SUSPENDED / REJECTED_T1 / CAPPED_LIQUIDITY
+    reason: str | None              # 失败/跳过原因（「一字涨停封板」「停牌」「T+1 拒绝」等）
+
+@dataclass(frozen=True)
 class Fill:
     order: Order
-    status: OrderStatus
-    fill_date: str | None           # 实际成交日（≥ t+1）
+    attempts: tuple[OrderAttempt, ...]  # 完整尝试序列；末次 FILLED 即成交，其余为失败/跳过（R8 逐次留痕）
+    fill_date: str | None           # 最终成交日（= 末次 FILLED 的 attempt_date；无成交则为 None）
     fill_price: float | None
     filled_amount: float | None
     cost: CostBreakdown
-    delay_days: int                 # 顺延天数（封板/停牌）
+    delay_days: int                 # 顺延天数 = 首个成功 fill_date 与首个目标日（t+1）的交易日差（可数）
     notes: tuple[str, ...]          # 「触及流动性上限」「连续封板 N 日」「触发最低佣金」等
 
 @dataclass(frozen=True)
-class ExperimentRecord:
-    """台账行（R2）：append-only，写后不可改。"""
-    experiment_id: str
+class PreregistrationSpec:
+    """预注册必填字段（QA-F3）：R1 缺字段时提示缺失清单；R5 固定校正方法与 K 口径。"""
     hypothesis_id: str
-    params: dict                     # 参数快照（含 K 相关）
+    statement: str                  # 假设陈述
+    params: dict                    # 参数
+    metrics: tuple[str, ...]        # 评价指标
+    segments: tuple[Segment, ...]   # 样本区间
+    benchmarks: tuple[str, ...]     # 基准（R13 双基准：buy_and_hold + market_portfolio）
+    correction_method: str          # "bonferroni" | "deflated_sharpe"（择一，预注册固定）
+    k_definition: str               # K 的计算口径（R5 MUST 固定）
+    created_at: str                 # 预注册时间戳
+    # 校验入口 registry.validate_preregistration：逐键校验，缺键报错文案含字段名（R1 Scenario2）
+
+@dataclass(frozen=True)
+class RunRecord:
+    """执行行（QA-F2）：每次执行尝试一行，含拒绝与失败；与结果行同文件 append。"""
+    row_type: str = "run"           # 判别符：reader 用它区分 执行行/结果行
+    run_id: str                     # 执行 ID（唯一；生成规则同 experiment_id，见 registry.next_experiment_id）
+    experiment_id: str | None       # 结果行生成后回填；拒绝发生在结果行之前则为 None
+    status: RunStatus               # RUNNING / PASSED / REJECTED / FAILED
+    reason: str | None              # 失败/拒绝原因（留痕，R2/R4/R10/R19）
+    at: str                         # clock() 注入的确定性时间戳（QA-F6）
+    prereg_commit: str | None       # 预注册 commit；缺失/未提交时为 None（R1）
+
+@dataclass(frozen=True)
+class ExperimentRecord:
+    """结果行（R2）：append-only，写后不可改；只由 PASSED 执行追加。"""
+    row_type: str = "result"        # 判别符
+    experiment_id: str              # 生成规则：f"{hypothesis_id}-{seq:04d}"，seq 由 registry 单调递增（QA-F8）
+    hypothesis_id: str
+    params: dict                     # 参数快照
     segment: Segment
-    K: int                          # 累计尝试次数（R5）
+    K: int | None                   # 累计尝试次数（R5）；None = 未报告 K，结论必须 INCONCLUSIVE（QA-F8）
     verdict: Verdict
     metrics: dict                   # 结果指标（结构化 JSON 可序列化）
     prereg_commit: str              # 预注册 commit（R1/R2）
-    data_version: str               # 数据快照版本（R9/R13）
+    data_version: str               # 数据快照版本（R9/R13，由调用方/数据快照提供，QA-F6）
     adjust_mode: AdjustMode
-    timestamps: dict                # created_at / finished_at
+    timestamps: dict                # created_at / finished_at（clock() 注入）
     parent_experiment_id: str | None  # 改假设须新开实验并引用父实验（R2）
     burnt: bool = False             # 样本外已烧毁标记（R4，不可撤销）
-    audit: tuple[str, ...] = ()     # 拒绝/跳过留痕（R4/R8/R19 的拒绝动作）
+
+@dataclass(frozen=True)
+class Benchmark:
+    """基准定义（R13 双基准，QA-F4）：收益序列由 metrics 按基准口径计算，不预置数值。"""
+    kind: str                       # "buy_and_hold" | "market_portfolio"
+    label: str
+
+@dataclass(frozen=True)
+class WindowStats:
+    """事件研究单窗口统计（QA-F4）。"""
+    n: int                          # 有效事件数
+    mean: float                     # 超额均值
+    median: float
+    std: float
+    ci: tuple[float, float]         # 置信区间
+    effective_n: int                # 有效样本（时间块数，R6）
+    by_year: dict[str, "WindowStats"]    # 分年度
+    by_cap_tier: dict[str, "WindowStats"]  # 分市值组
+
+@dataclass(frozen=True)
+class EventStudyResult:
+    """R17 结果（QA-F4）：按窗口 × 基准组织。"""
+    windows: dict[str, dict[str, WindowStats]]   # {window(20/60): {benchmark_kind: WindowStats}}
+    n_events: int
+    inference_method: str           # "block_bootstrap"
+    block_length: int | None        # KQ-2 未答复：None；缺键即拒绝发生在 cfg 层
+    n_bootstrap: int | None
+
+@dataclass(frozen=True)
+class AttributionResult:
+    """R13 归因（QA-F4）：四项暴露与贡献 + 未解释部分。"""
+    beta: float
+    size: float
+    value: float
+    momentum: float
+    exposures: dict[str, float]     # {beta, size, value, momentum}
+    contributions: dict[str, float]
+    unexplained: float
+
+@dataclass(frozen=True)
+class StabilityResult:
+    """R14 稳定性（QA-F4）：三维分档 + 范围说明。"""
+    by_year: dict[str, WindowStats]
+    by_market_state: dict[str, WindowStats]     # KQ-7 未答复：该维度「口径未定」不参与判定
+    by_cap_tier: dict[str, WindowStats]
+    scope_note: str                 # 「仅在 X 段有效」/「样本不足」标注
 
 @dataclass(frozen=True)
 class CalibrationResult:
     passed: bool
     direction: str                  # 「显著跑输」/「未复现」
     ci: tuple[float, float] | None
-    K: int
+    K: int | None                   # QA-F8：缺 K 可表达
+    corrected_p: float | None       # QA-F8：校正后 p（KQ-5 判据未答复前可为 None，但字段必须存在）
+    verdict: Verdict                # QA-F8：校正后判定（VALID/INVALID/INCONCLUSIVE）
     params: dict
     notes: tuple[str, ...]
 
@@ -355,7 +443,7 @@ class GateRecord:
 ```python
 # data.py
 def load_price_series(codes, start, end, adjust: AdjustMode, *, loader) -> dict[str, tuple[PriceBar, ...]]:
-    """adjust 只能 HFQ/SEGMENTED_HFQ；请求前复权抛 BacktestDataGapError（R9）。"""
+    """adjust 只能 HFQ/SEGMENTED_HFQ；请求前复权抛 InvalidAdjustModeError，数据缺失抛 BacktestDataGapError（R9）。"""
 
 def load_financials_point_in_time(codes, as_of, *, loader) -> dict[str, tuple[FinancialRecord, ...]]:
     """按 visible_from <= as_of 对齐（R11）；缺 ann_date 走保守回退并标注。"""
@@ -382,8 +470,8 @@ def next_tradable_day(date, *, calendar, prices) -> str:
     """顺延目标日 = 下一个可成交交易日；停牌/封板递归顺延，设最大顺延上限。"""
 
 # metrics.py —— 纯函数（入 Fill/事件 + 基准，出结构化结果）
-def compute_event_study(events, benchmark, *, cfg) -> EventStudyResult:
-    """20/60 日相对基准超额分布：n/mean/median/std/CI/分年度/分档（R17）。"""
+def compute_event_study(events, benchmarks: Sequence[Benchmark], *, cfg) -> EventStudyResult:
+    """20/60 日相对基准超额分布：每基准 n/mean/median/std/CI/分年度/分档（R17；R13 双基准）。"""
 
 def block_bootstrap(excess, *, block_length, n_bootstrap, seed) -> tuple[tuple[float,float], int]:
     """有效样本（时间块）重采样，返回 CI 与有效样本量（R6）。"""
@@ -391,8 +479,8 @@ def block_bootstrap(excess, *, block_length, n_bootstrap, seed) -> tuple[tuple[f
 def multiple_testing_correction(p_values, K, method, *, cfg) -> tuple[float, ...]:
     """Bonferroni / Deflated Sharpe 择一（预注册固定），输出校正后判定（R5）。"""
 
-def attribution(returns, factors, benchmark) -> AttributionResult:
-    """beta/规模/价值/动量 四项暴露与贡献（R13）。"""
+def attribution(returns, factors, benchmarks: Sequence[Benchmark]) -> AttributionResult:
+    """beta/规模/价值/动量 四项暴露与贡献；双基准（买入持有 + 市场组合）各算一套（R13）。"""
 
 def partial_pooling(estimates, group_mean, *, shrink) -> tuple[float, ...]:
     """个股估计向组均值收缩，输出组内分位（R16）。"""
@@ -400,11 +488,17 @@ def partial_pooling(estimates, group_mean, *, shrink) -> tuple[float, ...]:
 def stability(result, *, cfg) -> StabilityResult:
     """分年度 / 分市场状态 / 分市值组；仅一段显著→标注（R14）。"""
 
-# registry.py —— append-only
+# registry.py —— append-only；注入点使测试可隔离、可确定性重放（QA-F6）
 class ExperimentRegistry:
-    def append(self, record: ExperimentRecord) -> None: ...
+    def __init__(self, store_path: Path, *, clock: Callable[[], str], data_version: str) -> None:
+        """store_path：台账 NDJSON 路径（测试用 tmp_path，不碰真实 data/backtest/）；
+        clock：时间戳注入（测试注入固定时刻，断言 timestamps 确定性）；data_version：写入每行。"""
+    def append_run(self, record: RunRecord) -> None: ...              # 执行行（含拒绝/失败留痕，QA-F2）
+    def append(self, record: ExperimentRecord) -> None: ...           # 结果行（PASSED 后追加）
     def get(self, experiment_id) -> ExperimentRecord: ...
-    def assert_not_burnt(self, hypothesis_id, segment) -> None: ...   # R4：二次请求样本外抛错
+    def next_experiment_id(self, hypothesis_id) -> str: ...           # f"{hypothesis_id}-{seq:04d}"（QA-F8）
+    def validate_preregistration(self, spec: PreregistrationSpec) -> None: ...  # 缺键报错含字段名（QA-F3/R1）
+    def assert_not_burnt(self, hypothesis_id, segment) -> None: ...   # R4：二次请求样本外抛 RegistryImmutableError 留痕
     def mark_burnt(self, hypothesis_id, experiment_id) -> None: ...   # 不可撤销
     def cumulative_K(self, study_scope) -> int: ...                   # R5：K 累计
 
@@ -416,14 +510,42 @@ def assert_calibrated(registry) -> None: ...                           # 未过 
 class GateStateMachine:
     def current(self, rule_id) -> GateRecord: ...
     def transition(self, rule_id, to: GateStage, evidence) -> GateRecord:
-        """只允许 上一级→下一级 的合法边；跳级抛错并留痕。"""
+        """只允许 上一级→下一级 的合法边；跳级抛 GateSkipError 并留痕。"""
 ```
 
-**台账存储机制（R2 append-only 的机械保证）**
+**异常清单（QA-F5：每类拒绝可由异常类型二分，口径非法 ≠ 数据缺失）**
 
-- 预注册文件（git 跟踪，R1「写入版本库并生成 commit」）：`config/backtest/preregistrations/<hypothesis_id>.yaml`。
-- 运行台账（append-only，不入 git）：`data/backtest/registry.ndjson`。**每行** = `ExperimentRecord` 的 JSON + `record_sha256`（该行内容哈希）。写入只允许 `append`（追加一字节不覆盖），**不提供 UPDATE/DELETE 接口**；读取时逐行校验哈希，发现被篡改即报「台账已损坏」拒绝审计结论（R2 Scenario「修改已写入的台账行被拒绝」）。
-- 结果 JSON：`data/backtest/results/<experiment_id>.json`（明账）。
+```python
+class BacktestError(Exception): ...                    # 回测域异常根（可放 common 或 service/backtest）
+
+class InvalidAdjustModeError(BacktestError): ...       # R9 口径非法：请求前复权（adjust="qfq"）或非法复权枚举
+class BacktestDataGapError(BacktestError): ...         # R9/R12 数据缺失：后复权价/成交额/涨跌停/停牌/退市名单/ann_date 取不到
+class MissingBacktestConfigError(BacktestError): ...   # R7 配置缺键：费率/税率/档位等
+class FutureDataError(BacktestError): ...              # R10 越界访问 t 之后数据
+class RegistryCorruptedError(BacktestError): ...       # R2 台账哈希校验失败（被篡改）
+class RegistryImmutableError(BacktestError): ...       # R2/R4 修改已写入行 / 样本外二次请求 / 改假设未新开实验
+class CalibrationFailedError(BacktestError): ...       # R18 校准未通过（封锁研究输出，exit != 0）
+class GateSkipError(BacktestError): ...                # R19 门禁跳级请求被拒
+```
+
+| 异常 | 触发条件 | 区分作用 |
+| --- | --- | --- |
+| `InvalidAdjustModeError` | `load_price_series(adjust="qfq")` 或非法枚举 | 证明「口径写错」≠「数据没有」（R9 前复权请求被拒） |
+| `BacktestDataGapError` | 后复权价/成交额/涨跌停/停牌/退市名单/`ann_date` 取不到 | 证明「不静默降级」（R9/R12 报缺口并停止） |
+| `MissingBacktestConfigError` | `config/app.yaml backtest:` 缺键 | R7「费率配置缺失时拒绝执行」 |
+| `FutureDataError` | `PointInTimeSnapshot` 含 `trade_date/visible_from > as_of` | R10「越界访问抛错」 |
+| `RegistryCorruptedError` | 台账 NDJSON 行哈希校验失败 | R2「修改已写入的台账行被拒绝」 |
+| `RegistryImmutableError` | 修改已写入行 / 样本外二次请求 / 改假设未新开实验 | R2/R4 拒绝并留痕 |
+| `CalibrationFailedError` | 校准题未复现「显著跑输」 | R18「先修台子，封锁输出」 |
+| `GateSkipError` | 门禁状态机收到跳级 transition | R19「跳级请求被拒并留痕」 |
+
+**台账存储机制（R2 append-only + QA-F2 双行模型的机械保证）**
+
+- 预注册文件（git 跟踪，R1「写入版本库并生成 commit」）：`config/backtest/preregistrations/<hypothesis_id>.yaml`（schema 见 `PreregistrationSpec`，必填字段缺一即报错并列出字段名）。
+- 运行台账（append-only，不入 git）：`data/backtest/registry.ndjson`。**每行** = `RunRecord`（执行行）或 `ExperimentRecord`（结果行），均带 `row_type` 判别符 + `record_sha256`（该行内容哈希）。写入只允许 `append`（追加一字节不覆盖），**不提供 UPDATE/DELETE 接口**；读取时逐行校验哈希，发现被篡改即抛 `RegistryCorruptedError`（R2 Scenario「修改已写入的台账行被拒绝」）。
+  - **执行行（`RunRecord`）**：每次执行尝试一行——`RUNNING/PASSED/REJECTED/FAILED`；**拒绝与失败必须落执行行留痕**（R2 改假设被拒、R4 样本外二次被拒、R10 未来函数失败、R19 门禁跳级被拒）。
+  - **结果行（`ExperimentRecord`）**：仅 `PASSED` 执行追加一行（含 verdict + metrics + K）；`REJECTED/FAILED` **不落结果行**（与 R1「缺失预注册不产生结果记录」一致）。
+- 结果 JSON（明账）：`data/backtest/results/<experiment_id>.json`；校准结果 `data/backtest/results/calibration.json`。
 
 **撮合顺延与未来函数的具体机制（R8/R10 的防作弊）**
 
@@ -436,25 +558,25 @@ class GateStateMachine:
 
 | Requirement | 落地模块 / 接口 | 关键机制 |
 | --- | --- | --- |
-| R1 预注册先于跑数 | `registry.py::load_preregistration` + `apps/backtest_cli.py::preregister` | 预注册文件入 git 并校验 commit；缺失/未提交 → 拒绝、无结果行 |
-| R2 台账 append-only + K 不可改 | `registry.py::ExperimentRegistry.append` + NDJSON 哈希 | 只 append、无 UPDATE/DELETE；改假设 → 新实验 + `parent_experiment_id` |
+| R1 预注册先于跑数 | `registry.py::validate_preregistration` + `PreregistrationSpec` + `apps/backtest_cli.py::preregister` | 预注册文件入 git 并校验 commit；必填字段缺一 → 报错含字段名；缺失/未提交 → 拒绝、不落结果行 |
+| R2 台账 append-only + K 不可改 | `registry.py::ExperimentRegistry.append / append_run` + NDJSON 哈希 | 执行行（RunRecord）+ 结果行（ExperimentRecord）均 append、无 UPDATE/DELETE；改假设 → 新实验 + `parent_experiment_id`；篡改 → `RegistryCorruptedError` |
 | R3 三段切分 | `config.py::BacktestConfig.segments` + `Segment` 枚举 | 每段独立可用状态；跨段报告显式列出各段（不合并单一数字） |
-| R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` | 首次确认后写 `burnt=True`（不可撤销）；二次请求抛错留痕 |
-| R5 多重比较 + K | `metrics.py::multiple_testing_correction` + `registry.py::cumulative_K` | K 缺 → `Verdict.INCONCLUSIVE`；校正方法预注册固定 |
+| R4 样本外一次性烧毁 | `registry.py::assert_not_burnt / mark_burnt` | 首次确认后写 `burnt=True`（不可撤销）；二次请求抛 `RegistryImmutableError` 并落执行行留痕 |
+| R5 多重比较 + K | `metrics.py::multiple_testing_correction` + `registry.py::cumulative_K` | K 缺（`K=None`）→ `Verdict.INCONCLUSIVE`；校正方法预注册固定 |
 | R6 block bootstrap | `metrics.py::block_bootstrap` | 报告名义样本 + 有效样本（时间块）；禁 iid t 检验下结论 |
-| R7 成本摩擦 + 流动性上限 | `broker.py::execute_orders` + `config.py`（费率/档位） | 佣金/印花税/滑点/过户费四分量；缺配置 → 拒绝执行；超限截断标注 |
-| R8 A 股撮合约束 | `broker.py` 状态机 + `data.py`（涨跌停/停牌字段） | T+1 / 封板顺延 / 停牌跳过，逐笔留痕 |
-| R9 后复权 | `data.py::load_price_series(adjust=HFQ/SEGMENTED_HFQ)` | 前复权请求抛错；结果带 `adjust_mode + data_version + snapshot_time` |
-| R10 信号纯函数 + t→t+1 | `signal.py::evaluate_condition` + `models.PointInTimeSnapshot` | 入参被硬裁到 t；越界抛 `FutureDataError`；成交在 t+1 及之后 |
+| R7 成本摩擦 + 流动性上限 | `broker.py::execute_orders` + `config.py`（费率/档位） | 佣金/印花税/滑点/过户费四分量；缺配置 → `MissingBacktestConfigError`；超限截断标注 |
+| R8 A 股撮合约束 | `broker.py` 状态机 + `data.py`（涨跌停/停牌字段）+ `OrderAttempt` | T+1 / 封板顺延 / 停牌跳过，逐次 attempt 留痕，`delay_days` 可数 |
+| R9 后复权 | `data.py::load_price_series(adjust=HFQ/SEGMENTED_HFQ)` | 前复权请求抛 `InvalidAdjustModeError`；数据缺失抛 `BacktestDataGapError`；结果带 `adjust_mode + data_version + snapshot_time` |
+| R10 信号纯函数 + t→t+1 | `signal.py::evaluate_condition` + `models.PointInTimeSnapshot` | 入参被硬裁到 t；越界抛 `FutureDataError`，失败落执行行留痕；成交在 t+1 及之后 |
 | R11 公告日对齐 | `data.py::load_financials_point_in_time` | `visible_from = max(ann_date, conservative_cutoff)`；回退标注 |
-| R12 生存偏差 | `universe.py::build_universe` + `data_provider/backtest/universe.py` | 含退市（退市日前计入）/当时 ST/历史成分；名单缺 → 报缺口 |
-| R13 基准 + 归因 | `metrics.py::attribution` + 基准对比 | 双基准（买入持有 + 市场组合）+ beta/规模/价值/动量 |
-| R14 稳定性分档 | `metrics.py::stability` | 分年度/牛熊震荡/市值组；仅一段显著 → 「仅在 X 段有效」 |
+| R12 生存偏差 | `universe.py::build_universe` + `data_provider/backtest/universe.py` | 含退市（退市日前计入）/当时 ST/历史成分；名单缺 → `BacktestDataGapError` |
+| R13 基准 + 归因 | `metrics.py::attribution(…, benchmarks: Sequence[Benchmark])` | 双基准（买入持有 + 市场组合）+ beta/规模/价值/动量 + `unexplained` |
+| R14 稳定性分档 | `metrics.py::stability` + `StabilityResult` | 分年度/牛熊震荡/市值组；仅一段显著 → 「仅在 X 段有效」（`scope_note`） |
 | R15 标签准入 + 切点纪律 | `universe.py::assign_groups` + 准入校验 | 三条件准入、软标签拒绝、结果标签禁用、季度重算不回改 |
 | R16 部分池化 | `metrics.py::partial_pooling` | 组内分位 + 收缩强度；拒绝绝对收益预测 |
-| R17 事件研究 MVP | `signal.py`（事件条件）+ `metrics.py::compute_event_study` + pipeline | 20/60 日超额分布 + 分年度/分档；允许「无信号」 |
-| R18 校准门禁 | `calibration.py::run_calibration / assert_calibrated` | 校准题显著跑输 → 可信；否则封锁全部研究输出 |
-| R19 三级门禁 | `gates.py::GateStateMachine` | 回测→影子→实盘；跳级拒绝留痕；唯一状态可查询 |
+| R17 事件研究 MVP | `signal.py`（事件条件）+ `metrics.py::compute_event_study` + `EventStudyResult` | 20/60 日超额分布（每基准）+ 分年度/分档；允许「无信号」 |
+| R18 校准门禁 | `calibration.py::run_calibration / assert_calibrated` + `CalibrationResult` | 校准题显著跑输 → 可信；否则抛 `CalibrationFailedError` 封锁全部研究输出 |
+| R19 三级门禁 | `gates.py::GateStateMachine` | 回测→影子→实盘；跳级抛 `GateSkipError` 并留痕；唯一状态可查询 |
 
 ---
 
@@ -620,7 +742,24 @@ class GateStateMachine:
 
 ---
 
-## 10. 参考
+## 10. QA 反馈处理表（T4 findings → 本设计修改点）
+
+> 本表是 T6 逐条复核的索引：finding id → 修改点（本文件章节）→ 改后契约要点。**只改设计契约，不改 QA 断言，不改 spec/proposal/knowledge-delta。**
+
+| Finding | 修改点 | 改后契约要点 |
+| --- | --- | --- |
+| QA-F1（medium，目录命名） | §6.7（**不改**） | captain 已裁定：design §6.7 保持 `test/qa/backtest/test_*.py`（与 `src/service/backtest/` 镜像）；`test/qa/test_backtest_<topic>.py` 的落位名由 **T4 改自己的 test-design.md**，本表只登记不改动 |
+| QA-F2（high，失败留痕） | §3D + §4.1 枚举 + §4.1 数据结构 + §4.1 台账存储机制 + §4.2 | 新增 `RunStatus`（RUNNING/PASSED/REJECTED/FAILED）与 `RunRecord`（执行行）；`ExperimentRecord` 保留为「结果行」（仅 PASSED 产生）；两行同文件 append、均逐行哈希、带 `row_type` 判别符。`Verdict` 保持结论三值（VALID/INVALID/INCONCLUSIVE），「失败/被拒」由 `RunStatus.FAILED/REJECTED` 表达——满足 R2/R4/R10/R19 拒绝与失败留痕，且不与 R1「失败不落结果行」冲突 |
+| QA-F3（medium，预注册字段） | §4.1 `PreregistrationSpec` + `registry.validate_preregistration` | 必填字段：`hypothesis_id / statement / params / metrics / segments / benchmarks / correction_method / k_definition / created_at`；缺键报错文案含字段名（R1 Scenario2），`correction_method` 与 `k_definition` 预注册固定（R5） |
+| QA-F4（high，结果字段 + 双基准） | §4.1 `Benchmark`/`WindowStats`/`EventStudyResult`/`AttributionResult`/`StabilityResult` + 函数签名 | `compute_event_study(events, benchmarks: Sequence[Benchmark], …)`、`attribution(returns, factors, benchmarks: Sequence[Benchmark])`；`EventStudyResult.windows[window][benchmark_kind]`、`AttributionResult`（四项 + `unexplained`）、`StabilityResult`（by_year/by_market_state/by_cap_tier + `scope_note`） |
+| QA-F5（medium，异常族） | §4.1「异常清单」+ 否-1 结论 + §4.2 | `InvalidAdjustModeError`（口径非法）与 `BacktestDataGapError`（数据缺失）**分开**；另 `MissingBacktestConfigError` / `FutureDataError` / `RegistryCorruptedError` / `RegistryImmutableError` / `CalibrationFailedError` / `GateSkipError`；每类拒绝可由异常类型二分 |
+| QA-F6（medium，注入点） | §4.1 `ExperimentRegistry.__init__` | `ExperimentRegistry(store_path: Path, *, clock: Callable[[], str], data_version: str)`；测试用 `tmp_path` 上的 registry，`clock` 注入固定时刻，`data_version` 由调用方/数据快照提供并写入每行 |
+| QA-F7（medium，封板失败→顺延表达） | §4.1 `OrderAttempt` + `Fill` | `Fill.attempts: tuple[OrderAttempt, …]`（每次目标日尝试的 `attempt_date/status/reason`）；`fill_date` = 末次 FILLED 的 `attempt_date`；`delay_days` = 首个成功 `fill_date` 与首个目标日（t+1）的交易日差，可数 |
+| QA-F8（low，三处字段） | §4.1 `ExperimentRecord` / `CalibrationResult` + `registry.next_experiment_id` | ① `experiment_id = f"{hypothesis_id}-{seq:04d}"`（seq 由 registry 单调递增）；② `K: int | None`（None 表达「未报告 K」→ `INCONCLUSIVE`）；③ `CalibrationResult.corrected_p: float | None` + `verdict: Verdict` |
+
+---
+
+## 11. 参考
 
 调研索引唯一真源（T1 产出，进 git）：[`docs/design/references/backtest-engine-research.md`](../../../docs/design/references/backtest-engine-research.md)；change 内摘要见 [`references/research.md`](references/research.md)。关键决策处的引用：
 

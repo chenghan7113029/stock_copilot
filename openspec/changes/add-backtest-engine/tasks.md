@@ -21,11 +21,11 @@ Phase 7 CLI 装配与端到端
 
 ## Phase 1 · 契约与配置（models / config）
 
-- [ ] **T2.1 定义回测契约 dataclass 与枚举**
-  - 设计依据：design.md §4.1（`AdjustMode` / `OrderStatus` / `Segment` / `Verdict` / `GateStage` / `PriceBar` / `FinancialRecord` / `GroupAssignment` / `PointInTimeSnapshot` / `EventSignal` / `Order` / `CostBreakdown` / `Fill` / `ExperimentRecord` / `CalibrationResult` / `GateRecord`）
+- [ ] **T2.1 定义回测契约 dataclass 与枚举（含 T4 findings 补齐的契约）**
+  - 设计依据：design.md §4.1 全部 + §10 QA 反馈处理表（`AdjustMode` / `OrderStatus` / `Segment` / `Verdict` / `RunStatus` / `GateStage` / `PriceBar` / `FinancialRecord` / `GroupAssignment` / `PointInTimeSnapshot` / `EventSignal` / `PreregistrationSpec` / `Order` / `OrderAttempt` / `CostBreakdown` / `Fill` / `RunRecord` / `ExperimentRecord`（`K: int | None`、`row_type`）/ `Benchmark` / `WindowStats` / `EventStudyResult` / `AttributionResult` / `StabilityResult` / `CalibrationResult`（含 `corrected_p` / `verdict`）/ `GateRecord` + §4.1「异常清单」的 `BacktestError` 族 8 类）
   - 产出文件：`src/service/backtest/models.py`
   - 验证：`python -m pytest -q test/service/backtest/test_models.py`
-  - 判定真伪：`PointInTimeSnapshot.__post_init__` 对 `trade_date > as_of` / `visible_from > as_of` 抛 `FutureDataError`（R10 负向）。
+  - 判定真伪：`PointInTimeSnapshot.__post_init__` 对 `trade_date > as_of` / `visible_from > as_of` 抛 `FutureDataError`（R10 负向）；`Fill.attempts` 可表达「封板失败→顺延成交」（QA-F7）；`ExperimentRecord.K=None` 可构造（QA-F8）；异常族按类型二分（QA-F5）。
 
 - [ ] **T2.2 定义 `BacktestConfig` 装载器（缺键即拒绝）**
   - 设计依据：design.md §4.1 `config.py`、否-2、R7「费率配置缺失时拒绝执行」
@@ -99,11 +99,11 @@ Phase 7 CLI 装配与端到端
   - 验证：`python -m pytest -q test/service/backtest/test_signal.py`
   - 判定真伪：同一 t 切片重复输入 → 同输出（R10 Scenario「纯函数可复现」）；越界读 t+1 → `FutureDataError`。
 
-- [ ] **T2.12 事件研究指标 `compute_event_study`（20/60 日相对基准超额分布）**
-  - 设计依据：design.md §4.1 `compute_event_study`、R17、REF-02
+- [ ] **T2.12 事件研究指标 `compute_event_study`（20/60 日双基准超额分布）**
+  - 设计依据：design.md §4.1 `compute_event_study(events, benchmarks: Sequence[Benchmark], *, cfg)` + `EventStudyResult`/`WindowStats`、R17/R13、REF-02、QA-F4
   - 产出文件：`src/service/backtest/metrics.py` + `test/service/backtest/test_metrics.py`
   - 验证：`python -m pytest -q test/service/backtest/test_metrics.py`
-  - 判定真伪：输出 20/60 日窗口的事件数/均值/中位数/标准差/CI/分年度/分档（R17 Scenario）；有效事件数低于预注册阈值 → 标注「样本不足」不出判定；CI 含 0 且校正后不显著 → 结论「无信号」。
+  - 判定真伪：输出 20/60 日窗口 × 双基准（买入持有 + 市场组合）的事件数/均值/中位数/标准差/CI/分年度/分市值组（R17 + R13 双基准 Scenario）；有效事件数低于预注册阈值 → 标注「样本不足」不出判定；CI 含 0 且校正后不显著 → 结论「无信号」。
 
 - [ ] **T2.13 统计推断 `block_bootstrap` + 多重比较校正**
   - 设计依据：design.md §4.1 `block_bootstrap`/`multiple_testing_correction`、R5/R6、KQ-2
@@ -112,36 +112,36 @@ Phase 7 CLI 装配与端到端
   - 判定真伪：报告名义样本 + 有效样本（时间块数）；默认不用 iid t 检验（R6）；K=1 与 K=50 同一 p 值判定翻转且都入台账（R5 Scenario）；K 缺失 → 拒绝标「有效」。
 
 - [ ] **T2.14 基准归因 + 稳定性分档 + 部分池化**
-  - 设计依据：design.md §4.1 `attribution`/`stability`/`partial_pooling`、R13/R14/R16、KQ-3/KQ-7
+  - 设计依据：design.md §4.1 `attribution(returns, factors, benchmarks: Sequence[Benchmark])` + `AttributionResult` / `stability` + `StabilityResult` / `partial_pooling`、R13/R14/R16、KQ-3/KQ-7、QA-F4
   - 产出文件：`src/service/backtest/metrics.py` + `test/service/backtest/test_metrics.py`
   - 验证：`python -m pytest -q test/service/backtest/test_metrics.py`
-  - 判定真伪：双基准（买入持有 + 市场组合）+ beta/规模/价值/动量四项；全期显著但 80% 贡献来自单一年度 → 标注「仅在 2015 年有效」（R14）；单票绝对收益预测不返回、只返回组内分位（R16）。
+  - 判定真伪：双基准（买入持有 + 市场组合）各出 beta/规模/价值/动量四项暴露与贡献 + `unexplained`（R13）；全期显著但 80% 贡献来自单一年度 → `scope_note` 标注「仅在 2015 年有效」（R14）；单票绝对收益预测不返回、只返回组内分位（R16）。
 
 ---
 
 ## Phase 5 · 台账（registry）
 
-- [ ] **T2.15 实验台账 append-only + 哈希校验**
-  - 设计依据：design.md §4.1 `ExperimentRegistry.append`、R2、台账存储机制
+- [ ] **T2.15 实验台账 append-only + 执行行/结果行 + 哈希校验 + 注入点**
+  - 设计依据：design.md §4.1 `ExperimentRegistry(store_path, *, clock, data_version)` + `append_run`/`append`/`get`/`next_experiment_id`/`validate_preregistration` + `RunRecord`/`ExperimentRecord`、R1/R2、台账存储机制、QA-F2/QA-F3/QA-F6/QA-F8
   - 产出文件：`src/service/backtest/registry.py` + `test/service/backtest/test_registry.py`
   - 验证：`python -m pytest -q test/service/backtest/test_registry.py`
-  - 判定真伪：同一预注册执行两次 → 两行、实验 ID 不同；改已写入行的 K/结果 → 拒绝（无 UPDATE/DELETE 接口）+ 留痕；改假设 → 新实验 + `parent_experiment_id`（R2 各 Scenario）。
+  - 判定真伪：同一预注册执行两次 → 两行、`experiment_id = f"{hypothesis_id}-{seq:04d}"` 两值不同；改已写入行 → 抛 `RegistryCorruptedError` + 执行行留痕（无 UPDATE/DELETE）；改假设 → 新实验 + `parent_experiment_id`（R2 各 Scenario）；`RunRecord(status=REJECTED/FAILED)` 可追加留痕；`validate_preregistration` 缺键报错含字段名。
 
 - [ ] **T2.16 样本外烧毁 + K 累计**
-  - 设计依据：design.md §4.1 `assert_not_burnt/mark_burnt/cumulative_K`、R3/R4/R5
+  - 设计依据：design.md §4.1 `assert_not_burnt/mark_burnt/cumulative_K`、R3/R4/R5、QA-F2/QA-F5
   - 产出文件：`src/service/backtest/registry.py` + `test/service/backtest/test_registry.py`
   - 验证：`python -m pytest -q test/service/backtest/test_registry.py`
-  - 判定真伪：首次使用样本外写入唯一「已烧毁」标记（不可撤销）；二次请求抛错 + 留痕；新实验独立额度（R4 各 Scenario）；`cumulative_K` 按 `k_components[]` 累计。
+  - 判定真伪：首次使用样本外写入唯一「已烧毁」标记（不可撤销）；二次请求抛 `RegistryImmutableError` 并落 `RunRecord(status=REJECTED)` 留痕；新实验独立额度（R4 各 Scenario）；`cumulative_K` 按 `k_components[]` 累计。
 
 ---
 
 ## Phase 6 · 校准与三级门禁（calibration + gates）
 
 - [ ] **T2.17 已知答案校准门禁 `calibration.py`**
-  - 设计依据：design.md §4.1 `run_calibration/assert_calibrated`、R18、KD-10-01/02、KQ-1/KQ-5/KQ-6
+  - 设计依据：design.md §4.1 `run_calibration/assert_calibrated` + `CalibrationResult`（`passed/direction/ci/K/corrected_p/verdict`）、R18、KD-10-01/02、KQ-1/KQ-5/KQ-6、QA-F5/QA-F8
   - 产出文件：`src/service/backtest/calibration.py` + `test/service/backtest/test_calibration.py`
   - 验证：`python -m pytest -q test/service/backtest/test_calibration.py`
-  - 判定真伪：「跌破 MA60」跑全 A 显著跑输买入持有 → 标记台子可信；复现不出 → `exit != 0` + 封锁研究输出 + 台账记校准失败；校准失败不被表述为「策略无效」（R18 各 Scenario）。
+  - 判定真伪：「跌破 MA60」跑全 A 显著跑输买入持有 → `CalibrationResult(verdict=INVALID, passed=True)` 标记台子可信；复现不出 → 抛 `CalibrationFailedError`、`exit != 0` + 封锁研究输出 + 台账落 `RunRecord(status=FAILED)` 记校准失败；校准失败不被表述为「策略无效」（R18 各 Scenario）。
 
 - [ ] **T2.18 三级门禁状态机 `gates.py`**
   - 设计依据：design.md §4.1 `GateStateMachine`、R19、否-3、KD-9-01/06、Q7/KQ-4
