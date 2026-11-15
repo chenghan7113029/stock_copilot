@@ -315,12 +315,35 @@ exit=0
 3. grep 退出码 1（无命中）→ 「成本参数缺口」不是凭印象：全仓 `src/` + `config/` 里没有佣金/印花税/滑点任何一个配置项或实现。
 4. `openspec validate --strict` 仍通过 → 新增两份 markdown 没有破坏 change 结构（`openspec/specs/` 未被我触碰）。
 
-### 16.2 提交后自检（回填）
+### 16.2 提交后自检（实测回填）
+
+```bash
+$ git -c user.name='chenghan7113029' -c user.email='chenghan7113029@users.noreply.github.com' \
+    commit -m "docs(add-backtest-engine): K1 knowledge-delta + knowledge layer design (t2)"
+[feature/add-backtest-engine d799393] docs(add-backtest-engine): K1 knowledge-delta + knowledge layer design (t2)
+ 2 files changed, 672 insertions(+)
+ create mode 100644 config/knowledge/_design.md
+ create mode 100644 openspec/changes/add-backtest-engine/knowledge-delta.md
+
+$ git log -1 --format='%H | %ae | %s'
+d799393b8fb6df43af00e7cce9e39613d142b80a | chenghan7113029@users.noreply.github.com | docs(add-backtest-engine): K1 knowledge-delta + knowledge layer design (t2)
+
+$ git show --name-only --format='' HEAD
+config/knowledge/_design.md
+openspec/changes/add-backtest-engine/knowledge-delta.md
+
+$ git rev-parse HEAD
+d799393b8fb6df43af00e7cce9e39613d142b80a
+```
 
 | 项 | 结果 |
 | --- | --- |
-| 提交 1（本文件 + `_design.md`） | 待回填（`git show --name-only` 实测输出） |
-| 提交身份自检 `git log -1 --format='%ae'` | 待回填 |
-| 变更文件清单 `git show --name-only` | 待回填 |
-| 提交后 `git rev-parse HEAD` | 待回填 |
+| 提交 1（本文件 + `_design.md`） | `d799393`（672 insertions，2 files） |
+| 提交身份 `git log -1 --format='%ae'` | `chenghan7113029@users.noreply.github.com` ✔ |
+| 变更文件清单 `git show --name-only` | 仅 `config/knowledge/_design.md`、`openspec/changes/add-backtest-engine/knowledge-delta.md` ✔（未触碰 `openspec/specs/`、`src/`、`test/`、`known_unknowns.yaml`、`README.md`、`ref/`） |
+| 提交后 `git rev-parse HEAD` | `d799393b8fb6df43af00e7cce9e39613d142b80a`（本段写入时） |
+| 写作前基线 `git rev-parse HEAD` | `a0b61a65f00e61a712aab35c9c11097525a6d350`（T1 第二次提交） |
+
+> 本段本身是**第二次提交**的内容，哈希无法自引用，故「回填提交」的 HEAD 只在 captain 报告中给出（`git rev-parse HEAD` 实测值），不写入文件本体。
+
 
