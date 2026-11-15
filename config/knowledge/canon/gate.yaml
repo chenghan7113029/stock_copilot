@@ -22,6 +22,10 @@ entries:
     notes: >-
       影子期时长与计时方式以 CAN-GATE-002 为准（Owner 在 Q7 里明确让影子期「按 KQ-4」），
       本条的 3 个月起 / 12 个月封顶只是转引，不重复定义。
+      观察名单（无 Scenario 断言）：消费点 = ⓐ Requirement R19
+      （openspec/specs/backtest-engine/spec.md:429-433）；R19 下 Scenario（同文件 :435-451）提及「方向一致判据」，
+      未断言其定义（同号 + 年化差 ≤ 回测年化波动率 50%）与仓位上限（权益 10% / 单票 1% 取小）。
+      连续 2 波无新增消费点 → 降 hypotheses；观察名单期间不得被实现当作强口径引用（须先补 spec Scenario）。
   - id: CAN-GATE-002
     statement: >-
       影子运行 3 个月起、12 个月封顶，按交易日计；影子期内规则被修改则计时清零重来。
@@ -38,6 +42,11 @@ entries:
     notes: >-
       Owner 对 KQ-4 的答复为「采纳推荐」，但**手动修正了起点**：影子期由 6 个月起改为 3 个月起。
       任何按「6 个月起」的判断都与本条冲突。
+      冲突登记（2026-11-15，K1b 回溯核对；本波不改任何一侧数值）：主规格
+      `openspec/specs/backtest-engine/spec.md:431`（R19 正文「记录 6–12 个月实际表现」）与
+      `openspec/specs/backtest-engine/spec.md:443`（Scenario「影子期未满不得启用实盘」→「提示最低 6 个月」）与本条「3 个月起」冲突。
+      按信源优先级（人工答复 > 旧 spec），以 Owner 2026-11-15 答复「3 个月起」为准，本条数值不变；
+      spec 修正须另立 change 修（本波 out of scope，不得静默改 spec，也不得反推改本条）。
   - id: CAN-GATE-003
     statement: >-
       「显著」的判据为多重比较校正后单尾显著，且置信区间不含 0。

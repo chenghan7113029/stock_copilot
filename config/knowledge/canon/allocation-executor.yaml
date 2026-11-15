@@ -5,9 +5,9 @@
 #       + tracked 政策文件 config/ips.yaml（生效载体）。
 # 判别（_design.md §0.0 四问）：Q1 不是一次性入参 / Q2 不是通用算法 /
 #       Q3 是「业务上什么算对」且 Owner 不发版就能改、改完为结论负责 → 知识（canon 口径层）。
-# 准入（_design.md §1.2）：能写成一个配置 key + 有权威来源 + 被 Requirement 消费；
-#       本条只有 001 满足「多条 Requirement」，002–005 各由 1 条 Requirement 消费，
-#       按先例 CAN-GATE-002 登记为例外（见各条 notes），门槛是否收紧待 K1 复核。
+# 准入（_design.md §1.2，2026-11-15 修订版）：能写成一个配置 key + 有权威来源 + 有可回解的消费点。
+#       分档门槛：强口径需 ≥2 个消费点，或 1 条 Requirement + 该 Requirement 下 ≥1 条 Scenario 断言；
+#       低风险配置项 ≥1 个消费点。本文件 5 条均属强口径，消费点见各条 notes，均满足分档门槛。
 # 归属判断依据：openspec/changes/add-allocation-executor/knowledge-delta.md §1、§4（K1 结论：新增 5 条）。
 # 护栏（_design.md §2.4、§4.2）：本条只写「口径措辞 + source 指向文件行号」，
 #       **不复制 config/ips.local.yaml 的私人数值**（金额 / 持仓 / 池总额）；
@@ -71,8 +71,10 @@ entries:
       信源冲突裁决：docs/design/portfolio-plan-v0.1.md:89 的「建议月末最后一个工作日前的周四」
       是待确认草案措辞（该文件 :4 自述「草案，待 Owner 确认」），已被 Owner 2026-11-15 答复覆盖。
       差异是实质的：2026-12 按本条为 12-31，按草案字面会取 12-24。
-      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R2）消费，
-      低于「≥2 条」静态门槛，按先例 CAN-GATE-002 放行；门槛是否收紧待 K1 复核。
+      准入③（_design.md §1.2 修订版）：强口径，消费点 2 个 —— ⓐ Requirement R2
+      （openspec/changes/add-allocation-executor/specs/allocation-executor/spec.md:27-31）；
+      ⓑ R2 下 Scenario「计算日所在月有未到来的最后一个周四」（同文件 :33-36，断言执行日为 2026-11-26）
+      与「当月执行日已过则取下一月」（:38-41，断言 12-31）。满足「1 条 Requirement + ≥1 条 Scenario 断言」，不入观察名单。
 
   - id: CAN-ALLOC-003
     statement: >-
@@ -98,8 +100,10 @@ entries:
     notes: >-
       本条是「B 已有·未入 canon」类：口径本体在 tracked `config/ips.yaml`，本条只补知识层治理
       （来源 / owner / 复核期），不改 `config/ips.yaml` 的取值。
-      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R8）消费，
-      低于「≥2 条」静态门槛，按先例 CAN-GATE-002 放行；门槛是否收紧待 K1 复核。
+      准入③（_design.md §1.2 修订版）：强口径，消费点 2 个 —— ⓐ Requirement R8
+      （openspec/changes/add-allocation-executor/specs/allocation-executor/spec.md:158-162）；
+      ⓑ R8 下 Scenario「偏离超 5pp 触发提示」（同文件 :164-167，断言 5pp 触发提示且不改当月金额）
+      与「偏离在带内不提示」（:169-172）。满足「1 条 Requirement + ≥1 条 Scenario 断言」，不入观察名单。
 
   - id: CAN-ALLOC-004
     statement: >-
@@ -125,8 +129,10 @@ entries:
     notes: >-
       Owner 原话只给「超 7 天拒绝」；边界（恰好 7 天 / 缺失 / 未来日期）由 spec R7 写死，
       本条照录，不改阈值。
-      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R7）消费，
-      低于「≥2 条」静态门槛，按先例 CAN-GATE-002 放行；门槛是否收紧待 K1 复核。
+      准入③（_design.md §1.2 修订版）：强口径，消费点 2 个 —— ⓐ Requirement R7
+      （openspec/changes/add-allocation-executor/specs/allocation-executor/spec.md:137-141）；
+      ⓑ R7 下 Scenario「快照过期拒绝」（同文件 :143-146）、「恰好 7 天允许执行」（:148-151）
+      与「缺 as_of 拒绝」（:153-156）。满足「1 条 Requirement + ≥1 条 Scenario 断言」，不入观察名单。
 
   - id: CAN-ALLOC-005
     statement: >-
@@ -155,5 +161,8 @@ entries:
       不写进 statement。修正留痕：K3 盲验 F1 退回「把未确认的基数写进 statement」的写法
       （openspec/changes/add-allocation-executor/knowledge-verification.md:158-160），已按 requiredFix 改写，
       数值 0.30 与 source 均未改。
-      准入③（_design.md §1.2）例外登记：本条由 1 条 Requirement（R5）消费，低于「≥2 条」静态门槛，
-      按先例 CAN-GATE-002（`requirement_refs: [R19]`，同为单消费）放行；门槛是否收紧待 K1 复核。
+      准入③（_design.md §1.2 修订版）：强口径，消费点 2 个 —— ⓐ Requirement R5
+      （openspec/changes/add-allocation-executor/specs/allocation-executor/spec.md:95-99）；
+      ⓑ R5 下 Scenario「迁移月只做固收迁移」（同文件 :101-104，按 proposal A3 假设断言迁移金额按
+      0.45 × pool × 0.30 计算 —— 本条只认其中的「30%」比例，基数与次数仍以 KU-2026-11-alloc-migration-base-01 为准）。
+      满足「1 条 Requirement + ≥1 条 Scenario 断言」，不入观察名单。
