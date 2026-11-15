@@ -18,7 +18,7 @@
 | 已知答案校准（R18）验收方式 + 断言顺序 | 见 §4（「先修台子再谈策略」写成可执行顺序） |
 | 统计陷阱对抗 | 见 §5（组内相关 / 分组换档计 K / 用今天分组回看历史） |
 | 三级门禁核对表 | 见 §6（三档可观测判据 + 「不得跳过」检查） |
-| 契约缺口（结构化 finding） | T4 提 8 条 + T4-fix 新增 2 条（QA-F9/F10）→ **T4-fix-2 后 10/10 闭合**（QA-F1~F8 见 §8 各条「复核状态」；QA-F9/F10 见 §8.1）。QA-F9 落地为「库层 `raise CalibrationFailedError` / CLI `sys.exit(2)` / `1`=参数·配置·数据错误」；QA-F10 落地为 `BacktestConfig.results_dir`+`registry_store_path` 注入、`LedgerExportRow` 13 字段、`export_ledger`/`write_result`。机检 `TODO` 标记（QA-F9/F10）= **0**；复核另新增 **QA-F11（CLI 配置注入面）未闭合 1 条**，仅影响夹具写法（见 §8.1 尾） |
+| 契约缺口（结构化 finding） | T4 提 8 条 + T4-fix 新增 2 条（QA-F9/F10）→ **T4-fix-3 后 11/11 全部闭合（未闭合 0）**（QA-F1~F8 见 §8 各条「复核状态」；QA-F9/F10/F11 见 §8.1）。QA-F9 =「库层 `raise CalibrationFailedError` / CLI `sys.exit(2)` / `1`=参数·配置·数据错误」；QA-F10 = `BacktestConfig.results_dir`+`registry_store_path` 注入、`LedgerExportRow` 13 字段、`export_ledger`/`write_result`；QA-F11 = 入口 `src/apps/cli.py` 的 `main(argv)->int` + `backtest` 子命令组、配置 `--config`（相对 cwd）> `cwd/config/app.yaml`、`write_calibration_result` 原子写 `calibration.json`。机检 `TODO` 标记（QA-F1–F11）= **0** |
 
 **给 T5 的一句话**：56 条 Scenario 用例都写成「离线可跑」的形态——依赖真实全 A 数据与 Owner 未答复参数（Q4/Q5/Q6/Q7、KQ-1/KQ-2/KQ-5/KQ-7）的**结论级**断言（真实校准题数值、真实牛熊分档判据、影子期真实计时等）不在单测内，单测只覆盖其「判定链」，真实结论由 T5 端到端取证，**未覆盖原因已在 §7 如实列明**。
 
@@ -59,7 +59,7 @@
 
 ### 1.2 逐 Requirement / Scenario → 用例
 
-> 断言要点列即用例的 WHEN→THEN 断言；`文件` 指上表落位文件（子目录口径 = captain 裁定）。**T4-fix 复核结论**：T4 原 8 条 finding 中 7 条已在 T2-fix 闭合，对应断言已从「有异常/有字段」收紧为具体契约（`RunRecord/RunStatus`、`PreregistrationSpec`、`Fill.attempts`、`WindowStats/EventStudyResult/AttributionResult/StabilityResult`、8 类异常、`ExperimentRegistry(store_path, *, clock, data_version)`、`experiment_id` = `<hypothesis_id>-<seq:04d>`、`K: int | None`、`CalibrationResult.corrected_p/verdict`）；**T4-fix-2 后行内 `TODO(QA-F9/F10)` = 0**：QA-F9 已按「库层异常 / CLI 退出码」二分改写（TC-R18-02 断 `CalibrationFailedError`，退出码单独走 TC-EXIT-01/02/03），QA-F10 已按 `results_dir` 注入 + `LedgerExportRow` 13 字段改写（TC-R04-01 / TC-SC-02）。契约未定义处仍按「不外推」原则留 `TODO`（当前仅 QA-F11 的 CLI 注入面，2 处标记：§2.3 尾 / §10.1）
+> 断言要点列即用例的 WHEN→THEN 断言；`文件` 指上表落位文件（子目录口径 = captain 裁定）。**T4-fix 复核结论**：T4 原 8 条 finding 中 7 条已在 T2-fix 闭合，对应断言已从「有异常/有字段」收紧为具体契约（`RunRecord/RunStatus`、`PreregistrationSpec`、`Fill.attempts`、`WindowStats/EventStudyResult/AttributionResult/StabilityResult`、8 类异常、`ExperimentRegistry(store_path, *, clock, data_version)`、`experiment_id` = `<hypothesis_id>-<seq:04d>`、`K: int | None`、`CalibrationResult.corrected_p/verdict`）；**T4-fix-2 后行内 `TODO` 标记（QA-F9/F10）= 0**：QA-F9 已按「库层异常 / CLI 退出码」二分改写（TC-R18-02 断 `CalibrationFailedError`，退出码单独走 TC-EXIT-01/02/03），QA-F10 已按 `results_dir` 注入 + `LedgerExportRow` 13 字段改写（TC-R04-01 / TC-SC-02）。**T4-fix-3 后行内 `TODO` 标记 = 0**：QA-F11 已按 design §6.3 写死（入口 `main(argv)->int`、`backtest calibrate|ledger`、`--config` 相对 cwd、`write_calibration_result` 写盘点、退出码 0·1·2），夹具改为 `cli_runner(cwd=tmp_path)`
 
 #### R1 实验预注册先于跑数 — `test/qa/backtest/test_prereg_ledger.py`
 
@@ -276,7 +276,7 @@ def test_tc_exit_03_success_exit_code_0(cli_runner):
     assert json.loads(r.stdout)["passed"] is True
 ```
 
-> **TODO(QA-F11)**：`cli_runner` 的调用面（console script `backtest` 的配置/数据注入方式：`config/app.yaml` 解析根＝cwd 还是仓库根、`calibrate` 是否支持 `--config`）未在 design §6.3/§6.4 写明；三条用例的**断言语义（2/1/0）已锁定**，只差注入面。若 T3 未按 cwd 解析，则改用 `--config <tmp_path>/app.yaml`（需 T3 补 flag），**不放宽退出码断言**。见 §8.1 QA-F11。
+> **调用面契约（QA-F11 已闭合，design §6.3/§4.1）**：入口 = 既有 `src/apps/cli.py` 的 `main(argv: list[str]) -> int`（返回码即进程退出码，`build_parser()` 内注册 `backtest` 子命令组，**不另建 `backtest_cli.py`**）；本组用例调用 `backtest calibrate` / `backtest ledger --experiment <id> --format json`；配置解析顺序 `--config <path>`（**相对路径按 cwd**）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 `1`）；夹具 `cli_runner(cwd=tmp_path)` 在 `tmp_path/config/app.yaml` 放最小骨架（`backtest.results_dir` / `backtest.registry_store_path` 指向 `tmp_path`）即可被自动发现，无需强制 `--config`；`calibration.json` 由 `run_calibration(*, cfg, loader, registry)` 无论成败经 `write_calibration_result(...)` 原子写（失败 `passed=False` + `reason`），故 E1 的文件断言可按 `results_dir` 直接读。退出码 `0/1/2` 见 design §4.1「失败表达二分」+ §6.3。
 
 ---
 
@@ -285,7 +285,7 @@ def test_tc_exit_03_success_exit_code_0(cli_runner):
 > 统一纪律：
 > 1. 全部使用 `tmp_path` 隔离（`QA-F6` 要求 registry 路径可注入），**不写** `data/backtest/` 真实目录。
 > 2. 配置值一律来自**夹具显式声明的测试输入**（示例数值，非生产默认；Q4 未答复），期望值由测试内的独立算式得出，**禁止调用被测成本/统计函数反推期望**。
-> 3. 断言只锚 `design.md` §4.1 的公开签名；**QA-F9/F10 已在 T2-fix-2 闭合**，对应断言写死契约（库层异常 / CLI 退出码 1·2·0 / `results_dir` 注入 / `LedgerExportRow` 13 字段）。当前唯一残留的 `TODO` 标记（QA-F11）是 **CLI 调用面**（配置注入方式，§2.3 尾），仅影响夹具写法、不影响断言语义；标注来历与影响，**不因缺口放宽断言**。
+> 3. 断言只锚 `design.md` §4.1 的公开签名；**QA-F9/F10 已在 T2-fix-2 闭合**，对应断言写死契约（库层异常 / CLI 退出码 1·2·0 / `results_dir` 注入 / `LedgerExportRow` 13 字段）。**T4-fix-3 后为 0 处残留 `TODO`**（QA-F1–F11 全闭合）：CLI 调用面已按 design §6.3 写死（入口 / 子命令 / `--config` 解析顺序 / 退出码 0·1·2 / `calibration.json` 写盘点），夹具 `cli_runner(cwd=tmp_path)`；**任何断言不因缺口放宽**。
 
 ### 3.1 预注册 / 台账：跑完后篡改假设或 K 必须被拒
 
@@ -736,10 +736,10 @@ def test_tc_r19_02_shadow_too_short(gate_sm, rule_id, registry_path):
 
 ---
 
-### 8.1 T4-fix 提出的 2 条缺口 → **T2-fix-2 已全部闭合**（另新增 1 条 QA-F11 未闭合）
+### 8.1 T4-fix / T4-fix-2 / T4-fix-3 提出的 3 条缺口 → **全部闭合（QA-F1–F11 = 11/11，未闭合 0）**
 
-> **结论（T4-fix-2）**：QA-F9 / QA-F10 **均已闭合**，`TODO` 标记（QA-F9/F10）机检 = 0，对应断言已写死契约（下表）。复核中另发现 **1 条新缺口 QA-F11**（CLI 配置/数据注入面未定义），未闭合、保留 1 处 `TODO`，仅影响用例夹具写法，不影响断言语义——如实登记，未放宽。
-> 纪律不变：缺口**不得**由 QA 自行放宽（不写成「任一异常/任一字段」），要么写死契约、要么保留 `TODO` + 说明影响哪条断言。
+> **结论（T4-fix-3，设计冻结版）**：QA-F9、QA-F10（T2-fix-2 闭合）与 QA-F11（T2-fix-3 闭合）**均已闭合**，`TODO` 标记（QA-F1–F11）机检 = **0**，对应断言写死契约（下表）。本轮只做标记清理与锚点校准，**不新增 finding、不新增用例、不放宽任何断言**。
+> 纪律不变：缺口**不得**由 QA 自行放宽（不写成「任一异常/任一字段」）；已闭合的写死契约引用，未闭合的保留 `TODO` + 说明影响哪条断言。
 
 #### QA-F9（low）校准失败的表达形态未二分（库层异常 vs CLI 退出码）
 
@@ -757,14 +757,15 @@ def test_tc_r19_02_shadow_too_short(gate_sm, rule_id, registry_path):
 - **文件:行**：T4-fix 时 `design.md:636-640`（§6.3）、`design.md:548`（落盘路径）；**T2-fix-2 后**：`design.md:441-445`（`BacktestConfig.results_dir`/`registry_store_path`）、`design.md:448-462`（`LedgerExportRow` 13 字段）、`design.md:530-532`（`write_result`/`export_ledger`）、`design.md:675`（导出契约）、`design.md:680`+`683-686`（注入与落盘）
 - **复核状态（T4-fix-2）：已闭合** —— 契约写死：① `BacktestConfig` 增 `results_dir`（默认 `data/backtest/results/`）与 `registry_store_path`（默认 `data/backtest/registry.ndjson`），测试注入 `tmp_path`；② `ExperimentRegistry.__init__(..., results_dir=...)`、`write_result(experiment_id, payload)`（写 `<results_dir>/<experiment_id>.json`）、`export_ledger(*, experiment_id=None, hypothesis_id=None) -> list[LedgerExportRow]`；③ 导出字段 = 13 个（`experiment_id/hypothesis_id/statement/params/segments/K/metrics/verdict/burnt/prereg_commit/run_status/data_version/adjust_mode`），JSON 数组，`burnt=True` 即「额度用尽」。TC-R04-01 / TC-SC-02 / TC-R18-02 已按此改写，原 `TODO` 标记（QA-F10）已删除。
 
-#### QA-F11（low，**未闭合**）CLI 的配置/数据注入面未定义
+#### QA-F11（low）CLI 的配置/数据注入面（**已闭合：T2-fix-3**）
 
-- **problem**：`design.md` §6.3 定了子命令名（`preregister/run/calibrate/ledger/gate`）、`ledger` 的可选面（`--experiment`/`--hypothesis`/`--format json`）与退出码语义，但**未写** `calibrate`/`run` 的配置来源（`config/app.yaml` 的解析根 = cwd 还是仓库根？是否支持 `--config`）与入口函数形态（`[project.scripts]` 名 `backtest` 已定，但未写 `main(argv) -> int`）。后果：§2.3 的端到端退出码用例**断言语义已锁定（2/1/0）**，但夹具的调用面只能按约定写，T3 若换一种注入方式则用例需改夹具（**不是改断言**）。另有一处同源缺口：`<results_dir>/calibration.json` 的**写入点**未落到函数级（`run_calibration(*, cfg, loader)` 无 registry 入参、`write_result` 面向 `<experiment_id>.json`），TC-R18-02 的「`run_calibration` 之后文件存在」需要 T3 确认归属。
-- **requiredFix**：① `design.md` §6.3 补一句入口契约，例如「`apps/backtest_cli.py` 暴露 `main(argv: list[str]) -> int`（返回码即进程退出码），并支持 `--config <path>`（默认仓库根 `config/app.yaml`）」；或在 §4.1 函数签名清单加该入口。② 明确校准结果写入点，例如「`run_calibration` 内部经 `cfg.results_dir` 写 `<results_dir>/calibration.json`」，或「由 CLI 在 `assert_calibrated` 之后经 `registry.write_result("calibration", payload)` 落盘」。
-- **影响断言**：TC-EXIT-01/02/03 的**夹具写法**（`cli_runner` 如何注入 `cfg` 与 `results_dir`）；TC-R18-02 / TC-EXIT-01 的**落盘断言归属**（文件由谁写）。退出码语义断言本身不受影响，故不阻塞 T5。
-- **文件:行**：`openspec/changes/add-backtest-engine/design.md:671-677`（§6.3 CLI 入口 + 退出码）
+- **problem**（T4-fix-2 时状态）：`design.md` §6.3 定了子命令名（`preregister/run/calibrate/ledger/gate`）、`ledger` 的可选面（`--experiment`/`--hypothesis`/`--format json`）与退出码语义，但**当时未写** `calibrate`/`run` 的配置来源（`config/app.yaml` 的解析根 = cwd 还是仓库根？是否支持 `--config`）与入口函数形态（`[project.scripts]` 名 `backtest` 已定，但未写 `main(argv) -> int`）。后果：§2.3 的端到端退出码用例**断言语义已锁定（2/1/0）**，但夹具的调用面只能按约定写，T3 若换一种注入方式则用例需改夹具（**不是改断言**）。另有一处同源缺口：`<results_dir>/calibration.json` 的**写入点**未落到函数级（`run_calibration(*, cfg, loader)` 无 registry 入参、`write_result` 面向 `<experiment_id>.json`），TC-R18-02 的「`run_calibration` 之后文件存在」需要 T3 确认归属。
+- **requiredFix**（T2-fix-3 已按此落地）：① `design.md` §6.3 补一句入口契约，例如「`apps/backtest_cli.py` 暴露 `main(argv: list[str]) -> int`（返回码即进程退出码），并支持 `--config <path>`（默认仓库根 `config/app.yaml`）」；或在 §4.1 函数签名清单加该入口。② 明确校准结果写入点，例如「`run_calibration` 内部经 `cfg.results_dir` 写 `<results_dir>/calibration.json`」，或「由 CLI 在 `assert_calibrated` 之后经 `registry.write_result("calibration", payload)` 落盘」。
+- **影响断言**：TC-EXIT-01/02/03 的**夹具写法**（`cli_runner` 如何注入 `cfg` 与 `results_dir`）；TC-R18-02 / TC-EXIT-01 的**落盘断言归属**（文件由谁写）。退出码语义断言本身不受影响——该影响已随闭合解除。
+- **文件:行**：T4-fix-2 时 `design.md:671-677`（§6.3）；**T2-fix-3 后（822 行）**：`design.md:680`（入口契约）、`design.md:682-686`（子命令与参数）、`design.md:687`（配置解析顺序）、`design.md:689`（退出码 0/1/2）、`design.md:535-537`（`run_calibration` / `write_calibration_result`）、`design.md:578-580`（校准结果写盘点）、`design.md:811`（§10 QA-F11 行）
+- **复核状态（T4-fix-3）：已闭合** —— 契约写死：① **入口** = 既有 `src/apps/cli.py` 的 `main(argv: list[str]) -> int` + `build_parser()` 内 `backtest` 子命令组（**不另建 `backtest_cli.py`**，design §4.0/§4.1/§6.3）；② **子命令与参数**：`backtest preregister --file/--hypothesis`、`run --hypothesis [--config]`、`calibrate [--config]`、`ledger [--experiment|--hypothesis] [--format json]`、`gate --rule [--to]`；③ **配置解析顺序**：`--config <path>`（相对路径按 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 `1`）；④ **`calibration.json` 写盘点**：`run_calibration(*, cfg, loader, registry)` 无论成败经 `write_calibration_result(result, results_dir, *, run_id, at)` **原子写** `<results_dir>/calibration.json`（字段 = `CalibrationResult` + `run_id` + `at`；失败写 `passed=False` + `reason`；重跑覆盖带新 `run_id`）并 `append_run(RunRecord PASSED/FAILED)`；⑤ **退出码** `0`/`1`/`2` 落到 §6.3。用例侧：§2.3 夹具改 `cli_runner(cwd=tmp_path)`（`tmp_path/config/app.yaml` 自动发现），TC-R18-02 / TC-EXIT-01 断言 `calibration.json` 由 `run_calibration` 写出。原 `TODO` 标记（QA-F11）已删除。
 
-> **§8.1 汇总**：QA-F9、QA-F10 已闭合（2/2），`TODO` 标记（QA-F9/F10）机检 = 0；新增 **QA-F11 未闭合 1 条**（`TODO` 标记 2 处：§2.3 尾 + §10.1 `cli_runner` 行），影响面限于 CLI 夹具调用面，已在用例处写明「不放宽」。
+> **§8.1 汇总**：QA-F9、QA-F10、QA-F11 **全部闭合（3/3）**；合计 **QA-F1–F11 = 11/11 闭合、未闭合 0**，`TODO` 标记（QA-F1–F11）机检 = **0**。设计冻结（design.md 822 行）后本文件进入 T5 执行阶段，不再有契约缺口待补。
 
 ---
 
@@ -803,7 +804,7 @@ openspec.cmd validate add-backtest-engine --strict
 | `cfg_raw` | 回测配置的**原始映射**（含 commission/stamp_tax/slippage_tiers/liquidity_cap/alpha/segments） | 数值是**测试输入**，非生产默认（Q4 未答复）；缺键变体由 `del cfg_raw[...]` 派生，用于 TC-R07-03 |
 | `registry_path` / `appended_registry` / `results_dir` | `ExperimentRegistry(store_path=tmp_path/"registry.ndjson", clock=fixed_clock, data_version="test-v1", results_dir=tmp_path/"results")`，预置 1 行；`results_dir` fixture 单独暴露 `<tmp>/results` | 禁止写真实 `data/backtest/`（台账与结果目录都由 `tmp_path` 注入，QA-F6/QA-F10 已闭合）；时间戳由 `clock` 注入固定值 |
 | `export_ledger(...)` 结果夹具（`ledger_rows`） | 直接调被测 `registry.export_ledger(...)` 拿 `list[LedgerExportRow]`；另用 `json.loads(cli stdout)` 校验 CLI 同形态 | 断言字段集 == `LedgerExportRow` 13 字段（design §4.1/§6.3）；`burnt=True` 即额度用尽 |
-| `cli_runner(argv)` | 端到端 CLI 调用：`subprocess.run([shutil.which("backtest"), *argv], cwd=tmp_path, env={...}, capture_output=True, text=True)`；`cwd` 由夹具准备最小工程骨架（`config/app.yaml` 的 `backtest.results_dir` / `registry_store_path` 指向 `tmp_path`） | 断退出码语义（§2.3：`2` 门禁失败 / `1` 参数数据错误 / `0` 成功）；**TODO(QA-F11)**：注入面（`--config` / `config/app.yaml` 解析根）待 T3 锁定，只影响夹具写法 |
+| `cli_runner(argv)` / `results_dir` | 按 design §6.3 的入口契约：以 `["backtest", *argv]` 调既有 `src/apps/cli.py` 的 `main(argv: list[str]) -> int`，把返回值 / `SystemExit.code` 归一为 `returncode`，`capsys` 捕获 stdout/stderr（等价形态：`subprocess` 调 `pyproject.toml` 的 `[project.scripts]` console script）；`cwd=tmp_path`，夹具在 `tmp_path/config/app.yaml` 写最小骨架，`backtest.results_dir` / `backtest.registry_store_path` 指向 `tmp_path`；需覆盖时传 `--config <path>`（**相对路径按 cwd 解析**） | 断退出码语义（§2.3：`2` 门禁失败 / `1` 参数·配置·数据错误 / `0` 成功）；**不写真实 `data/backtest/`**；`calibration.json` 由 `run_calibration` 经 `write_calibration_result` 原子写（QA-F11 已闭合） |
 | `run_rows(path)` / `result_rows(path)` / `count_run_rows(path, status)` | 解析台账 NDJSON，按 `row_type` 分出执行行（`RunRecord`）/ 结果行（`ExperimentRecord`）并按 `RunStatus` 计数 | **不是**被测 API，是 QA 侧台账读取器（`row_type` 判别符由 design §4.1 定义）；禁止用生产函数反推 |
 | `run_experiment(cfg=..., k=..., benchmarks=...)` | QA 侧**门面夹具**：按 design §4.1 的公开函数串起 pipeline（data → signal → broker → metrics → registry），返回结果行 `ExperimentRecord` | 只编排公开函数，不实现业务判定；判定必须来自被测函数 |
 | `bar(...)` / `prices_*` | 构造 `PriceBar`（含 `limit_up_price` / `suspended` / `delisted` / `st` / `amount`） | 封板日必须 `open==high==low==close==limit_up_price`（A3 一字板口径，Q5 未答复前） |
@@ -831,23 +832,23 @@ openspec.cmd validate add-backtest-engine --strict
 
 ### 10.3 本设计引用的 design 契约（断言锚点清单）
 
-> 行号按 **T2-fix-2 后的 `design.md`（808 行，含 QA-F9/F10 契约）** 标注；每行给「契约要点 → 出处 → 对应用例」。机检：本表每个 `design.md:行号` 都落在对应契约块的起止行内（脚本 `sed -n '<行号>p'` 抽查）。
+> 行号按**最终冻结版 `design.md`（822 行，含 QA-F9/F10/F11 契约）**标注；每行给「契约要点 → 出处 → 对应用例」。机检：本表每个 `design.md:<行号>` 都落在对应契约块的起止行内（脚本校验范围 + `sed -n '<行号>p'` 抽查文本）。
 
-| 断言锚点（契约要点） | 出处（T2-fix-2 后） | 对应用例 |
+| 断言锚点（契约要点） | 出处（冻结版 822 行） | 对应用例 |
 | --- | --- | --- |
-| `PointInTimeSnapshot.__post_init__` 抛 `FutureDataError` | `design.md:284-290`、`design.md:590` | TC-R10-02 |
-| `AdjustMode` 无 `qfq`；`load_price_series(adjust=...)` 抛 `InvalidAdjustModeError`（非 `BacktestDataGapError`） | `design.md:213-216`、`design.md:469-470`、`design.md:562` | TC-R09-01 / TC-SC-05 |
+| `PointInTimeSnapshot.__post_init__` 抛 `FutureDataError` | `design.md:284-290`、`design.md:597` | TC-R10-02 |
+| `AdjustMode` 无 `qfq`；`load_price_series` 抛 `InvalidAdjustModeError`（非 `BacktestDataGapError`） | `design.md:213-216`、`design.md:469-470`、`design.md:562` | TC-R09-01 / TC-SC-05 |
 | `execute_orders(orders, prices, *, cfg)` + `OrderStatus` 五值 | `design.md:221-226`、`design.md:490-491` | TC-R08-01/02/03/04 |
-| `OrderAttempt` / `Fill.attempts` / `fill_date` / `delay_days`（失败→顺延双可断言） | `design.md:315-330`、`design.md:797` | TC-R08-01 / TC-R08-02 |
+| `OrderAttempt` / `Fill.attempts` / `fill_date` / `delay_days`（失败→顺延双可断言） | `design.md:315-330`、`design.md:807` | TC-R08-01 / TC-R08-02 |
 | `next_tradable_day` 递归顺延 + 最大顺延上限 | `design.md:493-494`、`design.md:88` | TC-R08-04 / TC-R08-max-delay |
 | `CostBreakdown` 四分量（佣金/印花税/滑点/过户费 + total） | `design.md:307-313` | TC-R07-01/02/04 |
-| `PreregistrationSpec`（9 必填）+ `validate_preregistration`（缺键报错含字段名） | `design.md:333-344`、`design.md:526` | TC-R01-02 / TC-R01-03 |
+| `PreregistrationSpec`（9 必填）+ `validate_preregistration`（缺键报错含字段名） | `design.md:333-344`、`design.md:527` | TC-R01-02 / TC-R01-03 |
 | `RunStatus`（RUNNING/PASSED/REJECTED/FAILED） | `design.md:237-242` | TC-R02-02 / TC-R04-02 / TC-R10-02 / TC-GATE-04 |
-| `RunRecord`（`row_type/run_id/experiment_id/status/reason/at/prereg_commit`） | `design.md:347-355`、`design.md:577-583` | 同上（拒绝/失败留痕） |
-| `ExperimentRecord`（`K: int | None`、`experiment_id=<hypothesis_id>-<seq:04d>`、`burnt`、`parent_experiment_id`、无 `audit` 字段） | `design.md:358-374`、`design.md:797` | TC-R02-01 / TC-R02-03 / TC-R05-02 / TC-R04-01 |
-| `BacktestConfig.results_dir` / `registry_store_path`（**落盘路径可注入**） | `design.md:441-445`、`design.md:680`、`design.md:683-686` | 全部台账/落盘用例（`tmp_path`）/ TC-SC-01/02 |
-| `LedgerExportRow` **13 字段** + `burnt=True` 即额度用尽 | `design.md:448-462`、`design.md:675` | TC-SC-02 / TC-R04-01 |
-| `ExperimentRegistry(store_path, *, clock, data_version, results_dir)` + `append_run/append/get/next_experiment_id/validate_preregistration/assert_not_burnt/mark_burnt/cumulative_K/write_result/export_ledger` | `design.md:516-532` | TC-R02-xx / TC-R04-xx / TC-R05-03 / TC-SC-02 |
+| `RunRecord`（`row_type/run_id/experiment_id/status/reason/at/prereg_commit`） | `design.md:347-355`、`design.md:584-590` | 同上（拒绝/失败留痕） |
+| `ExperimentRecord`（`K: int | None`、`experiment_id=<hypothesis_id>-<seq:04d>`、`burnt`、`parent_experiment_id`、无 `audit` 字段） | `design.md:358-374`、`design.md:808` | TC-R02-01 / TC-R02-03 / TC-R05-02 / TC-R04-01 |
+| `BacktestConfig.results_dir` / `registry_store_path`（落盘路径可注入） | `design.md:441-445`、`design.md:693`、`design.md:696-698` | 全部台账/落盘用例（`tmp_path`）/ TC-SC-01/02 |
+| `LedgerExportRow` **13 字段** + `burnt=True` 即额度用尽 | `design.md:448-462`、`design.md:688` | TC-SC-02 / TC-R04-01 |
+| `ExperimentRegistry(store_path, *, clock, data_version, results_dir)` + `append_run/append/get/next_experiment_id/validate_preregistration/assert_not_burnt/mark_burnt/cumulative_K/write_result/export_ledger` | `design.md:516-533` | TC-R02-xx / TC-R04-xx / TC-R05-03 / TC-SC-02 |
 | `Benchmark` / `WindowStats`（`n/mean/median/std/ci/effective_n/by_year/by_cap_tier`） | `design.md:376-391` | TC-R06-01 / TC-R13-01 / TC-R14-01 / TC-R17-01 |
 | `EventStudyResult`（`windows[window][benchmark_kind]`/`n_events`/`inference_method`/`block_length`/`n_bootstrap`） | `design.md:394-400` | TC-R06-01 / TC-R13-01 / TC-R17-01 |
 | `AttributionResult`（四项 + `exposures`/`contributions`/`unexplained`） | `design.md:403-411` | TC-R13-03 |
@@ -855,17 +856,21 @@ openspec.cmd validate add-backtest-engine --strict
 | `compute_event_study(events, benchmarks: Sequence[Benchmark], *, cfg)` / `attribution(returns, factors, benchmarks)` | `design.md:497-498`、`design.md:506-507` | TC-R13-01 / TC-R17-01 |
 | `block_bootstrap(excess, *, block_length, n_bootstrap, seed)` | `design.md:500-501` | TC-R06-01/02 |
 | `multiple_testing_correction(p_values, K, method, *, cfg)` | `design.md:503-504` | TC-R05-01/03 |
-| `assert_calibrated` **库层 raise `CalibrationFailedError`**（不断 `SystemExit`） | `design.md:536`、`design.md:571-575` | TC-R18-01/02 |
-| **CLI 退出码**：`2` = 门禁失败（捕获 `CalibrationFailedError` 后 `sys.exit(2)`）/ `1` = 参数·配置·数据错误 / `0` = 成功 | `design.md:571-575`、`design.md:676` | TC-EXIT-01/02/03 / TC-SC-01 |
-| `CalibrationResult`（`passed/direction/ci/K/corrected_p/verdict/params/notes`） | `design.md:422-430`、`design.md:797` | TC-R18-01/02 / TC-EXIT-03 |
-| `GateStateMachine.current/transition` + `GateStage` 五值 + `GateSkipError` | `design.md:244-249`、`design.md:539-543` | TC-R19-01/02/03 / TC-GATE-04/05 |
-| 异常清单 8 类 + 二分表 + 「失败表达二分」 | `design.md:545-575` | TC-R09-01 / TC-R02-02/03 / TC-R12-04 / TC-R18-02 / TC-EXIT-01 / TC-GATE-04 |
-| `MissingBacktestConfigError`（缺键即拒绝） | `design.md:552`、`design.md:564` | TC-R07-03 / TC-EXIT-02 |
-| `BacktestDataGapError`（数据缺口显式报错，不静默降级） | `design.md:551`、`design.md:563` | TC-R12-04 / TC-R09-01 对照 |
+| `assert_calibrated` **库层 raise `CalibrationFailedError`**（不断 `SystemExit`） | `design.md:536`、`design.md:572-576` | TC-R18-01/02 |
+| **CLI 退出码**：`0` = 成功 / `1` = 参数·配置·数据错误 / `2` = 门禁失败（捕获 `CalibrationFailedError` 后 `sys.exit(2)`） | `design.md:572-576`、`design.md:689` | TC-EXIT-01/02/03 / TC-SC-01 |
+| `CalibrationResult`（`passed/direction/ci/K/corrected_p/verdict/params/notes`） | `design.md:422-430`、`design.md:808` | TC-R18-01/02 / TC-EXIT-03 |
+| `GateStateMachine.current/transition` + `GateStage` 五值 + `GateSkipError` | `design.md:244-249`、`design.md:540-544`、`design.md:558` | TC-R19-01/02/03 / TC-GATE-04/05 |
+| 异常清单 8 类 + 二分表 + 「失败表达二分」 | `design.md:549-576` | TC-R09-01 / TC-R02-02/03 / TC-R12-04 / TC-R18-02 / TC-EXIT-01 / TC-GATE-04 |
+| `MissingBacktestConfigError`（缺键即拒绝；配置解析失败退出码 1） | `design.md:553`、`design.md:564`、`design.md:687` | TC-R07-03 / TC-EXIT-02 |
+| `BacktestDataGapError`（数据缺口显式报错，不静默降级） | `design.md:552`、`design.md:563` | TC-R12-04 / TC-R09-01 对照 |
+| **【QA-F11】CLI 入口契约**：入口 = 既有 `src/apps/cli.py` 的 `main(argv: list[str]) -> int` + `build_parser()` 内 `backtest` 子命令组（不另建 `backtest_cli.py`） | `design.md:680`、`design.md:86`、`design.md:191` | TC-EXIT-01/02/03 |
+| **【QA-F11】子命令与参数**：`backtest preregister/run/calibrate/ledger/gate` + `--file/--hypothesis/--experiment/--format/--config/--rule/--to` | `design.md:682-686`、`design.md:811` | TC-EXIT-01/02/03 / TC-SC-02 |
+| **【QA-F11】配置解析顺序**：`--config <path>`（相对 cwd）> `cwd/config/app.yaml` > 缺键 `MissingBacktestConfigError`（退出码 1） | `design.md:687` | TC-EXIT-02 / 全部 `cli_runner` 用例 |
+| **【QA-F11】`calibration.json` 写盘点**：`run_calibration(*, cfg, loader, registry)` 无论成败经 `write_calibration_result(result, results_dir, *, run_id, at)` 原子写（失败 `passed=False`+`reason`；重跑覆盖带新 `run_id`）+ `append_run` | `design.md:535-537`、`design.md:578-580` | TC-R18-02 / TC-EXIT-01 / TC-SC-01 |
 
 ---
 
-## 自检记录（T4 → T4-fix → T4-fix-2）
+## 自检记录（T4 → T4-fix → T4-fix-2 → T4-fix-3）
 
 | 检查 | 命令 / 方法 | 结果 |
 | --- | --- | --- |
@@ -874,13 +879,14 @@ openspec.cmd validate add-backtest-engine --strict
 | 失败标准/反目标数 | `proposal.md` `## 失败标准/反目标` 列表 | 8，§2.2 逐条有证伪用例 |
 | 八条硬约束 | 飞书 §二 八行 | 8/8 有 §3 代码级负向用例 |
 | **落位统一（captain 裁定）** | 检查「扁平旧命名残留」= **0**（`test/qa/` 与 `test_backtest_` 不再相邻出现）；`grep -c 'test/qa/backtest/'` = 99（≥ 18）；design §6.7 的 8 个文件名全部同名出现 | 通过（19 个文件，见 §1.1） |
-| **`TODO` 标记归宿（T4-fix-2）** | 机检 `grep -c "TODO" ` 分类：QA-F9 = **0**、QA-F10 = **0**、QA-F11 = **2 处**（§2.3 尾 / §10.1 `cli_runner` 行）；QA-F2–F8 = 0 | QA-F1~F8 在 T2-fix 闭合、QA-F9/F10 在 T2-fix-2 闭合，共 **10/10**；残留仅 QA-F11（CLI 配置注入面，只影响夹具写法，不影响断言语义） |
-| **§8.1 逐条结论** | F9 / F10 各含 problem / requiredFix / 复核状态（契约引用 + 后移行号）/ 影响断言；F11 含未闭合原因与影响面 | 通过（未放宽断言：TC-R18-02 断 `CalibrationFailedError`、不断 `SystemExit`；退出码由 TC-EXIT-01/02/03 单独断） |
+| **`TODO` 标记归宿（T4-fix-3）** | 机检 `grep -c 'TODO\(QA-F'` = **0**（QA-F1–F11 逐条 = 0，markdown 内无待办标记残留） | QA-F1~F8 在 T2-fix、QA-F9/F10 在 T2-fix-2、QA-F11 在 T2-fix-3 闭合 → **11/11，未闭合 0** |
+| **§8.1 逐条结论** | F9 / F10 / F11 各含 problem / requiredFix / 复核状态（契约引用 + 冻结版行号）/ 影响断言 | 通过（3/3 闭合；未放宽断言：TC-R18-02 断 `CalibrationFailedError`、不断 `SystemExit`；退出码由 TC-EXIT-01/02/03 单独断） |
 | **退出码用例（QA-F9）** | §2.3 E1–E3：门禁失败 `2` / 参数数据错误 `1` / 成功 `0`，库层异常与 CLI 退出码分列 | 通过（3 条 TC，均落 `test_success_criteria.py`） |
 | **导出与落盘用例（QA-F10）** | TC-R04-01（`export_ledger` 唯一 `burnt=True` 行 + `write_result` 落 `tmp_path`）、TC-SC-02（13 字段键集合 + 与预注册 YAML 逐字段一致）、TC-R18-02（`<results_dir>/calibration.json`） | 通过（`results_dir=tmp_path` 注入，不写真实 `data/backtest/`） |
-| **§10.3 行号匹配** | 脚本抽取表中全部 `design.md:<行号>` 引用并校验范围 + `sed -n` 抽查契约文本 | 通过（锚点 26 行、行号引用 45 处，全部落在 design.md 1–808 行内；抽查的类/函数/小节行文本与契约标题一致） |
+| **§10.3 行号匹配（冻结版 822 行）** | 脚本抽取表中全部 `design.md:<行号>` 引用并校验范围 + `sed -n` 抽查契约文本 | 通过（锚点 31 行、行号引用 56 处，全部落在 design.md 1–822 行内；抽查 50 处行文本与类/函数/小节/表格标题一致；新增 QA-F11 四行锚点：入口契约 / 子命令与参数 / 配置解析顺序 / calibration.json 写盘点） |
 | **ruff 基线口径** | §9 已写死 captain 口径（基线 39、新增 0、按通过记录，不修不改不跳过） | 通过 |
 | **README 目录约定** | `test/qa/README.md` 增「按被测模块镜像 `test/qa/<module>/`」+ 运行命令 | 通过 |
+| **QA-F11 夹具同步** | §2.3 尾 + §10.1 `cli_runner`：`cli_runner(cwd=tmp_path)`、`--config`（相对 cwd）、`tmp_path/config/app.yaml` 自动发现、`results_dir` 注入 | 通过 |
 | `openspec.cmd validate add-backtest-engine --strict` | 见提交前执行记录 | exit 0 |
 | 是否越界写文件 | `git status --porcelain` + `git show --name-only` | T4-fix 仅改 `test-design.md` + `test/qa/README.md`；`design.md`、`specs/`、`openspec/specs/`、`src/`、`test/` 未改 |
 | 盲测合规 | 全程未打开 `src/` 下任何实现文件 | 合规（复核只读 `design.md` §4.1/§6.7/§10 与 README） |
